@@ -35,10 +35,10 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 
 	std::cout << "Binding to addr(s) " << addr << " on port " << port << std::endl;
 
-	char *addr_tmp = strdup(addr.c_str());
+	std::unique_ptr<char, decltype(std::free) *> addr_tmp(strdup(addr.c_str()), std::free);
 
 	char *str, *token, *saveptr = NULL;
-	for (str = addr_tmp; ; str = NULL) {
+	for (str = addr_tmp.get(); ; str = NULL) {
 		token = strtok_r(str, ",; ", &saveptr);
 		if (!token)
 			break;
@@ -75,8 +75,6 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 
 
 	}
-
-	free(addr_tmp);
 
 	return true;
 

@@ -56,12 +56,14 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 			continue;
 		}
 
-		for (struct addrinfo *tmpres = res; tmpres; tmpres = tmpres->ai_next) {
+		std::unique_ptr<addrinfo, decltype(freeaddrinfo)*> addrs(res, freeaddrinfo);
+
+		for (struct addrinfo *tmpaddr = addrs.get(); tmpaddr; tmpaddr = tmpaddr->ai_next) {
 			MHD_Daemon *d = NULL;
 			if (flags_ & MHD_USE_SSL) {
-				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpres->ai_addr, MHD_OPTION_HTTPS_MEM_CERT, &ssl_cert_, MHD_OPTION_HTTPS_MEM_KEY, &ssl_key_, MHD_OPTION_END);
+				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_HTTPS_MEM_CERT, &ssl_cert_, MHD_OPTION_HTTPS_MEM_KEY, &ssl_key_, MHD_OPTION_END);
 			} else {
-				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpres->ai_addr, tmpres->ai_addr, MHD_OPTION_END);
+				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, tmpaddr->ai_addr, MHD_OPTION_END);
 			}
 
 			if (d) {
@@ -71,7 +73,6 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 			}
 		}
 
-		freeaddrinfo(res);
 
 
 	}

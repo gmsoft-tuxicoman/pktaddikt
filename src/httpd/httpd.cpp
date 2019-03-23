@@ -9,17 +9,6 @@
 
 #include "httpd.h"
 
-httpd::httpd() {
-
-	std::cout << "httpd init" << std::endl;
-	flags_ = MHD_USE_THREAD_PER_CONNECTION | MHD_USE_POLL | MHD_USE_DEBUG | MHD_USE_PIPE_FOR_SHUTDOWN;
-
-}
-
-httpd::~httpd() {
-	std::cout << "httpd destroy" << std::endl;
-}
-
 
 void httpd::enable_ssl(const std::string& cert,const std::string& key) {
 
@@ -35,7 +24,10 @@ void httpd::disable_ssl() {
 
 int httpd::_static_mhd_answer_connection(void* cls, struct MHD_Connection *connection, const char *url, const char *method, const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls) {
 
-	httpd* h = (httpd*) cls;
+	if (cls == nullptr)
+		return MHD_NO;
+
+	httpd* h = static_cast<httpd*> (cls);
 	return h->mhd_answer_connection(connection, url, method, version, upload_data, upload_data_size, con_cls);
 }
 

@@ -6,8 +6,6 @@
 class httpd {
 
 	public:
-		httpd();
-		~httpd();
 		
 		void enable_ssl(const std::string& cert,const std::string& key);
 		void disable_ssl();
@@ -15,7 +13,7 @@ class httpd {
 
 	private:
 		MHD_Daemon *daemon_;
-		unsigned int flags_;
+		unsigned int flags_ = MHD_USE_THREAD_PER_CONNECTION | MHD_USE_POLL | MHD_USE_DEBUG | MHD_USE_PIPE_FOR_SHUTDOWN;
 		uint16_t port_;
 		std::unique_ptr<std::string> ssl_cert_;
 		std::unique_ptr<std::string> ssl_key_;

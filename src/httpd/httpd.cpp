@@ -4,11 +4,11 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-#include <cstring>
 
 
 #include "httpd.h"
 
+#define HTTP_ADDR_DELIMITERS ",; "
 
 void httpd::enable_ssl(const std::string& cert,const std::string& key) {
 
@@ -35,13 +35,16 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 
 	std::cout << "Binding to addr(s) " << addr << " on port " << port << std::endl;
 
-	std::unique_ptr<char, decltype(std::free) *> addr_tmp(strdup(addr.c_str()), std::free);
 
-	char *str, *token, *saveptr = NULL;
-	for (str = addr_tmp.get(); ; str = NULL) {
-		token = strtok_r(str, ",; ", &saveptr);
-		if (!token)
-			break;
+	std::size_t start = 0, end;
+	while (start != std::string::npos) {
+
+		end = addr.find_first_of(HTTP_ADDR_DELIMITERS, start);
+		if (end == start) {
+			start++;
+			continue;
+		}
+
 
 		// Get the addr
 		struct addrinfo hints = { 0 };
@@ -51,8 +54,12 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 
 
 		struct addrinfo *res;
-		if (getaddrinfo(token, NULL, &hints, &res) < 0) {
-			std::cout << "Cannot get info for address " << token << ". Ignoring," << std::endl;
+		std::string cur_addr = addr.substr(start, end - start);
+		start = end;
+
+		std::cout << "Evaluation address " << cur_addr << std::endl;
+		if (getaddrinfo(cur_addr.c_str(), NULL, &hints, &res) < 0) {
+			std::cout << "Cannot get info for address " << cur_addr << ". Ignoring," << std::endl;
 			continue;
 		}
 
@@ -63,13 +70,13 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 			if (flags_ & MHD_USE_SSL) {
 				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_HTTPS_MEM_CERT, &ssl_cert_, MHD_OPTION_HTTPS_MEM_KEY, &ssl_key_, MHD_OPTION_END);
 			} else {
-				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, tmpaddr->ai_addr, MHD_OPTION_END);
+				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_END);
 			}
 
 			if (d) {
 				daemons_.push_back({d, MHD_stop_daemon});
 			} else {
-				std::cout << "Error while starting http daemon on address \"" << token << "\" and port " << port << std::endl;
+				std::cout << "Error while starting http daemon on address \"" << cur_addr << "\" and port " << port << std::endl;
 			}
 		}
 

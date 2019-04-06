@@ -1,6 +1,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <functional>
 #include <microhttpd.h>
 
 class httpd {

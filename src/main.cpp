@@ -2,7 +2,15 @@
 
 #include <getopt.h>
 
+#include "core.h"
+
 #include "httpd/httpd.h"
+
+
+#define MAIN_LOOP_SLEEP_SEC 1
+
+
+bool running = true;
 
 void print_usage() {
 
@@ -46,5 +54,11 @@ int main(int argc, char *argv[]) {
 	httpd blah;
 
 	blah.bind("0.0.0.0", 8080);
+
+
+	core core;
+	std::chrono::seconds main_sleep(MAIN_LOOP_SLEEP_SEC);
+	core.main_loop(main_sleep);
+
 
 }

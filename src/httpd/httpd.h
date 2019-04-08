@@ -14,7 +14,7 @@ class httpd {
 
 	private:
 		MHD_Daemon *daemon_;
-		unsigned int flags_ = MHD_USE_THREAD_PER_CONNECTION | MHD_USE_POLL | MHD_USE_DEBUG | MHD_USE_PIPE_FOR_SHUTDOWN;
+		unsigned int flags_ = MHD_USE_THREAD_PER_CONNECTION | MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_POLL | MHD_USE_DEBUG | MHD_USE_PIPE_FOR_SHUTDOWN;
 		uint16_t port_;
 		std::unique_ptr<std::string> ssl_cert_;
 		std::unique_ptr<std::string> ssl_key_;

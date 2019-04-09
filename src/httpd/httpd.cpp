@@ -7,6 +7,7 @@
 
 
 #include "httpd.h"
+#include "http_connection.h"
 
 #define HTTP_ADDR_DELIMITERS ",; "
 
@@ -30,6 +31,16 @@ int httpd::_static_mhd_answer_connection(void* cls, struct MHD_Connection *conne
 	httpd* h = static_cast<httpd*> (cls);
 	return h->mhd_answer_connection(connection, url, method, version, upload_data, upload_data_size, con_cls);
 }
+
+void httpd::_static_mhd_request_completed(void *cls, struct MHD_Connection *connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
+
+	if (cls == nullptr)
+		return;
+
+	httpd* h = static_cast<httpd*> (cls);
+	h->mhd_request_completed(connection, con_cls, toe);
+}
+
 
 bool httpd::bind(const std::string& addr, uint16_t port) {
 
@@ -57,7 +68,6 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 		std::string cur_addr = addr.substr(start, end - start);
 		start = end;
 
-		std::cout << "Evaluation address " << cur_addr << std::endl;
 		if (getaddrinfo(cur_addr.c_str(), NULL, &hints, &res) < 0) {
 			std::cout << "Cannot get info for address " << cur_addr << ". Ignoring," << std::endl;
 			continue;
@@ -68,9 +78,9 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 		for (struct addrinfo *tmpaddr = addrs.get(); tmpaddr; tmpaddr = tmpaddr->ai_next) {
 			MHD_Daemon *d = NULL;
 			if (flags_ & MHD_USE_SSL) {
-				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_HTTPS_MEM_CERT, &ssl_cert_, MHD_OPTION_HTTPS_MEM_KEY, &ssl_key_, MHD_OPTION_END);
+				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_NOTIFY_COMPLETED, &(httpd::_static_mhd_request_completed), NULL, MHD_OPTION_HTTPS_MEM_CERT, &ssl_cert_, MHD_OPTION_HTTPS_MEM_KEY, &ssl_key_, MHD_OPTION_END);
 			} else {
-				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_END);
+				d = MHD_start_daemon(flags_, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_NOTIFY_COMPLETED, &(httpd::_static_mhd_request_completed), NULL, MHD_OPTION_END);
 			}
 
 			if (d) {
@@ -92,5 +102,22 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 
 int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *url, const char *method, const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls) {
 
-	return 0;
+	http_connection *con = static_cast<http_connection*> (*con_cls);
+
+	if (con == nullptr) {
+		con = new http_connection();
+		*con_cls = con;
+	}
+
+
+	return MHD_YES;
+}
+
+void httpd::mhd_request_completed(struct MHD_Connection *connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
+
+	if (*con_cls == nullptr)
+		return;
+
+	http_connection* con = static_cast<http_connection*> (*con_cls);
+	delete con;
 }

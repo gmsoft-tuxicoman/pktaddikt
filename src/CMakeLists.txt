@@ -1,14 +1,22 @@
 
 add_executable(pktaddikt main.cpp application.cpp application.h)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 
-include_directories(httpd)
+add_subdirectory(common)
+target_link_libraries(pktaddikt common)
+
 add_subdirectory(httpd)
 target_link_libraries(pktaddikt httpd)
 
-include_directories(registry)
-add_subdirectory(registry)
-target_link_libraries(pktaddikt registry)
+add_subdirectory(input)
+target_link_libraries(pktaddikt input)
+
+add_subdirectory(ptype)
+target_link_libraries(pktaddikt ptype)
+
+add_subdirectory(tasks)
+target_link_libraries(pktaddikt tasks)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(YAMLCPP REQUIRED yaml-cpp)

@@ -6,16 +6,14 @@
 
 #include "application.h"
 
+#include "input/input_pcap.h"
 
 application::application() {
 
-	registry_.add_class("input");
-	registry_.add_class("output");
-	registry_.add_class("protocol");
-	registry_.add_class("datastore");
-	registry_.add_class("objectstore");
-
+	// Register all available inputs
+	input_templates_.insert(std::make_pair("pcap_interface", std::make_unique<input_pcap_interface> ()));
 }
+
 
 bool application::load_config(std::string &file) {
 
@@ -41,6 +39,8 @@ void application::start_httpd() {
 }
 
 void application::main_loop(std::chrono::seconds main_sleep) {
+
+	input_pcap_interface input1;
 
 	while (running_) {
 		std::this_thread::sleep_for(main_sleep);

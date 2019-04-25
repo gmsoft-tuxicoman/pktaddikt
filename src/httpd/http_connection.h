@@ -1,11 +1,16 @@
 
+#ifndef __HTTP_CONNECTION_H__
+#define __HTTP_CONNECTION_H__
+
 #include <microhttpd.h>
 
-class http_connection {
+struct http_connection {
 
-	private:
-		unsigned int status_code = MHD_HTTP_OK;
-		MHD_Response *response = nullptr;
+	unsigned int status_code = MHD_HTTP_OK;
+	MHD_Response *response = nullptr;
+	std::string mime_type = "application/json";
 
 
 };
+
+#endif

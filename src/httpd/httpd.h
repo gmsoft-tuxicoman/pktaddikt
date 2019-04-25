@@ -1,16 +1,42 @@
+#ifndef __HTTPD_H__
+#define __HTTPD_H__
+
 #include <memory>
 #include <vector>
 #include <string>
 #include <functional>
 #include <microhttpd.h>
 
+#include "tbb/concurrent_hash_map.h"
+
+class httpd;
+
+#include "application.h"
+#include "config.h"
+
+#include "api_endpoint.h"
+
+
+#define HTTPD_SERVER_STRING "pktaddikt " PKTADDIKT_VERSION
+#define HTTPD_API_URL	"/api/"
+#define HTTPD_STATUS_URL "/status.html"
+
+using api_endpoint_map = tbb::concurrent_hash_map<const std::string, std::unique_ptr<api_endpoint>>;
+
 class httpd {
 
 	public:
+
+		httpd(const application* app);
 		
 		void enable_ssl(const std::string& cert,const std::string& key);
 		void disable_ssl();
 		bool bind(const std::string& addr, uint16_t port);
+
+		void api_add_endpoint(const std::string &path, std::unique_ptr<api_endpoint> endpoint);
+		void api_remove_endpoint(const std::string &path);
+
+
 
 	private:
 		MHD_Daemon *daemon_;
@@ -26,5 +52,10 @@ class httpd {
 		static void _static_mhd_request_completed(void *cls, struct MHD_Connection *connection, void **con_cls, enum MHD_RequestTerminationCode toe);
 		void mhd_request_completed(struct MHD_Connection *connection, void **con_cls, enum MHD_RequestTerminationCode toe);
 
+		const application *app_;
+
+		api_endpoint_map api_endpoints_;
 };
 
+
+#endif

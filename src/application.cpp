@@ -8,7 +8,7 @@
 
 #include "input/input_pcap.h"
 
-application::application() {
+application::application() : httpd_(std::make_unique<httpd>(this)) {
 
 	// Register all available inputs
 	input_templates_.insert(std::make_pair("pcap_interface", std::make_unique<input_pcap_interface> ()));
@@ -35,7 +35,7 @@ bool application::load_config(std::string &file) {
 
 void application::start_httpd() {
 
-	httpd_.bind(httpd_addr_, httpd_port_);
+	httpd_->bind(httpd_addr_, httpd_port_);
 }
 
 void application::main_loop(std::chrono::seconds main_sleep) {
@@ -45,4 +45,12 @@ void application::main_loop(std::chrono::seconds main_sleep) {
 	while (running_) {
 		std::this_thread::sleep_for(main_sleep);
 	}
+}
+
+
+
+void application::get_input_templates(void (*on_get_inputs) (const input_map&) ) {
+
+	on_get_inputs(input_templates_);
+
 }

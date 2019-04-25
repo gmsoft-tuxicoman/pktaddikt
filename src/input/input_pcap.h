@@ -9,8 +9,9 @@
 
 class input_pcap : public input {
 
-	protected:
-		std::map<std::string, std::unique_ptr<parameter_base>> parameters_;
+	public:
+		input_pcap(const std::string& name) : input(name) {};
+
 
 };
 

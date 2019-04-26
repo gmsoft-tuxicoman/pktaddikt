@@ -7,6 +7,8 @@
 
 #include <arpa/inet.h>
 
+#define RAPIDJSON_HAS_STDSTRING 1
+
 #include "httpd.h"
 #include "http_connection.h"
 
@@ -27,12 +29,13 @@ httpd::httpd(const application* app) : app_(app) {
 	api_add_endpoint(MHD_HTTP_METHOD_GET, "/status", status_api);
 
 
-	// Register GET /input/template_
+	// Register GET /input/_templates
 	const auto& inputs = app_->get_input_templates();
-	api_endpoint input_templates_api = [inputs] (rapidjson::Document &doc, const std::string *data) {
+	api_endpoint input_templates_api = [&inputs] (rapidjson::Document &doc, const std::string *data) {
 		rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+		doc.AddMember("status", MHD_HTTP_OK, allocator);
 		for (auto const &input : inputs) {
-			doc.AddMember(input.first, "input", allocator);
+			doc.AddMember(rapidjson::StringRef(input.first), MHD_HTTP_OK, allocator);
 		}
 
 		return MHD_HTTP_OK;
@@ -41,7 +44,7 @@ httpd::httpd(const application* app) : app_(app) {
 	api_add_endpoint(MHD_HTTP_METHOD_GET, "/input/_templates", input_templates_api);
 }
 
-void httpd::enable_ssl(const std::string& cert,const std::string& key) {
+void httpd::enable_ssl(const std::string& cert, const std::string& key) {
 
 	ssl_cert_ = std::make_unique<std::string> (cert);
 	ssl_key_ = std::make_unique<std::string> (key);

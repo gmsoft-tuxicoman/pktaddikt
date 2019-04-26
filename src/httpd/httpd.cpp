@@ -22,7 +22,7 @@ httpd::httpd(const application* app) : app_(app) {
 
 	// Register status API endpoint
 	auto status_api = std::make_unique<api_status>();
-	api_add_endpoint("status", std::move(status_api));
+	api_add_endpoint(MHD_HTTP_METHOD_GET, "/status", std::move(status_api));
 
 }
 
@@ -156,7 +156,8 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 		rapidjson::Document doc;
 		doc.SetObject();
 
-		const std::string key(request_url);
+		std::string key = method;
+		key += request_url;
 		api_endpoint_map::const_accessor ac;
 		const bool result = api_endpoints_.find(ac, key);
 		if (result) {
@@ -217,15 +218,17 @@ void httpd::mhd_request_completed(struct MHD_Connection *connection, void **con_
 	http_connection* con = static_cast<http_connection*> (*con_cls);
 	delete con;
 }
-void httpd::api_add_endpoint(const std::string &path, std::unique_ptr<api_endpoint> endpoint) {
+void httpd::api_add_endpoint(const std::string &method, const std::string &path, std::unique_ptr<api_endpoint> endpoint) {
 
 	api_endpoint_map::accessor ac;
-	api_endpoints_.insert(ac, path);
+	std::string entry = method + path;
+	api_endpoints_.insert(ac, entry);
 	ac->second = std::move(endpoint);
 	ac.release();
 }
 
-void httpd::api_remove_endpoint(const std::string &path) {
+void httpd::api_remove_endpoint(const std::string &method, const std::string &path) {
 
-	api_endpoints_.erase(path);
+	std::string entry = method + path;
+	api_endpoints_.erase(entry);
 }

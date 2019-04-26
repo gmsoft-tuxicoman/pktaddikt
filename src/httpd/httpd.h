@@ -18,7 +18,7 @@ class httpd;
 
 
 #define HTTPD_SERVER_STRING "pktaddikt " PKTADDIKT_VERSION
-#define HTTPD_API_URL	"/api/"
+#define HTTPD_API_URL	"/api/v1"
 #define HTTPD_STATUS_URL "/status.html"
 
 using api_endpoint_map = tbb::concurrent_hash_map<const std::string, std::unique_ptr<api_endpoint>>;
@@ -33,8 +33,8 @@ class httpd {
 		void disable_ssl();
 		bool bind(const std::string& addr, uint16_t port);
 
-		void api_add_endpoint(const std::string &path, std::unique_ptr<api_endpoint> endpoint);
-		void api_remove_endpoint(const std::string &path);
+		void api_add_endpoint(const std::string &method, const std::string &path, std::unique_ptr<api_endpoint> endpoint);
+		void api_remove_endpoint(const std::string &method, const std::string &path);
 
 
 

@@ -14,7 +14,7 @@ class application;
 #define APPLICATION_HTTPD_DEFAULT_ADDRESS "0.0.0.0,::"
 #define APPLICATION_HTTPD_DEFAULT_PORT	8080
 
-using input_map = std::map<std::string, std::unique_ptr<input>>;
+using input_template_map = std::map<std::string, std::unique_ptr<input>>;
 
 class application {
 
@@ -27,14 +27,14 @@ class application {
 		bool load_config(std::string &file);
 		void start_httpd();
 
-		void get_input_templates(void (*on_get_inputs) (const input_map&));
+		const input_template_map& get_input_templates() const;
 
 	private:
 		bool running_ = true;
 
 		std::unique_ptr<httpd> httpd_;
 
-		input_map input_templates_;
+		input_template_map input_templates_;
 
 		std::string httpd_addr_ = APPLICATION_HTTPD_DEFAULT_ADDRESS;
 		uint16_t httpd_port_ = APPLICATION_HTTPD_DEFAULT_PORT;

@@ -49,8 +49,7 @@ void application::main_loop(std::chrono::seconds main_sleep) {
 
 
 
-void application::get_input_templates(void (*on_get_inputs) (const input_map&) ) {
+const input_template_map& application::get_input_templates() const {
 
-	on_get_inputs(input_templates_);
-
+	return input_templates_;
 }

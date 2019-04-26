@@ -10,20 +10,35 @@
 #include "httpd.h"
 #include "http_connection.h"
 
-#include "rapidjson/document.h"
 #include "rapidjson/prettywriter.h"
-
-#include "api_status.h"
 
 #define HTTP_ADDR_DELIMITERS ",; "
 
 
 httpd::httpd(const application* app) : app_(app) {
 
-	// Register status API endpoint
-	auto status_api = std::make_unique<api_status>();
-	api_add_endpoint(MHD_HTTP_METHOD_GET, "/status", std::move(status_api));
+	// Register GET /status API endpoint
+	api_endpoint status_api = [] (rapidjson::Document &doc, const std::string *data) {
+		rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+		doc.AddMember("status", MHD_HTTP_OK, allocator);
+		doc.AddMember("version", PKTADDIKT_VERSION, allocator);
+		return MHD_HTTP_OK;
+	};
+	api_add_endpoint(MHD_HTTP_METHOD_GET, "/status", status_api);
 
+
+	// Register GET /input/template_
+	const auto& inputs = app_->get_input_templates();
+	api_endpoint input_templates_api = [inputs] (rapidjson::Document &doc, const std::string *data) {
+		rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+		for (auto const &input : inputs) {
+			doc.AddMember(input.first, "input", allocator);
+		}
+
+		return MHD_HTTP_OK;
+
+	};
+	api_add_endpoint(MHD_HTTP_METHOD_GET, "/input/_templates", input_templates_api);
 }
 
 void httpd::enable_ssl(const std::string& cert,const std::string& key) {
@@ -161,7 +176,7 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 		api_endpoint_map::const_accessor ac;
 		const bool result = api_endpoints_.find(ac, key);
 		if (result) {
-			unsigned int status = ac->second->call(doc, nullptr);
+			unsigned int status = ac->second(doc, nullptr);
 			con->status_code = status;
 			ac.release();
 		} else {
@@ -218,7 +233,7 @@ void httpd::mhd_request_completed(struct MHD_Connection *connection, void **con_
 	http_connection* con = static_cast<http_connection*> (*con_cls);
 	delete con;
 }
-void httpd::api_add_endpoint(const std::string &method, const std::string &path, std::unique_ptr<api_endpoint> endpoint) {
+void httpd::api_add_endpoint(const std::string &method, const std::string &path, api_endpoint endpoint) {
 
 	api_endpoint_map::accessor ac;
 	std::string entry = method + path;

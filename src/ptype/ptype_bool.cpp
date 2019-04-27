@@ -5,9 +5,9 @@
 
 #include "ptype_bool.h"
 
-ptype_bool::ptype_bool() : type_name_("bool") {};
-ptype_bool::ptype_bool(const ptype_bool &p) { value_ = p.value_; };
-ptype_bool::ptype_bool(const std::string& val) : type_name_("bool") {
+ptype_bool::ptype_bool() : ptype("bool") {};
+ptype_bool::ptype_bool(const ptype_bool &p) : ptype("bool") { value_ = p.value_; };
+ptype_bool::ptype_bool(const std::string& val) : ptype("bool") {
 	if (!this->parse(val))
 		std::cout << "Error while parsing ptype default value" << std::endl;
 

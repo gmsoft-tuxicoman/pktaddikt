@@ -30,12 +30,25 @@ httpd::httpd(const application* app) : app_(app) {
 
 
 	// Register GET /input/_templates
-	const auto& inputs = app_->get_input_templates();
+	const auto &inputs = app_->get_input_templates();
 	api_endpoint input_templates_api = [&inputs] (rapidjson::Document &doc, const std::string *data) {
 		rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 		doc.AddMember("status", MHD_HTTP_OK, allocator);
 		for (auto const &input : inputs) {
-			doc.AddMember(rapidjson::StringRef(input.first), MHD_HTTP_OK, allocator);
+			rapidjson::Value input_json;
+			input_json.SetObject();
+			const auto &parameters = input.second->get_parameters();
+			for (auto const &param : parameters) {
+				rapidjson::Value param_json;
+				param_json.SetObject();
+				param_json.AddMember("description", param.second->get_description(), allocator);
+				param_json.AddMember("type", param.second->get_type(), allocator);
+				param_json.AddMember("default_value", param.second->print_default_value(), allocator);
+
+				input_json.AddMember(rapidjson::StringRef(param.first), param_json, allocator);
+			}
+
+			doc.AddMember(rapidjson::StringRef(input.first), input_json, allocator);
 		}
 
 		return MHD_HTTP_OK;

@@ -10,7 +10,8 @@ class component {
 	public:
 		component(const std::string& name) : name_(name) {};
 
-		const component_parameters& get_parameters() { return parameters_; };
+		const component_parameters& get_parameters() const { return parameters_; };
+		const std::string& get_name() const { return name_; };
 
 	protected:
 		std::string name_;

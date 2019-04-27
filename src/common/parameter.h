@@ -9,9 +9,12 @@ class parameter_base {
 
 	public:
 		
-		virtual const std::string print_default_value() = 0;
-		virtual const std::string print_value() = 0;
-		virtual const std::string get_type() = 0;
+		virtual const std::string print_default_value() const = 0;
+		virtual const std::string print_value() const = 0;
+
+		virtual const std::string& get_type() const = 0;
+		virtual const std::string& get_description() const = 0;
+
 		virtual bool set_value(const std::string& val) = 0;
 
 };
@@ -20,25 +23,28 @@ template <class P>
 class parameter : public parameter_base {
 
 	public:
-		parameter(const std::string& val) {
+		parameter(const std::string& val, const std::string& description) : description_(description) {
 			value_ = std::make_unique<P>(val);
 			default_value_ = std::make_unique<P>(val);
-		}
+		};
 
-		const std::string print_default_value() { return default_value_->print(); };
-		const std::string print_value() { return value_->print(); };
+		const std::string print_default_value() const { return default_value_->print(); };
+		const std::string print_value() const { return value_->print(); };
 
-		const std::string get_type() { return value_->get_type(); };
+		const std::string& get_type() const { return value_->get_type(); };
+		const std::string& get_description() const { return description_; };
 
 		bool set_value(const std::string& val) { return value_->parse(val); };
 
-		bool has_default_value() { return value_ == default_value_; };
+		bool has_default_value() const { return value_ == default_value_; };
 
 
 	protected:
 
 		std::unique_ptr<P> value_;
 		std::unique_ptr<P> default_value_;
+
+		std::string description_;
 
 };
 

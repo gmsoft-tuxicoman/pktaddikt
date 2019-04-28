@@ -20,7 +20,7 @@ class httpd;
 #define HTTPD_API_URL	"/api/v1"
 #define HTTPD_STATUS_URL "/status.html"
 
-using api_endpoint = std::function<int(rapidjson::Document&, const std::string*)>;
+using api_endpoint = std::function<int(rapidjson::Document&, const rapidjson::Document&)>;
 using api_endpoint_map = tbb::concurrent_hash_map<const std::string, api_endpoint>;
 
 class httpd {

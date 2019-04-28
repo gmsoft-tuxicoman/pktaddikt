@@ -7,10 +7,9 @@
 
 #include <arpa/inet.h>
 
-#define RAPIDJSON_HAS_STDSTRING 1
-
 #include "httpd.h"
 #include "http_connection.h"
+#include "http_exception.h"
 
 #include "rapidjson/prettywriter.h"
 
@@ -20,41 +19,15 @@
 httpd::httpd(const application* app) : app_(app) {
 
 	// Register GET /status API endpoint
-	api_endpoint status_api = [] (rapidjson::Document &doc, const std::string *data) {
-		rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-		doc.AddMember("status", MHD_HTTP_OK, allocator);
-		doc.AddMember("version", PKTADDIKT_VERSION, allocator);
+	api_endpoint status_api = [] (rapidjson::Document &res, const rapidjson::Document &param) {
+		rapidjson::Document::AllocatorType& allocator = res.GetAllocator();
+		res.AddMember("status", MHD_HTTP_OK, allocator);
+		res.AddMember("version", PKTADDIKT_VERSION, allocator);
 		return MHD_HTTP_OK;
 	};
 	api_add_endpoint(MHD_HTTP_METHOD_GET, "/status", status_api);
 
 
-	// Register GET /input/_templates
-	const auto &inputs = app_->get_input_templates();
-	api_endpoint input_templates_api = [&inputs] (rapidjson::Document &doc, const std::string *data) {
-		rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-		doc.AddMember("status", MHD_HTTP_OK, allocator);
-		for (auto const &input : inputs) {
-			rapidjson::Value input_json;
-			input_json.SetObject();
-			const auto &parameters = input.second->get_parameters();
-			for (auto const &param : parameters) {
-				rapidjson::Value param_json;
-				param_json.SetObject();
-				param_json.AddMember("description", param.second->get_description(), allocator);
-				param_json.AddMember("type", param.second->get_type(), allocator);
-				param_json.AddMember("default_value", param.second->print_default_value(), allocator);
-
-				input_json.AddMember(rapidjson::StringRef(param.first), param_json, allocator);
-			}
-
-			doc.AddMember(rapidjson::StringRef(input.first), input_json, allocator);
-		}
-
-		return MHD_HTTP_OK;
-
-	};
-	api_add_endpoint(MHD_HTTP_METHOD_GET, "/input/_templates", input_templates_api);
 }
 
 void httpd::enable_ssl(const std::string& cert, const std::string& key) {
@@ -170,7 +143,6 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 		con->status_code = MHD_HTTP_OK;
 	}
 
-
 	std::string_view api_url{HTTPD_API_URL};
 	std::string_view status_url{HTTPD_STATUS_URL};
 
@@ -181,29 +153,62 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 	std::cout << "GOT REQUEST | " << method << " " << request_url << std::endl;
 
 	if (!request_url.compare(0, api_url.size(), api_url)) {
-		request_url.remove_prefix(api_url.size());
-		std::cout << "GOT API CALL : " << request_url << std::endl;
 
-		rapidjson::Document doc;
-		doc.SetObject();
 
-		std::string key = method;
-		key += request_url;
-		api_endpoint_map::const_accessor ac;
-		const bool result = api_endpoints_.find(ac, key);
-		if (result) {
-			unsigned int status = ac->second(doc, nullptr);
+		if (*upload_data_size) {
+			// Accumulate all the input in a vector
+			con->input_data.insert(con->input_data.end(), upload_data, upload_data + *upload_data_size);
+			*upload_data_size = 0;
+			return MHD_YES;
+		}
+
+		// Result sent back
+		rapidjson::Document ret;
+		ret.SetObject();
+
+		try {
+			rapidjson::Document param;
+			if (con->input_data.size() > 0) {
+				rapidjson::MemoryStream stream(con->input_data.data(), con->input_data.size());
+				param.ParseStream(stream);
+				if (!param.IsObject()) {
+					throw http_exception(MHD_HTTP_BAD_REQUEST, "Root JSON is not an object");
+				}
+			} else {
+				param.SetObject();
+			}
+
+			rapidjson::Document out;
+			out.SetObject();
+
+			request_url.remove_prefix(api_url.size());
+			std::string key = method;
+			key += request_url;
+			api_endpoint_map::const_accessor ac;
+			const bool endpoint = api_endpoints_.find(ac, key);
+
+			if (!endpoint) {
+				throw http_exception(MHD_HTTP_NOT_FOUND, "No API endpoint for specified method and URL");
+			}
+			unsigned int status = ac->second(out, param);
 			con->status_code = status;
 			ac.release();
-		} else {
-			doc.AddMember("status", MHD_HTTP_BAD_REQUEST, doc.GetAllocator());
-			con->status_code = MHD_HTTP_BAD_REQUEST;
 
+			// No exception occured, used the API call output
+			ret = std::move(out);
+		} catch (http_exception &e) {
+			con->status_code = e.status_code();
+			ret.AddMember("status", e.status_code(), ret.GetAllocator());
+			ret.AddMember("error", rapidjson::StringRef(e.what()), ret.GetAllocator());
+		} catch (std::exception &e) {
+			con->status_code = MHD_HTTP_INTERNAL_SERVER_ERROR;
+			ret.AddMember("status", con->status_code, ret.GetAllocator());
+			ret.AddMember("error", rapidjson::StringRef(e.what()), ret.GetAllocator());
 		}
 
 		rapidjson::StringBuffer sb;
 		rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
-		doc.Accept(writer);
+		ret.Accept(writer);
 
 		// FIXME there is a better way to do this
 		con->response = MHD_create_response_from_buffer(sb.GetSize(), (void*)sb.GetString(), MHD_RESPMEM_MUST_COPY);

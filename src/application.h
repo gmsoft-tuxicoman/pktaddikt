@@ -10,6 +10,7 @@ class application;
 
 #include "input/input.h"
 #include "httpd/httpd.h"
+#include "rapidjson/document.h"
 
 #define APPLICATION_HTTPD_DEFAULT_ADDRESS "0.0.0.0,::"
 #define APPLICATION_HTTPD_DEFAULT_PORT	8080
@@ -27,8 +28,6 @@ class application {
 		bool load_config(std::string &file);
 		void start_httpd();
 
-		const input_template_map& get_input_templates() const;
-
 	private:
 		bool running_ = true;
 
@@ -39,6 +38,10 @@ class application {
 		std::string httpd_addr_ = APPLICATION_HTTPD_DEFAULT_ADDRESS;
 		uint16_t httpd_port_ = APPLICATION_HTTPD_DEFAULT_PORT;
 
+
+		// HTTPD API
+		int api_input_templates(rapidjson::Document &doc, const rapidjson::Document &param) const;
+		int api_input_create(rapidjson::Document &doc, const rapidjson::Document &param);
 };
 
 #endif

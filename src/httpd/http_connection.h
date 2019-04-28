@@ -9,6 +9,7 @@ struct http_connection {
 	unsigned int status_code = MHD_HTTP_OK;
 	MHD_Response *response = nullptr;
 	std::string mime_type = "application/json";
+	std::vector<char> input_data;
 
 
 };

@@ -13,12 +13,16 @@ class httpd;
 
 #include "application.h"
 #include "config.h"
+#include "http_connection.h"
 
 #include "rapidjson/document.h"
 
 #define HTTPD_SERVER_STRING "pktaddikt " PKTADDIKT_VERSION
 #define HTTPD_API_URL	"/api/v1"
 #define HTTPD_STATUS_URL "/status.html"
+
+#define HTTPD_ANSWER_NOT_FOUND	"Not found"
+#define HTTPD_ANSWER_ERROR	"Internal server error"
 
 using api_endpoint = std::function<int(rapidjson::Document&, const rapidjson::Document&)>;
 using api_endpoint_map = tbb::concurrent_hash_map<const std::string, api_endpoint>;
@@ -47,6 +51,7 @@ class httpd {
 		std::vector<std::unique_ptr<MHD_Daemon, std::function<void(MHD_Daemon*)>>> daemons_;
 
 		static int _static_mhd_answer_connection(void *cls, struct MHD_Connection *connection, const char *url, const char *method, const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls);
+		int mhd_answer_new_connection(http_connection *con, const char *method, const char* url);
 		int mhd_answer_connection(struct MHD_Connection *connection, const char *url, const char *method, const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls);
 
 		static void _static_mhd_request_completed(void *cls, struct MHD_Connection *connection, void **con_cls, enum MHD_RequestTerminationCode toe);

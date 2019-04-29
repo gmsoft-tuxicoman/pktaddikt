@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include "application.h"
+#include "httpd/http_exception.h"
 
 #include "input/input_pcap.h"
 
@@ -79,5 +80,11 @@ int application::api_input_templates(rapidjson::Document &res, const rapidjson::
 
 int application::api_input_create(rapidjson::Document &res, const rapidjson::Document &param) {
 
-	return MHD_HTTP_OK;
+	if (!param.HasMember("name") || !param["name"].IsString()) {
+		throw http_exception(MHD_HTTP_BAD_REQUEST, "Input name not specified");
+	}
+
+	std::cout << "Adding input " << param["name"].GetString() << std::endl;
+
+	return MHD_HTTP_CREATED;
 }

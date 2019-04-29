@@ -8,7 +8,6 @@
 #include <arpa/inet.h>
 
 #include "httpd.h"
-#include "http_connection.h"
 #include "http_exception.h"
 
 #include "rapidjson/prettywriter.h"
@@ -132,41 +131,70 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 }
 
 
-
-int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *url, const char *method, const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls) {
-
-	http_connection *con = static_cast<http_connection*> (*con_cls);
-
-	if (con == nullptr) {
-		con = new http_connection();
-		*con_cls = con;
-		con->status_code = MHD_HTTP_OK;
-	}
+int httpd::mhd_answer_new_connection(http_connection *con, const char *method, const char* url) {
 
 	std::string_view api_url{HTTPD_API_URL};
 	std::string_view status_url{HTTPD_STATUS_URL};
 
 	std::string_view request_method{method};
 	std::string_view request_url{url};
-	std::string_view request_data{upload_data, *upload_data_size};
-
-	std::cout << "GOT REQUEST | " << method << " " << request_url << std::endl;
+	std::cout << "GOT REQUEST | " << request_method << " " << request_url << std::endl;
 
 	if (!request_url.compare(0, api_url.size(), api_url)) {
 
+		if (request_method == MHD_HTTP_METHOD_POST) {
+			con->need_input_data = true;
+		}
+		con->type = api;
+	} else if (request_url == status_url) {
+		con->type = status;
+	} else {
+		con->type = not_found;
+	}
 
-		if (*upload_data_size) {
+	return MHD_YES;
+}
+
+int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *url, const char *method, const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls) {
+
+	http_connection *con = static_cast<http_connection*> (*con_cls);
+
+	if (con == nullptr) {
+		// New request
+		con = new http_connection();
+		*con_cls = con;
+		return mhd_answer_new_connection(con, method, url);;
+	}
+
+	if (*upload_data_size) {
+		if (con->need_input_data) {
 			// Accumulate all the input in a vector
 			con->input_data.insert(con->input_data.end(), upload_data, upload_data + *upload_data_size);
-			*upload_data_size = 0;
-			return MHD_YES;
 		}
+		*upload_data_size = 0;
+		return MHD_YES;
+	}
 
-		// Result sent back
+	if (con->type == api) {
+		std::string_view request_url{url};
+		std::string_view api_url{HTTPD_API_URL};
+		request_url.remove_prefix(api_url.size());
+		std::string key = method;
+		key += request_url;
+
+
+		// Result to send back
 		rapidjson::Document ret;
 		ret.SetObject();
 
 		try {
+			api_endpoint_map::const_accessor ac;
+			const bool endpoint = api_endpoints_.find(ac, key);
+
+			if (!endpoint) {
+				throw http_exception(MHD_HTTP_NOT_FOUND, "No API endpoint for specified method and URL");
+			}
+
 			rapidjson::Document param;
 			if (con->input_data.size() > 0) {
 				rapidjson::MemoryStream stream(con->input_data.data(), con->input_data.size());
@@ -181,15 +209,6 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 			rapidjson::Document out;
 			out.SetObject();
 
-			request_url.remove_prefix(api_url.size());
-			std::string key = method;
-			key += request_url;
-			api_endpoint_map::const_accessor ac;
-			const bool endpoint = api_endpoints_.find(ac, key);
-
-			if (!endpoint) {
-				throw http_exception(MHD_HTTP_NOT_FOUND, "No API endpoint for specified method and URL");
-			}
 			unsigned int status = ac->second(out, param);
 			con->status_code = status;
 			ac.release();
@@ -214,16 +233,22 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 		con->response = MHD_create_response_from_buffer(sb.GetSize(), (void*)sb.GetString(), MHD_RESPMEM_MUST_COPY);
 
 
-	} else if (request_url == status_url) {
-		std::cout << "GET A STATUS CALL : " << request_url << std::endl;
+	} else if (con->type == status) {
+		std::cout << "GET A STATUS CALL : " << url << std::endl;
 		std::string_view replystr = "<html><body>It works !</body></html>";
 
 		con->response = MHD_create_response_from_buffer(replystr.size(), (void*)(replystr.data()), MHD_RESPMEM_MUST_COPY);
 		con->mime_type = "text/html";
+	} else if (con->type == not_found) {
+		con->status_code = MHD_HTTP_NOT_FOUND;
+		con->response = MHD_create_response_from_buffer(strlen(HTTPD_ANSWER_NOT_FOUND), (void*)HTTPD_ANSWER_NOT_FOUND, MHD_RESPMEM_PERSISTENT);
+	} else {
+		con->status_code = MHD_HTTP_INTERNAL_SERVER_ERROR;
+		con->response = MHD_create_response_from_buffer(strlen(HTTPD_ANSWER_ERROR), (void*)HTTPD_ANSWER_ERROR, MHD_RESPMEM_PERSISTENT);
 	}
 
 	if (!con->response) {
-		std::cout << "Error while creating response for request \"" << request_url << "\"" << std::endl;
+		std::cout << "Error while creating response for request \"" << url << "\"" << std::endl;
 		return MHD_NO;
 	}
 

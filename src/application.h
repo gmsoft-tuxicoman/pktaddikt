@@ -16,6 +16,7 @@ class application;
 #define APPLICATION_HTTPD_DEFAULT_PORT	8080
 
 using input_template_map = std::map<std::string, std::unique_ptr<input>>;
+using input_map = tbb::concurrent_hash_map<const std::string, std::unique_ptr<input>>;
 
 class application {
 
@@ -34,6 +35,7 @@ class application {
 		std::unique_ptr<httpd> httpd_;
 
 		input_template_map input_templates_;
+		input_map inputs_;
 
 		std::string httpd_addr_ = APPLICATION_HTTPD_DEFAULT_ADDRESS;
 		uint16_t httpd_port_ = APPLICATION_HTTPD_DEFAULT_PORT;
@@ -42,6 +44,8 @@ class application {
 		// HTTPD API
 		int api_input_templates(rapidjson::Document &doc, const rapidjson::Document &param) const;
 		int api_input_create(rapidjson::Document &doc, const rapidjson::Document &param);
+		int api_input_show(input *input, rapidjson::Document &res, const rapidjson::Document &param) const;
+		int api_input_destroy(input *input, rapidjson::Document &res, const rapidjson::Document &param);
 };
 
 #endif

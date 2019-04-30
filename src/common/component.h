@@ -13,6 +13,8 @@ class component {
 		const component_parameters& get_parameters() const { return parameters_; };
 		const std::string& get_name() const { return name_; };
 
+		virtual component* clone(const std::string &name) const = 0;
+
 	protected:
 		std::string name_;
 		component_parameters parameters_;

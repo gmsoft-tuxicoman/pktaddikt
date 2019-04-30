@@ -6,6 +6,8 @@
 class input : public component {
 	public:
 		input(const std::string& name): component(name) {};
+
+		virtual input* clone(const std::string &name) const { throw std::runtime_error("Cannot create input directly"); };
 };
 
 #endif

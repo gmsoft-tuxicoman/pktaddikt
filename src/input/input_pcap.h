@@ -13,12 +13,14 @@ class input_pcap : public input {
 		input_pcap(const std::string& name) : input(name) {};
 
 
+
 };
 
 class input_pcap_interface : public input_pcap {
 
 	public:
-		input_pcap_interface();
+		input_pcap_interface(const std::string &name);
+		input_pcap_interface* clone(const std::string &name) const { return new input_pcap_interface(name); };
 	
 
 };

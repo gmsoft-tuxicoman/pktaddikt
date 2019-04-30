@@ -209,9 +209,14 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 			rapidjson::Document out;
 			out.SetObject();
 
-			unsigned int status = ac->second(out, param);
-			con->status_code = status;
+			// Copy the handler to allow its self-destruction
+			auto handler = ac->second;
 			ac.release();
+
+			unsigned int status = handler(out, param);
+			con->status_code = status;
+
+			out.AddMember("status", status, ret.GetAllocator());
 
 			// No exception occured, used the API call output
 			ret = std::move(out);
@@ -285,7 +290,6 @@ void httpd::api_add_endpoint(const std::string &method, const std::string &path,
 	std::string entry = method + path;
 	api_endpoints_.insert(ac, entry);
 	ac->second = std::move(endpoint);
-	ac.release();
 }
 
 void httpd::api_remove_endpoint(const std::string &method, const std::string &path) {

@@ -18,9 +18,10 @@ target_link_libraries(pktaddikt ptype)
 add_subdirectory(tasks)
 target_link_libraries(pktaddikt tasks)
 
+find_package(Threads REQUIRED)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(YAMLCPP REQUIRED yaml-cpp)
 
-
 target_include_directories(pktaddikt PUBLIC ${YAMLCPP_INCLUDE_DIRS})
-target_link_libraries(pktaddikt ${YAMLCPP_LIBRARIES})
+target_link_libraries(pktaddikt ${CMAKE_THREAD_LIBS_INIT} ${YAMLCPP_LIBRARIES})

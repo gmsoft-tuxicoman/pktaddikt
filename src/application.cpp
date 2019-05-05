@@ -14,7 +14,7 @@ const char *component_name_invalid_char = "\\/.%&=";
 application::application() : httpd_(std::make_unique<httpd>(this)) {
 
 	// Register all available inputs
-	input_templates_.insert(std::make_pair("pcap_interface", std::make_unique<input_pcap_interface> ("pcap_interface")));
+	input_templates_.insert(std::make_pair("pcap_interface", std::move(std::make_unique<input_pcap_interface> ("pcap_interface"))));
 
 	// Register GET /input/_templates
 	api_endpoint input_template_api = [&] (rapidjson::Document &res, const rapidjson::Document &param) { return this->api_input_templates(res, param); };
@@ -149,12 +149,20 @@ int application::api_input_create(rapidjson::Document &res, const rapidjson::Doc
 	try {
 		input *new_input = it->second->clone(name);
 
-		api_endpoint input_show_api = [&, new_input] (rapidjson::Document &res, const rapidjson::Document &param) { return this->api_input_show(new_input, res, param); };
+		api_endpoint input_show_api = [this, new_input] (rapidjson::Document &res, const rapidjson::Document &param) { return this->api_input_show(new_input, res, param); };
 		httpd_->api_add_endpoint(MHD_HTTP_METHOD_GET, std::string("/input/") + name, input_show_api);
 
-		api_endpoint input_destroy_api = [&, new_input] (rapidjson::Document &res, const rapidjson::Document &param) { return this->api_input_destroy(new_input, res, param); };
+		api_endpoint input_destroy_api = [this, new_input] (rapidjson::Document &res, const rapidjson::Document &param) { return this->api_input_destroy(new_input, res, param); };
 		httpd_->api_add_endpoint(MHD_HTTP_METHOD_DELETE, std::string("/input/") + name, input_destroy_api);
 
+		api_endpoint input_update_api = [this, new_input] (rapidjson::Document &res, const rapidjson::Document &param) { return this->api_input_update(new_input, res, param); };
+		httpd_->api_add_endpoint(MHD_HTTP_METHOD_PUT, std::string("/input/") + name, input_update_api);
+
+		api_endpoint input_start_api = [new_input] (rapidjson::Document &res, const rapidjson::Document &param) { new_input->start(); return MHD_HTTP_OK; };
+		httpd_->api_add_endpoint(MHD_HTTP_METHOD_POST, std::string("/input/") + name + "/start", input_start_api);
+
+		api_endpoint input_stop_api = [new_input] (rapidjson::Document &res, const rapidjson::Document &param) { new_input->stop(); return MHD_HTTP_OK; };
+		httpd_->api_add_endpoint(MHD_HTTP_METHOD_POST, std::string("/input/") + name + "/stop", input_stop_api);
 
 		res.AddMember("msg", "Input added", res.GetAllocator());
 
@@ -176,10 +184,43 @@ int application::api_input_destroy(input *input, rapidjson::Document &res, const
 
 	httpd_->api_remove_endpoint(MHD_HTTP_METHOD_GET, std::string("/input/") + input->get_name());
 	httpd_->api_remove_endpoint(MHD_HTTP_METHOD_DELETE, std::string("/input/") + input->get_name());
+	httpd_->api_remove_endpoint(MHD_HTTP_METHOD_PUT, std::string("/input/") + input->get_name());
+	httpd_->api_remove_endpoint(MHD_HTTP_METHOD_POST, std::string("/input/") + input->get_name() + "/start");
 
 	inputs_.erase(ac);
 
 	res.AddMember("msg", "Input deleted", res.GetAllocator());
 	return MHD_HTTP_OK;
 
+}
+
+int application::api_input_update(input *input, rapidjson::Document &res, const rapidjson::Document &param) {
+
+	if (!param.HasMember("parameters")) {
+		throw http_exception(MHD_HTTP_BAD_REQUEST, "No parameter member");
+	}
+
+	if (!param.HasMember("parameters") || !param["parameters"].IsObject()) {
+		throw http_exception(MHD_HTTP_BAD_REQUEST, "Parameters not provided or invalid");
+	}
+
+	const component_parameters& input_params = input->get_parameters();
+	for (auto &m: param["parameters"].GetObject()) {
+		const auto &param_name = m.name.GetString();
+		if (!m.value.IsString()) {
+			throw http_exception(MHD_HTTP_BAD_REQUEST, std::string("Parameter ") + param_name + " is not a string");
+		}
+		auto it = input_params.find(param_name);
+		if (it == input_params.end()) {
+			throw http_exception(MHD_HTTP_BAD_REQUEST, std::string("Parameter ") + param_name + " does not exists");
+		}
+
+		if (!it->second->parse_value(m.value.GetString())) {
+			throw http_exception(MHD_HTTP_UNPROCESSABLE_ENTITY, std::string("Unable to parse parameter ") + param_name);
+		}
+
+	}
+
+
+	return MHD_HTTP_OK;
 }

@@ -16,6 +16,8 @@ class ptype_string : public ptype {
 		bool parse(const std::string& val) override;
 		const std::string print() override;
 
+		const std::string& get_value() const { return value_; };
+
 	private:
 		std::string value_ = "";
 		std::string type_name_ = "string";

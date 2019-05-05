@@ -110,9 +110,9 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 
 			MHD_Daemon *d = NULL;
 			if (flags_ & MHD_USE_SSL) {
-				d = MHD_start_daemon(flags, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_NOTIFY_COMPLETED, &(httpd::_static_mhd_request_completed), NULL, MHD_OPTION_HTTPS_MEM_CERT, &ssl_cert_, MHD_OPTION_HTTPS_MEM_KEY, &ssl_key_, MHD_OPTION_END);
+				d = MHD_start_daemon(flags, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_NOTIFY_COMPLETED, &(httpd::_static_mhd_request_completed), this, MHD_OPTION_HTTPS_MEM_CERT, &ssl_cert_, MHD_OPTION_HTTPS_MEM_KEY, &ssl_key_, MHD_OPTION_END);
 			} else {
-				d = MHD_start_daemon(flags, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_NOTIFY_COMPLETED, &(httpd::_static_mhd_request_completed), NULL, MHD_OPTION_END);
+				d = MHD_start_daemon(flags, port, NULL, NULL, &(httpd::_static_mhd_answer_connection), this, MHD_OPTION_SOCK_ADDR, tmpaddr->ai_addr, MHD_OPTION_NOTIFY_COMPLETED, &(httpd::_static_mhd_request_completed), this, MHD_OPTION_END);
 			}
 
 			if (d) {
@@ -130,7 +130,6 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 
 }
 
-
 int httpd::mhd_answer_new_connection(http_connection *con, const char *method, const char* url) {
 
 	std::string_view api_url{HTTPD_API_URL};
@@ -142,7 +141,7 @@ int httpd::mhd_answer_new_connection(http_connection *con, const char *method, c
 
 	if (!request_url.compare(0, api_url.size(), api_url)) {
 
-		if (request_method == MHD_HTTP_METHOD_POST) {
+		if (request_method == MHD_HTTP_METHOD_POST || request_method == MHD_HTTP_METHOD_PUT) {
 			con->need_input_data = true;
 		}
 		con->type = api;
@@ -216,18 +215,18 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 			unsigned int status = handler(out, param);
 			con->status_code = status;
 
-			out.AddMember("status", status, ret.GetAllocator());
+			out.AddMember("status", status, out.GetAllocator());
 
 			// No exception occured, used the API call output
 			ret = std::move(out);
 		} catch (http_exception &e) {
 			con->status_code = e.status_code();
 			ret.AddMember("status", e.status_code(), ret.GetAllocator());
-			ret.AddMember("error", rapidjson::StringRef(e.what()), ret.GetAllocator());
+			ret.AddMember("error", rapidjson::Value{}.SetString(e.what(), ret.GetAllocator()), ret.GetAllocator());
 		} catch (std::exception &e) {
 			con->status_code = MHD_HTTP_INTERNAL_SERVER_ERROR;
 			ret.AddMember("status", con->status_code, ret.GetAllocator());
-			ret.AddMember("error", rapidjson::StringRef(e.what()), ret.GetAllocator());
+			ret.AddMember("error", rapidjson::Value{}.SetString(e.what(), ret.GetAllocator()), ret.GetAllocator());
 		}
 
 		rapidjson::StringBuffer sb;
@@ -272,6 +271,7 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 		return MHD_NO;
 	}
 
+	MHD_destroy_response(con->response);
 
 	return MHD_YES;
 }

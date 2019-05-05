@@ -16,6 +16,8 @@ class ptype_bool : public ptype {
 		bool parse(const std::string& val) override;
 		const std::string print() override;
 
+		bool get_value() const { return value_; };
+
 	private:
 		bool value_ = false;
 		std::string type_name_ = "bool";

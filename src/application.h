@@ -46,6 +46,7 @@ class application {
 		int api_input_create(rapidjson::Document &doc, const rapidjson::Document &param);
 		int api_input_show(input *input, rapidjson::Document &res, const rapidjson::Document &param) const;
 		int api_input_destroy(input *input, rapidjson::Document &res, const rapidjson::Document &param);
+		int api_input_update(input *input, rapidjson::Document &res, const rapidjson::Document &param);
 };
 
 #endif

@@ -56,8 +56,6 @@ void input_pcap_interface::read_packets() {
 
 	}
 
-	pcap_close(pcap_);
-	pcap_ = nullptr;
 
 }
 
@@ -65,6 +63,14 @@ void input_pcap_interface::close() {
 
 	if (pcap_) {
 		pcap_breakloop(pcap_);
+	}
+
+	if (processing_thread_.joinable()) {
 		pthread_kill(processing_thread_.native_handle(), SIGCHLD);
+	}
+
+	if (pcap_) {
+		pcap_close(pcap_);
+		pcap_ = nullptr;
 	}
 }

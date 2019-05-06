@@ -59,8 +59,6 @@ void input_pcap_interface::read_packets() {
 	pcap_close(pcap_);
 	pcap_ = nullptr;
 
-	running_status_ = idle;
-
 }
 
 void input_pcap_interface::close() {

@@ -164,6 +164,9 @@ int application::api_input_create(rapidjson::Document &res, const rapidjson::Doc
 		api_endpoint input_stop_api = [new_input] (rapidjson::Document &res, const rapidjson::Document &param) { new_input->stop(); return MHD_HTTP_OK; };
 		httpd_->api_add_endpoint(MHD_HTTP_METHOD_POST, std::string("/input/") + name + "/stop", input_stop_api);
 
+		std::unique_ptr<input> new_input_ptr(new_input);
+		ac->second = std::move(new_input_ptr);
+
 		res.AddMember("msg", "Input added", res.GetAllocator());
 
 		std::cout << "Input " << name << " of type " << template_name << " added" << std::endl;

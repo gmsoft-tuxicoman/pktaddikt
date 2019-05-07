@@ -51,11 +51,11 @@ void input_pcap_interface::read_packets() {
 		pcap_pkthdr *phdr;
 		const u_char *data;
 		int result = pcap_next_ex(pcap_, &phdr, &data);
-
 		std::cout << "Got packet of " << phdr->len << " with result " << result << std::endl;
-
+		if (result == -2) { // EOF
+			break;
+		}
 	}
-
 
 }
 

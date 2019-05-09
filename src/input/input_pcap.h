@@ -11,6 +11,7 @@
 #include "ptype/ptype_bool.h"
 #include "ptype/ptype_string.h"
 
+#include "proto/proto_ethernet.h"
 
 class input_pcap : public input {
 

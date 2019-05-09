@@ -29,6 +29,8 @@ void input::stop() {
 
 	close();
 
-	processing_thread_.join();
+	if (processing_thread_.joinable()) {
+		processing_thread_.join();
+	}
 	running_status_ = idle;
 }

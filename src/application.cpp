@@ -9,6 +9,9 @@
 
 #include "input/input_pcap.h"
 
+
+#include "proto/proto_ethernet.h"
+
 const char *component_name_invalid_char = "\\/.%&=";
 
 application::application() : httpd_(std::make_unique<httpd>(this)) {
@@ -23,6 +26,23 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 	// Register input api
 	api_endpoint input_create_api = [&] (rapidjson::Document &res, const rapidjson::Document &param) { return this->api_input_create(res, param); };
 	httpd_->api_add_endpoint("POST", "/input", input_create_api);
+
+
+	// Register all available proto
+	protocols_.insert(std::make_pair("ethernet", std::move(std::make_unique<proto_ethernet>())));
+
+	// Register proto api
+	//api_endpoint proto_list_api = [&] (rapidjson::Document &res, const rapidjson::Document &param) { return this->proto_list_api(res, param); };
+}
+
+application::~application() {
+
+	for (input_map::iterator it = inputs_.begin(); it != inputs_.end(); it++) {
+		if (it->second->get_running_status() == input::running_status::running) {
+			it->second->stop();
+		}
+	}
+
 }
 
 
@@ -227,3 +247,4 @@ int application::api_input_update(input *input, rapidjson::Document &res, const 
 
 	return MHD_HTTP_OK;
 }
+

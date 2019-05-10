@@ -2,9 +2,9 @@
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MICROHTTPD REQUIRED libmicrohttpd)
 
-add_library(httpd
+target_sources(pktaddikt PRIVATE
 		httpd.cpp httpd.h
 		http_exception.h
 		)
 
-target_link_libraries(httpd ${MICROHTTPD_LIBRARIES})
+target_link_libraries(pktaddikt ${MICROHTTPD_LIBRARIES})

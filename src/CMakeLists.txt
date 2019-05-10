@@ -4,25 +4,12 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 
 add_subdirectory(common)
-target_link_libraries(pktaddikt common)
-
 add_subdirectory(httpd)
-target_link_libraries(pktaddikt httpd)
-
 add_subdirectory(input)
-target_link_libraries(pktaddikt input)
-
 add_subdirectory(pkt)
-target_link_libraries(pktaddikt pkt)
-
 add_subdirectory(proto)
-target_link_libraries(pktaddikt proto)
-
 add_subdirectory(ptype)
-target_link_libraries(pktaddikt ptype)
-
 add_subdirectory(tasks)
-target_link_libraries(pktaddikt tasks)
 
 find_package(Threads REQUIRED)
 

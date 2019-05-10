@@ -1,5 +1,5 @@
 
-add_library(ptype
+target_sources(pktaddikt PRIVATE
 	ptype.h
 	ptype_bool.cpp ptype_bool.h
 	ptype_mac.cpp ptype_mac.h

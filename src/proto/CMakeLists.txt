@@ -1,5 +1,5 @@
 
-add_library(proto
+target_sources(pktaddikt PRIVATE
 	proto.cpp proto.h
 	proto_numbers.cpp proto_numbers.h
 	proto_ethernet.cpp proto_ethernet.h

@@ -1,5 +1,4 @@
 
-add_library(common component.h parameter.h)
-set_target_properties(common PROPERTIES LINKER_LANGUAGE CXX)
+target_sources(pktaddikt PRIVATE component.h parameter.h)
 
 

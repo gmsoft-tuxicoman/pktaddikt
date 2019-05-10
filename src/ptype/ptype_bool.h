@@ -19,7 +19,6 @@ class ptype_bool : public ptype {
 
 	private:
 		bool value_ = false;
-		std::string type_name_ = "bool";
 
 };
 

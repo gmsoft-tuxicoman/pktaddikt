@@ -21,7 +21,6 @@ class ptype_uint16 : public ptype {
 
 	private:
 		uint16_t value_ = false;
-		std::string type_name_ = "uint16";
 
 };
 

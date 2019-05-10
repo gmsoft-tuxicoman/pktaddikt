@@ -19,7 +19,6 @@ class ptype_string : public ptype {
 
 	private:
 		std::string value_ = "";
-		std::string type_name_ = "string";
 
 };
 

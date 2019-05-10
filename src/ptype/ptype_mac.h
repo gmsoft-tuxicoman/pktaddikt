@@ -21,7 +21,6 @@ class ptype_mac : public ptype {
 
 	private:
 		unsigned char value_[6] =  { 0 };
-		std::string type_name_ = "mac";
 
 };
 

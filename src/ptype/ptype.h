@@ -18,7 +18,7 @@ class ptype {
 		virtual void set_value(pkt_buffer *pkt) { throw std::runtime_error("This ptype cannot read value from pkt_buffer");};
 
 	protected:
-		std::string type_name_;
+		const std::string type_name_;
 
 };
 

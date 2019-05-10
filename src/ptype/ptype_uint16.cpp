@@ -36,3 +36,10 @@ const std::string ptype_uint16::print() {
 	return std::to_string(value_);
 }
 
+void ptype_uint16::set_value(pkt_buffer *buf) {
+
+	const unsigned char *value = buf->read(sizeof(uint16_t));
+
+	value_ = ((uint16_t) value[0] << 8)
+		| ((uint16_t) value[1] << 16);
+}

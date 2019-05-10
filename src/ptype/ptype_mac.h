@@ -6,7 +6,6 @@
 
 #include "ptype.h"
 
-
 class ptype_mac : public ptype {
 
 	public:
@@ -18,6 +17,7 @@ class ptype_mac : public ptype {
 
 		const unsigned char* get_value() const { return value_; };
 		void set_value(const unsigned char* val) { memcpy(value_, val, 6); };
+		void set_value(pkt_buffer *buf);
 
 	private:
 		unsigned char value_[6] =  { 0 };

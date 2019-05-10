@@ -5,11 +5,10 @@
 #include <map>
 #include "ptype/ptype.h"
 
-class pkt;
-class proto;
 
 using proto_fields = std::vector<std::pair<std::string, ptype*>>;
 
+class pkt;
 class proto {
 
 	public:

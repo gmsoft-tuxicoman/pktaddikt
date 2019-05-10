@@ -4,8 +4,8 @@
 #include <vector>
 #include <cassert>
 
-#include "proto.h"
 
+class proto;
 
 using proto_numbers_vector = std::vector<std::pair<unsigned int, proto*>>;
 

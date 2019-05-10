@@ -1,5 +1,6 @@
 
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 
 #include "ptype_mac.h"
@@ -26,7 +27,13 @@ bool ptype_mac::parse(const std::string& val) {
 const std::string ptype_mac::print() {
 
 	std::ostringstream stream;
-	stream << std::hex << value_[0] << ":" << value_[1] << ":" << value_[2] << ":" << value_[3] << ":" << value_[4] << ":" << value_[5];
+	stream << std::setfill('0') << std::right << std::setw(2) << std::hex << (int)value_[0] << ":" << (int)value_[1] << ":" << (int)value_[2] << ":" << (int)value_[3] << ":" << (int)value_[4] << ":" << (int)value_[5];
 	return stream.str();
 }
 
+void ptype_mac::set_value(pkt_buffer *buf) {
+
+	const unsigned char *value = buf->read(6);
+
+	memcpy(value_, value, 6);
+}

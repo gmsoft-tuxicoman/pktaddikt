@@ -17,6 +17,7 @@ class ptype_uint16 : public ptype {
 
 		uint16_t get_value() const { return value_; };
 		void set_value(uint16_t val) { value_ = val; };
+		void set_value(pkt_buffer *buf);
 
 	private:
 		uint16_t value_ = false;

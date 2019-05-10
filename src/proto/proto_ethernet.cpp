@@ -1,9 +1,12 @@
 
 #include <pcap.h>
 
+#include <arpa/inet.h>
 #include "proto_ethernet.h"
 
 #include "proto_numbers.h"
+
+#include "pkt/pkt.h"
 
 #include <iostream>
 
@@ -25,5 +28,12 @@ proto_ethernet::proto_ethernet(pkt* pkt): proto(pkt) {
 
 void proto_ethernet::parse() {
 
-	std::cout << "PARSING ETHERNET PACKET !!!" << std::endl;
+	pkt_buffer *buf = pkt_->get_buffer();
+
+	fields_[fields_id::dst].second->set_value(buf);
+	fields_[fields_id::src].second->set_value(buf);
+	fields_[fields_id::type].second->set_value(buf);
+
+
+	std::cout << "ethernet : " << fields_[fields_id::src].second->print() << " -> " << fields_[fields_id::dst].second->print() << " | type: " << fields_[fields_id::type].second->print() << std::endl;
 }

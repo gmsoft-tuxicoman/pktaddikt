@@ -20,7 +20,7 @@ class ptype_mac : public ptype {
 		void set_value(pkt_buffer *buf);
 
 	private:
-		unsigned char value_[6] =  { 0 };
+		unsigned char value_[6] = { 0 };
 
 };
 

@@ -18,14 +18,6 @@ proto_ethernet::proto_ethernet(): proto("ethernet") {
 
 }
 
-proto_ethernet::proto_ethernet(pkt* pkt): proto(pkt) {
-
-	fields_[fields_id::src].second = new ptype_mac();
-	fields_[fields_id::dst].second = new ptype_mac();
-	fields_[fields_id::type].second = new ptype_uint16();
-}
-
-
 void proto_ethernet::parse() {
 
 	pkt_buffer *buf = pkt_->get_buffer();

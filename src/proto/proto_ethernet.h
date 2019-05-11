@@ -11,7 +11,7 @@ class proto_ethernet : public proto {
 	public:
 
 		proto_ethernet();
-		proto_ethernet(pkt *pkt);
+		proto_ethernet(pkt *pkt): proto(pkt) {};
 
 		proto* factory(pkt *pkt) { return new proto_ethernet(pkt); };
 
@@ -20,15 +20,16 @@ class proto_ethernet : public proto {
 		enum fields_id { src, dst, type };
 
 	protected:
-		proto_fields fields_ = { 
-			{ "src", nullptr },
-			{ "dst", nullptr },
-			{"type", nullptr } };
 
+		ptype_mac field_src;
+		ptype_mac field_dst;
+		ptype_uint16 field_type;
 
-	private:
-		// Registration stuff
-		static proto_ethernet proto_ethernet_;
+		proto_fields fields_ = {
+			{ "src", &field_src },
+			{ "dst", &field_dst },
+			{"type", &field_type } };
+
 
 };
 

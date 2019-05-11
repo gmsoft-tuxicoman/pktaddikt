@@ -5,9 +5,6 @@
 
 #include "application.h"
 
-#include "proto/proto_ethernet.h"
-proto_ethernet proto_ethernet::proto_ethernet_;
-
 #define MAIN_LOOP_SLEEP_SEC 1
 
 application *app = nullptr;

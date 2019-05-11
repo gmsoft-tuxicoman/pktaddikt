@@ -12,7 +12,7 @@ class pkt;
 class proto {
 
 	public:
-		~proto();
+		virtual ~proto() {};
 
 		virtual proto* factory(pkt *pkt) = 0;
 		virtual void parse() = 0;

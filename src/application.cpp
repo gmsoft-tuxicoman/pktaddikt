@@ -18,6 +18,7 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 
 	// Register all available inputs
 	input_templates_.insert(std::make_pair("pcap_interface", std::move(std::make_unique<input_pcap_interface> ("pcap_interface"))));
+	input_templates_.insert(std::make_pair("pcap_file", std::move(std::make_unique<input_pcap_file> ("pcap_file"))));
 
 	// Register GET /input/_templates
 	api_endpoint input_template_api = [&] (rapidjson::Document &res, const rapidjson::Document &param) { return this->api_input_templates(res, param); };

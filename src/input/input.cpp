@@ -27,10 +27,20 @@ void input::stop() {
 
 	running_status_ = stopping;
 
+	// Break the main loop first
+	break_loop();
+
+	// Wait for the main loop to stop
+	if (processing_thread_.joinable()) {
+		if (processing_thread_.get_id() != std::this_thread::get_id()) {
+			processing_thread_.join();
+		} else {
+			processing_thread_.detach();
+		}
+	}
+
+	// Finally close the input
 	close();
 
-	if (processing_thread_.joinable()) {
-		processing_thread_.join();
-	}
 	running_status_ = idle;
 }

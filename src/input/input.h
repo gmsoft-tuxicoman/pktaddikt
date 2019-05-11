@@ -14,6 +14,7 @@ class input : public component {
 		virtual input* clone(const std::string &name) const { throw std::runtime_error("Cannot create input directly"); };
 
 		void start();
+		virtual void break_loop() {};
 		void stop();
 
 		enum running_status { idle, starting, running, stopping };

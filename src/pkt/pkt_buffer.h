@@ -9,18 +9,27 @@
 class pkt_buffer {
 
 	public:
-		pkt_buffer(std::size_t size, unsigned char *data): size_(size), buff_(data) {};
+		pkt_buffer(std::size_t size, unsigned char *data): orig_size_(size), orig_buff_(data), buff_(data), end_(data + size) {};
 
 		virtual ~pkt_buffer() {};
 
-		const unsigned char *read(std::size_t size);
 		std::size_t remaining();
 
+		uint8_t read_bits8(std::size_t bit_offset, std::size_t bit_len);
+
+		uint8_t	read_8(std::size_t offset);
+		uint16_t read_ntoh16(std::size_t offset);
+		void read(void *dst, std::size_t src_offset, std::size_t size);
+
+		void consume(std::size_t size);
 
 	protected:
-		unsigned char *buff_;
-		std::size_t pos_ = 0;
-		const std::size_t size_ = 0;
+		unsigned char *orig_buff_ = nullptr;
+		unsigned char *buff_ = nullptr;
+		unsigned char *end_ = nullptr;
+		const std::size_t orig_size_ = 0;
+
+		void boundary_check(std::size_t size, std::size_t offset);
 
 };
 

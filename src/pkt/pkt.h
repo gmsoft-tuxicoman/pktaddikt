@@ -6,7 +6,6 @@
 #include <memory>
 
 #include "proto/proto.h"
-#include "proto/proto_numbers.h"
 #include "pkt_buffer.h"
 
 using pkt_timestamp = std::chrono::duration<uint64_t, std::micro>;
@@ -18,7 +17,7 @@ class pkt {
 
 		pkt_buffer *get_buffer() { return buf_; };
 
-		void add_proto(proto_numbers::number_type type, unsigned int id);
+		void add_proto(proto::number_type type, unsigned int id);
 
 		void process();
 

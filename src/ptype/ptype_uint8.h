@@ -17,7 +17,7 @@ class ptype_uint8 : public ptype {
 
 		uint8_t get_value() const { return value_; };
 		void set_value(uint8_t val) { value_ = val; };
-		void set_value(pkt_buffer *buf);
+		void set_value(pkt_buffer *buf, std::size_t offset);
 
 	private:
 		uint8_t value_ = 0;

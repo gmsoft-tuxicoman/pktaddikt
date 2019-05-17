@@ -30,9 +30,7 @@ const std::string ptype_ipv4::print() {
 	return res;
 }
 
-void ptype_ipv4::set_value(pkt_buffer *buf) {
+void ptype_ipv4::set_value(pkt_buffer *buf, std::size_t offset) {
 
-	const unsigned char *value = buf->read(sizeof(in_addr));
-
-	memcpy(&ip_, value, sizeof(in_addr));
+	 buf->read(&ip_, offset, sizeof(in_addr));
 }

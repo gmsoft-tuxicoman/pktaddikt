@@ -21,14 +21,14 @@ class proto_ethernet : public proto {
 
 	protected:
 
-		ptype_mac field_src;
-		ptype_mac field_dst;
-		ptype_uint16 field_type;
+		ptype_mac field_src_;
+		ptype_mac field_dst_;
+		ptype_uint16 field_type_;
 
 		proto_fields fields_ = {
-			{ "src", &field_src },
-			{ "dst", &field_dst },
-			{"type", &field_type } };
+			{ "src", &field_src_ },
+			{ "dst", &field_dst_ },
+			{"type", &field_type_ } };
 
 
 };

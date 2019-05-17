@@ -30,7 +30,7 @@ void input_pcap::read_packets() {
 		pkt_buffer *buf = new pkt_buffer_copy(phdr->len, static_cast<const unsigned char*>(data));
 		pkt *p = new pkt(buf, std::chrono::seconds{phdr->ts.tv_sec} + std::chrono::microseconds{phdr->ts.tv_usec});
 
-		p->add_proto(proto_numbers::number_type::dlt, DLT_EN10MB);
+		p->add_proto(proto::number_type::dlt, DLT_EN10MB);
 
 		p->process();
 

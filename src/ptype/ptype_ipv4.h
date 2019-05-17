@@ -2,8 +2,6 @@
 #ifndef __PTYPE_IPV4_H__
 #define __PTYPE_IPV4_H__
 
-#include <cstring>
-
 #include <netinet/in.h>
 
 #include "ptype.h"
@@ -19,7 +17,7 @@ class ptype_ipv4 : public ptype {
 
 		in_addr get_ip() const { return ip_; };
 		void set_ip(in_addr ip) { ip_ = ip; };
-		void set_value(pkt_buffer *buf);
+		void set_value(pkt_buffer *buf, std::size_t offset);
 
 	private:
 		in_addr ip_ = { 0 };

@@ -3,10 +3,9 @@
 #include "pkt.h"
 
 
-void pkt::add_proto(proto_numbers::number_type type, unsigned int id) {
+void pkt::add_proto(proto::number_type type, unsigned int id) {
 
-	proto_numbers proto_number;
-	proto *proto_type = proto_number.get_proto(type, id);
+	proto *proto_type = proto::get_proto(type, id);
 	if (!proto_type) {
 		// No matching protocol found
 		return;

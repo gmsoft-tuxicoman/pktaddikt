@@ -11,6 +11,7 @@
 
 
 #include "proto/proto_ethernet.h"
+#include "proto/proto_ipv4.h"
 
 const char *component_name_invalid_char = "\\/.%&=";
 
@@ -31,6 +32,7 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 
 	// Register all available proto
 	protocols_.insert(std::make_pair("ethernet", std::move(std::make_unique<proto_ethernet>())));
+	protocols_.insert(std::make_pair("ipv4", std::move(std::make_unique<proto_ipv4>())));
 
 	// Register proto api
 	//api_endpoint proto_list_api = [&] (rapidjson::Document &res, const rapidjson::Document &param) { return this->proto_list_api(res, param); };

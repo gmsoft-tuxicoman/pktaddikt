@@ -12,6 +12,7 @@ class application;
 #include "proto/proto.h"
 #include "httpd/httpd.h"
 #include "rapidjson/document.h"
+#include "tasks/main_task_executor.h"
 
 #define APPLICATION_HTTPD_DEFAULT_ADDRESS "0.0.0.0,::"
 #define APPLICATION_HTTPD_DEFAULT_PORT	8080
@@ -34,6 +35,8 @@ class application {
 
 	private:
 		bool running_ = true;
+
+		task_executor_ptr executor_;
 
 		std::unique_ptr<httpd> httpd_;
 

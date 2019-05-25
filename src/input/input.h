@@ -3,12 +3,15 @@
 
 #include <atomic>
 #include <thread>
+#include <deque>
 
+#include "pkt/pkt.h"
 #include "common/component.h"
+#include "tasks/task_serializer.h"
 
 class input : public component {
 	public:
-		input(const std::string& name): component(name) {};
+		input(const std::string& name, task_executor_ptr executor): component(name), executor_(executor), serializer_(executor) {};
 		virtual ~input() {};
 
 		virtual input* clone(const std::string &name) const { throw std::runtime_error("Cannot create input directly"); };
@@ -17,16 +20,26 @@ class input : public component {
 		virtual void break_loop() {};
 		void stop();
 
+		void process_packet(pkt *p, pa_task processing_done);
+		void process_packet_done(pkt *p);
+
 		enum running_status { idle, starting, running, stopping };
 		const running_status get_running_status() const { return running_status_; };
 
 	protected:
-		std::atomic<running_status> running_status_ = idle;
 		std::thread processing_thread_;
+		std::deque<pkt> pkts_;
+		std::atomic<unsigned int> pkts_count_ = 0;
+		task_serializer serializer_;
+		task_executor_ptr executor_;
 
 		virtual void open() = 0;
-		virtual void read_packets() = 0;
+		virtual pkt* read_packet() = 0;
 		virtual void close() = 0;
+
+	private:
+		std::atomic<running_status> running_status_ = idle;
+		void read_packets();
 };
 
 #endif

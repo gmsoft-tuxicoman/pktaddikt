@@ -1,5 +1,5 @@
-#ifndef __TASKS_TASK_EXECUTOR_H__
-#define __TASKS_TASK_EXECUTOR_H__
+#ifndef __TASK_EXECUTOR_H__
+#define __TASK_EXECUTOR_H__
 
 #include <memory>
 

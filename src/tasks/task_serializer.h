@@ -1,6 +1,6 @@
 
-#ifndef __TASKS_TASK_SERIALIZER__
-#define __TASKS_TASK_SERIALIZER__
+#ifndef __TASK_SERIALIZER__
+#define __TASK_SERIALIZER__
 
 
 #include "task_executor.h"

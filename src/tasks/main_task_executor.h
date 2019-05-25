@@ -1,5 +1,5 @@
-#ifndef __TASKS_MAIN_TASK_EXECUTOR__
-#define __TASKS_MAIN_TASK_EXECUTOR__
+#ifndef __MAIN_TASK_EXECUTOR__
+#define __MAIN_TASK_EXECUTOR__
 
 #include "task_executor.h"
 

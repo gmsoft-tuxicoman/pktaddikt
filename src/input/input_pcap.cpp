@@ -6,35 +6,28 @@
 
 #include "input_pcap.h"
 
-#include "pkt/pkt.h"
 #include "pkt/pkt_buffer.h"
 
 
-void input_pcap::read_packets() {
+pkt* input_pcap::read_packet() {
 
 
-	while (running_status_ == running) {
-		pcap_pkthdr *phdr;
-		const u_char *data;
-		int result = pcap_next_ex(pcap_, &phdr, &data);
-		std::cout << "Got packet of " << phdr->len << " with result " << result << std::endl;
+	pcap_pkthdr *phdr;
+	const u_char *data;
+	int result = pcap_next_ex(pcap_, &phdr, &data);
+	std::cout << "Got packet of " << phdr->len << " with result " << result << std::endl;
 
-		if (result < 0) { // Error or EOF
-			if (running_status_ == running) {
-				stop();
-			}
-			break;
-		}
-
-		// We need to copy the packet as pcap does not garantee that the data will still be avail on the next call to pcap_next_ex()
-		pkt_buffer *buf = new pkt_buffer_copy(phdr->len, static_cast<const unsigned char*>(data));
-		pkt *p = new pkt(buf, std::chrono::seconds{phdr->ts.tv_sec} + std::chrono::microseconds{phdr->ts.tv_usec});
-
-		p->add_proto(proto::number_type::dlt, DLT_EN10MB);
-
-		p->process();
-
+	if (result < 0) { // Error or EOF
+		return NULL;
 	}
+
+	// We need to copy the packet as pcap does not garantee that the data will still be avail on the next call to pcap_next_ex()
+	pkt_buffer *buf = new pkt_buffer_copy(phdr->len, static_cast<const unsigned char*>(data));
+	pkt *p = new pkt(buf, std::chrono::seconds{phdr->ts.tv_sec} + std::chrono::microseconds{phdr->ts.tv_usec}, executor_);
+
+	p->add_proto(proto::number_type::dlt, DLT_EN10MB);
+
+	return p;
 
 }
 
@@ -56,7 +49,7 @@ void input_pcap::close() {
 }
 
 
-input_pcap_interface::input_pcap_interface(const std::string &name = "pcap_interface") : input_pcap(name),
+input_pcap_interface::input_pcap_interface(const std::string &name, task_executor_ptr executor) : input_pcap(name, executor),
 	param_interface_("eth0", "Interface to listen to"),
 	param_promisc_("no", "Set the interface to promiscuous mode")
 {
@@ -94,7 +87,7 @@ void input_pcap_interface::open() {
 }
 
 
-input_pcap_file::input_pcap_file(const std::string &name = "pcap_file") : input_pcap(name),
+input_pcap_file::input_pcap_file(const std::string &name, task_executor_ptr executor) : input_pcap(name, executor),
 	param_file_("file,cap", "File in PCAP format")
 {
 

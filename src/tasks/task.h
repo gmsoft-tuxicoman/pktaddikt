@@ -1,6 +1,6 @@
 
-#ifndef __TASKS_TASK_H__
-#define __TASKS_TASK_H__
+#ifndef __TASK_H__
+#define __TASK_H__
 
 #include <functional>
 

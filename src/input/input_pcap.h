@@ -16,9 +16,9 @@
 class input_pcap : public input {
 
 	public:
-		input_pcap(const std::string& name) : input(name) {};
+		input_pcap(const std::string& name, task_executor_ptr executor) : input(name, executor) {};
 
-		void read_packets();
+		pkt *read_packet();
 		void break_loop();
 		void close();
 	protected:
@@ -30,8 +30,8 @@ class input_pcap : public input {
 class input_pcap_interface : public input_pcap {
 
 	public:
-		input_pcap_interface(const std::string &name);
-		input_pcap_interface* clone(const std::string &name) const { return new input_pcap_interface(name); };
+		input_pcap_interface(const std::string &name, task_executor_ptr executor);
+		input_pcap_interface* clone(const std::string &name) const { return new input_pcap_interface(name, executor_); };
 
 		void open();
 
@@ -44,8 +44,8 @@ class input_pcap_interface : public input_pcap {
 class input_pcap_file : public input_pcap {
 
 	public:
-		input_pcap_file(const std::string &name);
-		input_pcap_file* clone(const std::string &name) const { return new input_pcap_file(name); };
+		input_pcap_file(const std::string &name, task_executor_ptr executor);
+		input_pcap_file* clone(const std::string &name) const { return new input_pcap_file(name, executor_); };
 
 		void open();
 

@@ -1,15 +1,15 @@
 
-#include <iostream>
 #include <iomanip>
 #include <sstream>
 
 #include "ptype_mac.h"
+#include "logger.h"
 
 ptype_mac::ptype_mac() : ptype("mac") {};
 
 ptype_mac::ptype_mac(const std::string& val) : ptype("mac") {
 	if (!this->parse(val))
-		std::cout << "Error while parsing ptype mac default value" << std::endl;
+		LOG_WARN << "Error while parsing ptype mac default value";
 
 };
 

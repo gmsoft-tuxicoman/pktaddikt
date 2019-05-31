@@ -1,7 +1,5 @@
-
-#include <iostream>
-
 #include "input.h"
+#include "logger.h"
 
 void input::start() {
 
@@ -51,7 +49,7 @@ void input::process_packet_done(pkt *p) {
 
 	pkts_count_--;
 	if (!pkts_count_) {
-		std::cout << "Queue empty" << std::endl;
+		LOG_DEBUG << "Queue empty";
 	}
 	delete p;
 }

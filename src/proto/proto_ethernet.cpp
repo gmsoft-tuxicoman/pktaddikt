@@ -5,14 +5,11 @@
 #include "proto_ethernet.h"
 
 #include "pkt/pkt.h"
-
-#include <iostream>
+#include "logger.h"
 
 proto_ethernet::proto_ethernet(): proto("ethernet") { 
 
 	register_number(dlt, DLT_EN10MB, this);
-
-
 }
 
 void proto_ethernet::parse() {
@@ -33,7 +30,7 @@ void proto_ethernet::parse() {
 
 	pkt_->add_proto(proto::number_type::ethernet, ether_type);
 
-	std::cout << "ethernet : " << field_src_.print() << " -> " << field_dst_.print() << " | type: " << field_type_.print() << std::endl;
+	LOG_DEBUG << "ethernet : " << field_src_.print() << " -> " << field_dst_.print() << " | type: " << field_type_.print();
 
 
 }

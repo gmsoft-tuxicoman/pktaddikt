@@ -4,6 +4,7 @@
 #include <signal.h>
 
 #include "application.h"
+#include "logger.h"
 
 #define MAIN_LOOP_SLEEP_SEC 1
 
@@ -17,6 +18,7 @@ void signal_handler(int signal) {
 		case SIGINT:
 		case SIGTERM:
 		default:
+			// Do not use logger here as it might not be signal safe
 			std::cout << "Main process received signal " << signal << ", shutting down ..." << std::endl;
 			app->halt();
 			break;
@@ -87,5 +89,5 @@ int main(int argc, char *argv[]) {
 	// Cleanup the app object
 	delete app;
 
-	std::cout << "Finished" << std::endl;
+	LOG_INFO << "Finished";
 }

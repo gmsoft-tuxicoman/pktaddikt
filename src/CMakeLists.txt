@@ -1,5 +1,6 @@
 
-add_executable(pktaddikt main.cpp application.cpp application.h)
+add_executable(pktaddikt main.cpp application.cpp application.h logger.cpp
+	logger.h logger_def.h)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 

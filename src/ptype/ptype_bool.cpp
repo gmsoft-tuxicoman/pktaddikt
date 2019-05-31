@@ -1,15 +1,15 @@
 
 #include <algorithm>
 #include <cctype>
-#include <iostream>
 
+#include "logger.h"
 #include "ptype_bool.h"
 
 ptype_bool::ptype_bool() : ptype("bool") {};
 
 ptype_bool::ptype_bool(const std::string& val) : ptype("bool") {
 	if (!this->parse(val))
-		std::cout << "Error while parsing ptype bool default value" << std::endl;
+		LOG_WARN << "Error while parsing ptype bool default value";
 
 };
 

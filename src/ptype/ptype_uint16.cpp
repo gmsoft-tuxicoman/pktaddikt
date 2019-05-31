@@ -1,14 +1,14 @@
 
 #include <algorithm>
 #include <cctype>
-#include <iostream>
 
 #include "ptype_uint16.h"
+#include "logger.h"
 
 ptype_uint16::ptype_uint16() : ptype("uint16") {};
 ptype_uint16::ptype_uint16(const std::string& val) : ptype("uint16") {
 	if (!this->parse(val))
-		std::cout << "Error while parsing ptype uint16 default value" << std::endl;
+		LOG_WARN << "Error while parsing ptype uint16 default value";
 
 };
 

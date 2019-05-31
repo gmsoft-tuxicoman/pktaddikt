@@ -1,5 +1,4 @@
 
-#include <iostream>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -7,6 +6,7 @@
 
 #include <arpa/inet.h>
 
+#include "logger.h"
 #include "httpd.h"
 #include "http_exception.h"
 
@@ -62,7 +62,7 @@ void httpd::_static_mhd_request_completed(void *cls, struct MHD_Connection *conn
 
 bool httpd::bind(const std::string& addr, uint16_t port) {
 
-	std::cout << "Binding to addr(s) " << addr << " on port " << port << std::endl;
+	LOG_INFO << "Binding to addr(s) " << addr << " on port " << port;
 
 
 	std::size_t start = 0, end;
@@ -87,7 +87,7 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 		start = end;
 
 		if (getaddrinfo(cur_addr.c_str(), NULL, &hints, &res) < 0) {
-			std::cout << "Cannot get info for address " << cur_addr << ". Ignoring," << std::endl;
+			LOG_WARN << "Cannot get info for address " << cur_addr << ". Ignoring,";
 			continue;
 		}
 
@@ -118,7 +118,7 @@ bool httpd::bind(const std::string& addr, uint16_t port) {
 			if (d) {
 				daemons_.push_back({d, MHD_stop_daemon});
 			} else {
-				std::cout << "Error while starting http daemon on address \"" << cur_addr << "\" and port " << port << std::endl;
+				LOG_ERROR << "Error while starting http daemon on address \"" << cur_addr << "\" and port " << port;
 			}
 		}
 
@@ -137,7 +137,7 @@ int httpd::mhd_answer_new_connection(http_connection *con, const char *method, c
 
 	std::string_view request_method{method};
 	std::string_view request_url{url};
-	std::cout << "GOT REQUEST | " << request_method << " " << request_url << std::endl;
+	LOG_DEBUG << "GOT REQUEST | " << request_method << " " << request_url;
 
 	if (!request_url.compare(0, api_url.size(), api_url)) {
 
@@ -238,7 +238,6 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 
 
 	} else if (con->type == status) {
-		std::cout << "GET A STATUS CALL : " << url << std::endl;
 		std::string_view replystr = "<html><body>It works !</body></html>";
 
 		con->response = MHD_create_response_from_buffer(replystr.size(), (void*)(replystr.data()), MHD_RESPMEM_MUST_COPY);
@@ -252,22 +251,22 @@ int httpd::mhd_answer_connection(struct MHD_Connection *connection, const char *
 	}
 
 	if (!con->response) {
-		std::cout << "Error while creating response for request \"" << url << "\"" << std::endl;
+		LOG_ERROR << "Error while creating response for request \"" << url << "\"";
 		return MHD_NO;
 	}
 
 	if (!con->mime_type.empty() && MHD_add_response_header(con->response, MHD_HTTP_HEADER_CONTENT_TYPE, con->mime_type.c_str()) == MHD_NO) {
-		std::cout << "Error, could not add " MHD_HTTP_HEADER_CONTENT_TYPE " header to the response" << std::endl;
+		LOG_ERROR << "Error, could not add " MHD_HTTP_HEADER_CONTENT_TYPE " header to the response";
 		return MHD_NO;
 	}
 
 	if (MHD_add_response_header(con->response, MHD_HTTP_HEADER_SERVER, HTTPD_SERVER_STRING) == MHD_NO) {
-		std::cout << "Error, could not add " MHD_HTTP_HEADER_SERVER " header to the response" << std::endl;
+		LOG_ERROR << "Error, could not add " MHD_HTTP_HEADER_SERVER " header to the response";
 		return MHD_NO;
 	}
 
 	if (MHD_queue_response(connection, con->status_code, con->response) == MHD_NO) {
-		std::cout << "Error, could not queue HTTP response" << std::endl;
+		LOG_ERROR << "Error, could not queue HTTP response";
 		return MHD_NO;
 	}
 

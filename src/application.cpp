@@ -2,7 +2,6 @@
 
 #include <thread>
 #include <yaml.h>
-#include <iostream>
 
 #include "application.h"
 #include "httpd/http_exception.h"
@@ -13,11 +12,16 @@
 #include "proto/proto_ethernet.h"
 #include "proto/proto_ipv4.h"
 
+#include "logger.h"
+
 const char *component_name_invalid_char = "\\/.%&=";
 
 application::application() : httpd_(std::make_unique<httpd>(this)) {
 
 	executor_ = std::make_shared<main_task_executor>();
+
+	// Init the logger
+	logger_ = new logger(executor_);
 
 	// Register all available inputs
 	input_templates_.insert(std::make_pair("pcap_interface", std::move(std::make_unique<input_pcap_interface> ("pcap_interface", executor_))));
@@ -57,12 +61,12 @@ bool application::load_config(std::string &file) {
 	try {
 		config = YAML::LoadFile(file);
 	} catch (const std::exception& e) {
-		std::cout << "Unable to load config file : " << e.what() << std::endl;
+		LOG_ERROR << "Unable to load config file : " << e.what();
 		return false;
 	}
 
 	for(YAML::const_iterator it = config.begin(); it != config.end(); ++it) {
-		std::cout << "Got " << it->first.as<std::string>() << std::endl;
+		LOG_DEBUG << "Got " << it->first.as<std::string>();
 	}
 
 
@@ -194,9 +198,9 @@ int application::api_input_create(rapidjson::Document &res, const rapidjson::Doc
 
 		res.AddMember("msg", "Input added", res.GetAllocator());
 
-		std::cout << "Input " << name << " of type " << template_name << " added" << std::endl;
+		LOG_INFO << "Input " << name << " of type " << template_name << " added";
 	} catch (std::exception &e) {
-		std::cout << "Error while adding input " << name << " : " << e.what() << std::endl;
+		LOG_ERROR << "Error while adding input " << name << " : " << e.what();
 		throw http_exception(MHD_HTTP_INTERNAL_SERVER_ERROR, std::string("Error while adding the new input : ") + e.what());
 	}
 

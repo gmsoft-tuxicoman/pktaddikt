@@ -1,12 +1,11 @@
 
-
-
-#include <iostream>
 #include <csignal>
 
 #include "input_pcap.h"
 
 #include "pkt/pkt_buffer.h"
+
+#include "logger.h"
 
 
 pkt* input_pcap::read_packet() {
@@ -15,7 +14,7 @@ pkt* input_pcap::read_packet() {
 	pcap_pkthdr *phdr;
 	const u_char *data;
 	int result = pcap_next_ex(pcap_, &phdr, &data);
-	std::cout << "Got packet of " << phdr->len << " with result " << result << std::endl;
+	LOG_DEBUG << "Got packet of " << phdr->len << " with result " << result;
 
 	if (result < 0) { // Error or EOF
 		return NULL;
@@ -72,7 +71,7 @@ void input_pcap_interface::open() {
 
 	int err = pcap_set_promisc(pcap_, param_promisc_.ptype().get_value());
 	if (err) {
-		std::cout << "Error while setting promisc mode : " << pcap_statustostr(err) << std::endl;
+		LOG_ERROR << "Error while setting promisc mode : " << pcap_statustostr(err);
 	}
 
 	err = pcap_activate(pcap_);
@@ -80,10 +79,10 @@ void input_pcap_interface::open() {
 	if (err < 0) {
 		throw std::runtime_error(std::string("Error while activating pcap : ") + pcap_statustostr(err));
 	} if (err > 0) {
-		std::cout << std::string("Warning while activating pcap : ") + pcap_statustostr(err) << std::endl;
+		LOG_WARN << "Warning while activating pcap : " << pcap_statustostr(err);
 	}
 
-	std::cout << "Interface " << interface << " open" << std::endl;
+	LOG_INFO << "Interface " << interface << " open";
 }
 
 
@@ -105,5 +104,5 @@ void input_pcap_file::open() {
 		throw std::runtime_error("Error opening file " + file + " : " + errbuff);
 	}
 
-	std::cout << "File " << file << " open" << std::endl;
+	LOG_INFO << "File " << file << " open";
 }

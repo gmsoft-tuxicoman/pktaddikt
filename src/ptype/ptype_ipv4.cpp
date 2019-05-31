@@ -1,17 +1,14 @@
 
-#include <iostream>
-#include <iomanip>
-#include <sstream>
-
 #include <arpa/inet.h>
 
 #include "ptype_ipv4.h"
+#include "logger.h"
 
 ptype_ipv4::ptype_ipv4() : ptype("ipv4") {};
 
 ptype_ipv4::ptype_ipv4(const std::string& val) : ptype("ipv4") {
 	if (!this->parse(val))
-		std::cout << "Error while parsing ptype ipv4 default value" << std::endl;
+		LOG_WARN << "Error while parsing ptype ipv4 default value";
 
 };
 

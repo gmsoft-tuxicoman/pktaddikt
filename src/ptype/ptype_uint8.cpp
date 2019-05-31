@@ -1,14 +1,14 @@
 
 #include <algorithm>
 #include <cctype>
-#include <iostream>
 
 #include "ptype_uint8.h"
+#include "logger.h"
 
 ptype_uint8::ptype_uint8() : ptype("uint8") {};
 ptype_uint8::ptype_uint8(const std::string& val) : ptype("uint8") {
 	if (!this->parse(val))
-		std::cout << "Error while parsing ptype uint8 default value" << std::endl;
+		LOG_WARN << "Error while parsing ptype uint8 default value";
 
 };
 

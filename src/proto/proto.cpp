@@ -21,3 +21,19 @@ proto* proto::get_proto(number_type type, unsigned int id) {
 
 	return nullptr;
 }
+
+void proto::parse() {
+
+	if (parse_flags_ & parse_flag_pre) {
+		try {
+			parse_pre_session();
+		} catch (const std::out_of_range& e) {
+			parse_status_ = invalid;
+		}
+
+		if (parse_status_ > ok) {
+			return;
+		}
+	}
+
+}

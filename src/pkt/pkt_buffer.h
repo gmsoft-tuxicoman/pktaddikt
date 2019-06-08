@@ -14,6 +14,7 @@ class pkt_buffer {
 		virtual ~pkt_buffer() {};
 
 		std::size_t remaining();
+		void set_remaining(std::size_t remaining);
 
 		uint8_t read_bits8(std::size_t bit_offset, std::size_t bit_len);
 

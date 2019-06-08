@@ -11,11 +11,13 @@ class proto_ipv4 : public proto {
 	public:
 
 		proto_ipv4();
-		proto_ipv4(pkt *pkt): proto(pkt) {};
+		proto_ipv4(pkt *pkt): proto(pkt, parse_flag_pre) {};
 
 		proto* factory(pkt *pkt) { return new proto_ipv4(pkt); };
 
-		void parse();
+		void parse_pre_session();
+		void parse_fetch_session();
+		void parse_in_session();
 		
 		enum fields_id { src, dst, protocol, tos, ttl };
 

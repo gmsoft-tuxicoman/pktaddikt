@@ -17,11 +17,11 @@ void pkt::add_proto(proto::number_type type, unsigned int id) {
 }
 
 
-void pkt::process(pa_task process_packet_done) {
+void pkt::process(pa_task parse_packet_done) {
 
 	for (auto it = proto_stack_.begin(); it != proto_stack_.end(); it++) {
 		it->get()->parse();
 	}
 
-	executor_->enqueue(process_packet_done);
+	executor_->enqueue(parse_packet_done);
 }

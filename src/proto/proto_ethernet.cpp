@@ -12,7 +12,7 @@ proto_ethernet::proto_ethernet(): proto("ethernet") {
 	register_number(dlt, DLT_EN10MB, this);
 }
 
-void proto_ethernet::parse() {
+void proto_ethernet::parse_pre_session() {
 
 	pkt_buffer *buf = pkt_->get_buffer();
 
@@ -32,5 +32,6 @@ void proto_ethernet::parse() {
 
 	LOG_DEBUG << "ethernet : " << field_src_.print() << " -> " << field_dst_.print() << " | type: " << field_type_.print();
 
+	this->parse_status_ = ok;
 
 }

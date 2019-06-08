@@ -49,3 +49,11 @@ void pkt_buffer::boundary_check(std::size_t size, std::size_t offset) {
 	}
 }
 
+std::size_t pkt_buffer::remaining() {
+	return end_ - buff_;
+}
+
+void pkt_buffer::set_remaining(std::size_t remaining) {
+	boundary_check(remaining, 0);
+	end_ = buff_ + remaining;
+}

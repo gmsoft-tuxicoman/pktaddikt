@@ -24,4 +24,12 @@ class ptype_uint16 : public ptype {
 
 };
 
+namespace std {
+	template <> struct hash<ptype_uint16> {
+		std::size_t operator() (ptype_uint16 const &p) const noexcept {
+			return std::hash<uint16_t>{} (p.get_value());
+		}
+	};
+}
+
 #endif

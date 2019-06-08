@@ -22,4 +22,12 @@ class ptype_string : public ptype {
 
 };
 
+namespace std {
+	template <> struct hash<ptype_string> {
+		std::size_t operator() (ptype_string const &p) const noexcept {
+			return std::hash<std::string>{} (p.get_value());
+		}
+	};
+}
+
 #endif

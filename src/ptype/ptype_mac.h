@@ -24,4 +24,21 @@ class ptype_mac : public ptype {
 
 };
 
+namespace std {
+	template <> struct hash<ptype_mac> {
+		std::size_t operator()(ptype_mac const &p) const noexcept {
+			std::size_t ret = 0;
+			if (sizeof(std::size_t) > 6) {
+				memcpy(&ret, p.get_value(), 6);
+			} else {
+				const unsigned char *val = p.get_value();
+				for (int i = 0; i < 6; i++) {
+					ret ^= (std::size_t)val[i] << ( 8 * (i % sizeof(std::size_t)));
+				}
+			}
+			return ret;
+		}
+	};
+}
+
 #endif

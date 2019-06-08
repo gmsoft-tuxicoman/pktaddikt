@@ -41,3 +41,11 @@ void ptype_uint8::set_value(pkt_buffer *buf, std::size_t offset) {
 	value_ = buf->read_8(offset);
 
 }
+
+namespace std {
+	template <> struct hash<ptype_uint8> {
+		std::size_t operator() (ptype_uint8 const &p) const noexcept {
+			return std::hash<uint8_t>{} (p.get_value());
+		}
+	};
+}

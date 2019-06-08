@@ -24,4 +24,12 @@ class ptype_ipv4 : public ptype {
 
 };
 
+namespace std {
+	template <> struct hash<ptype_ipv4> {
+		std::size_t operator()(ptype_ipv4 const &p) const noexcept {
+			return std::hash<uint32_t>{}(p.get_ip().s_addr);
+		}
+	};
+}
+
 #endif

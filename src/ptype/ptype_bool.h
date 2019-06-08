@@ -22,4 +22,11 @@ class ptype_bool : public ptype {
 
 };
 
+namespace std {
+	template <> struct hash<ptype_bool> {
+		std::size_t operator()(ptype_bool const &p) const noexcept {
+			return std::hash<bool>{}(p.get_value());
+		}
+	};
+}
 #endif

@@ -7,13 +7,15 @@
 #include "pkt/pkt.h"
 #include "logger.h"
 
-proto_ipv4::proto_ipv4(): proto("ipv4") { 
+void proto_ipv4::register_number() {
 
-	register_number(dlt, DLT_RAW, this);
-	register_number(dlt, DLT_IPV4, this);
-	register_number(ethernet, 0x800, this);
-	register_number(ip, IPPROTO_IPIP, this);
-	register_number(ppp, 0x21, this);
+	proto_factory factory = [] (pkt *pkt) { return new proto_ipv4(pkt); };
+
+	proto_number().register_number(proto_number::type::dlt, DLT_RAW, factory);
+	proto_number().register_number(proto_number::type::dlt, DLT_IPV4, factory);
+	proto_number().register_number(proto_number::type::ethernet, 0x800, factory);
+	proto_number().register_number(proto_number::type::ip, IPPROTO_IPIP, factory);
+	proto_number().register_number(proto_number::type::ppp, 0x21, factory);
 }
 
 void proto_ipv4::parse_pre_session() {
@@ -66,15 +68,11 @@ void proto_ipv4::parse_pre_session() {
 	// Byte 16-19 : daddr
 	field_src_.set_value(buf, 16);
 
-	pkt_->add_proto(proto::number_type::ip, ip_proto);
+	pkt_->add_proto(proto_number::type::ip, ip_proto);
 
 	LOG_DEBUG << "ipv4 : " << field_src_.print() << " -> " << field_dst_.print() << " | proto: " << field_proto_.print();
 }
 
-void proto_ipv4::parse_fetch_session() {
-
-
-}
 
 void proto_ipv4::parse_in_session() {
 

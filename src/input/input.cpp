@@ -29,7 +29,8 @@ void input::read_packets() {
 
 		auto process_packet_done = [this, p] { this->process_packet_done(p); };
 
-		executor_->enqueue([this, p, process_packet_done] { this->process_packet(p, std::move(process_packet_done)); });
+		//executor_->enqueue([this, p, process_packet_done] { this->process_packet(p, std::move(process_packet_done)); });
+		process_packet(p, std::move(process_packet_done));
 
 	}
 

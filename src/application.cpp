@@ -37,8 +37,10 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 
 
 	// Register all available proto
-	protocols_.insert(std::make_pair("ethernet", std::move(std::make_unique<proto_ethernet>())));
-	protocols_.insert(std::make_pair("ipv4", std::move(std::make_unique<proto_ipv4>())));
+	protocols_.insert(std::make_pair("ethernet", std::move(std::make_unique<proto_ethernet>(nullptr))));
+	proto_ethernet::register_number();
+	protocols_.insert(std::make_pair("ipv4", std::move(std::make_unique<proto_ipv4>(nullptr))));
+	proto_ipv4::register_number();
 
 	// Register proto api
 	//api_endpoint proto_list_api = [&] (rapidjson::Document &res, const rapidjson::Document &param) { return this->proto_list_api(res, param); };

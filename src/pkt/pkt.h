@@ -18,7 +18,7 @@ class pkt {
 
 		pkt_buffer *get_buffer() { return buf_; };
 
-		void add_proto(proto::number_type type, unsigned int id);
+		void add_proto(proto_number::type type, unsigned int id);
 
 		void process(pa_task process_packet_done);
 

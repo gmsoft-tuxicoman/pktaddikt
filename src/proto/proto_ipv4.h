@@ -2,24 +2,33 @@
 #define __PROTO_IPV4_H__
 
 #include "proto.h"
+#include "proto_session.h"
 
 #include "ptype/ptype_ipv4.h"
 #include "ptype/ptype_uint8.h"
 
-class proto_ipv4 : public proto {
+
+class proto_ipv4_session : public proto_session {
 
 	public:
+		int some_value;
+};
 
-		proto_ipv4();
-		proto_ipv4(pkt *pkt): proto(pkt, parse_flag_pre) {};
 
-		proto* factory(pkt *pkt) { return new proto_ipv4(pkt); };
+class proto_ipv4 : public proto, public proto_session_both<ptype_ipv4> {
+
+	public:
+		static void register_number();
+
+		proto_ipv4(pkt *pkt): proto(pkt, parse_flag_pre), proto_session_both(field_src_, field_dst_) {};
+
+		static proto* factory(pkt *pkt) { return new proto_ipv4(pkt); };
 
 		void parse_pre_session();
-		void parse_fetch_session();
 		void parse_in_session();
 		
 		enum fields_id { src, dst, protocol, tos, ttl };
+
 
 	protected:
 

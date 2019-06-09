@@ -10,10 +10,11 @@ class proto_ethernet : public proto {
 
 	public:
 
-		proto_ethernet();
+		static void register_number();
+
 		proto_ethernet(pkt *pkt): proto(pkt, parse_flag_pre) {};
 
-		proto* factory(pkt *pkt) { return new proto_ethernet(pkt); };
+		static proto* factory(pkt *pkt) { return new proto_ethernet(pkt); };
 
 		void parse_pre_session();
 		

@@ -4,18 +4,18 @@
 #include "proto.h"
 
 
-proto_numbers_vector proto::numbers_[PROTO_NUMBER_TYPE_COUNT];
+proto_numbers_vector proto_number::numbers_[PROTO_NUMBER_TYPE_COUNT];
 
-void proto::register_number(number_type type, unsigned int id, proto *proto) {
+void proto_number::register_number(type type, unsigned int id, proto_factory f) {
 	assert(type <= PROTO_NUMBER_TYPE_COUNT);
-	numbers_[type].push_back({id, proto});
+	numbers_[type].push_back({id, f});
 }
 
-proto* proto::get_proto(number_type type, unsigned int id) {
+proto* proto_number::get_proto(type type, unsigned int id, pkt *pkt) {
 
 	for (auto const& num : numbers_[type]) {
 		if (num.first == id) {
-			return num.second;
+			return num.second(pkt);
 		}
 	}
 

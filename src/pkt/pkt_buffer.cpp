@@ -54,6 +54,8 @@ std::size_t pkt_buffer::remaining() {
 }
 
 void pkt_buffer::set_remaining(std::size_t remaining) {
-	boundary_check(remaining, 0);
+
+	// Use offset -1 to end up at the end of the packet if the provided lenght is the remaining size
+	boundary_check(remaining, -1);
 	end_ = buff_ + remaining;
 }

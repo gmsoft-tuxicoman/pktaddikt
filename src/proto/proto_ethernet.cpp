@@ -7,9 +7,10 @@
 #include "pkt/pkt.h"
 #include "logger.h"
 
-proto_ethernet::proto_ethernet(): proto("ethernet") { 
+void proto_ethernet::register_number() {
 
-	register_number(dlt, DLT_EN10MB, this);
+	proto_factory factory = [] (pkt* pkt) { return new proto_ethernet(pkt); };
+	proto_number().register_number(proto_number::type::dlt, DLT_EN10MB, factory);
 }
 
 void proto_ethernet::parse_pre_session() {
@@ -28,7 +29,7 @@ void proto_ethernet::parse_pre_session() {
 
 	buf->consume(14);
 
-	pkt_->add_proto(proto::number_type::ethernet, ether_type);
+	pkt_->add_proto(proto_number::type::ethernet, ether_type);
 
 	LOG_DEBUG << "ethernet : " << field_src_.print() << " -> " << field_dst_.print() << " | type: " << field_type_.print();
 

@@ -7,9 +7,11 @@
 #include "pkt/pkt.h"
 #include "logger.h"
 
+proto_ipv4_session_both::proto_session_list proto_ipv4::sessions_;
+
 void proto_ipv4::register_number() {
 
-	proto_factory factory = [] (pkt *pkt) { return new proto_ipv4(pkt); };
+	proto_factory factory = [] (pkt *pkt, task_executor_ptr executor) { return new proto_ipv4(pkt, std::move(executor)); };
 
 	proto_number().register_number(proto_number::type::dlt, DLT_RAW, factory);
 	proto_number().register_number(proto_number::type::dlt, DLT_IPV4, factory);

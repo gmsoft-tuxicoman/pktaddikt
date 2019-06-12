@@ -2,7 +2,7 @@
 #define __PKT_H__
 
 #include <chrono>
-#include <list>
+#include <vector>
 #include <memory>
 
 #include "proto/proto.h"
@@ -10,6 +10,8 @@
 #include "tasks/task_executor.h"
 
 using pkt_timestamp = std::chrono::duration<uint64_t, std::micro>;
+
+using pkt_proto_stack = std::vector<std::unique_ptr<proto>>;
 
 class pkt {
 
@@ -23,14 +25,19 @@ class pkt {
 		void process(pa_task process_packet_done);
 
 	protected:
+		void process_next();
+
 		pkt_timestamp ts_;
 
 		// FIXME use shared_ptr ?
 		pkt_buffer *buf_;
 
-		std::list<std::unique_ptr<proto>> proto_stack_;
+		pkt_proto_stack::size_type cur_proto_ = 0;
+		pkt_proto_stack proto_stack_;
 
 		task_executor_ptr executor_;
+
+		pa_task process_packet_done_;
 
 };
 

@@ -21,7 +21,7 @@ bool ptype_ipv4::parse(const std::string& val) {
 }
 
 
-const std::string ptype_ipv4::print() {
+const std::string ptype_ipv4::print() const {
 	
 	std::string res(inet_ntoa(ip_));
 	return res;

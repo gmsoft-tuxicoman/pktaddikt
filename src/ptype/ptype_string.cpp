@@ -15,7 +15,7 @@ bool ptype_string::parse(const std::string& val) {
 }
 
 
-const std::string ptype_string::print() {
+const std::string ptype_string::print() const {
 	return value_;
 }
 

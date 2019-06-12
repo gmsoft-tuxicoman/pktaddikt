@@ -13,7 +13,7 @@ class ptype_string : public ptype {
 		ptype_string(const std::string& val);
 
 		bool parse(const std::string& val) override;
-		const std::string print() override;
+		const std::string print() const override;
 
 		const std::string& get_value() const { return value_; };
 

@@ -16,7 +16,7 @@ class ptype_ipv4 : public ptype {
 		ptype_ipv4(const std::string& val);
 
 		bool parse(const std::string& val) override;
-		const std::string print() override;
+		const std::string print() const override;
 
 		in_addr get_ip() const { return ip_; };
 		void set_ip(in_addr ip) { ip_ = ip; };
@@ -29,6 +29,8 @@ class ptype_ipv4 : public ptype {
 
 };
 
+using ptype_ipv4_pair = std::pair<ptype_ipv4, ptype_ipv4>;
+
 namespace std {
 	template <> struct hash<ptype_ipv4> {
 		std::size_t operator()(ptype_ipv4 const &p) const noexcept {
@@ -36,8 +38,8 @@ namespace std {
 		}
 	};
 
-	template <> struct hash<std::pair<ptype_ipv4, ptype_ipv4>> {
-		std::size_t operator()(std::pair<ptype_ipv4, ptype_ipv4> const &p) const noexcept {
+	template <> struct hash<ptype_ipv4_pair> {
+		std::size_t operator()(ptype_ipv4_pair const &p) const noexcept {
 			uint32_t first = p.first.get_ip().s_addr;
 			uint32_t second = p.second.get_ip().s_addr;
 			if (second < first) {
@@ -51,6 +53,13 @@ namespace std {
 				assert(sizeof(std::size_t) >= 4);
 				return first ^ bswap_32(second);
 			}
+		}
+	};
+
+	template <> struct equal_to<ptype_ipv4_pair> {
+		bool operator()(const ptype_ipv4_pair &lhs, const ptype_ipv4_pair &rhs) const {
+			return (((lhs.first.get_ip().s_addr == rhs.first.get_ip().s_addr) && (lhs.second.get_ip().s_addr == rhs.second.get_ip().s_addr))
+				|| ((lhs.first.get_ip().s_addr == rhs.second.get_ip().s_addr) && (lhs.second.get_ip().s_addr == rhs.first.get_ip().s_addr)));
 		}
 	};
 }

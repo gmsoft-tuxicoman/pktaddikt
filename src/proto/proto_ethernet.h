@@ -12,9 +12,9 @@ class proto_ethernet : public proto {
 
 		static void register_number();
 
-		proto_ethernet(pkt *pkt): proto(pkt, parse_flag_pre) {};
+		proto_ethernet(pkt *pkt, task_executor_ptr executor): proto(pkt, parse_flag_pre, executor) {};
 
-		static proto* factory(pkt *pkt) { return new proto_ethernet(pkt); };
+		static proto* factory(pkt *pkt, task_executor_ptr executor) { return new proto_ethernet(pkt, executor); };
 
 		void parse_pre_session();
 		

@@ -5,7 +5,7 @@
 
 void pkt::add_proto(proto_number::type type, unsigned int id) {
 
-	proto *proto_type = proto_number::get_proto(type, id, this);
+	proto *proto_type = proto_number::get_proto(type, id, this, executor_);
 	if (!proto_type) {
 		// No matching protocol found
 		return;
@@ -17,11 +17,22 @@ void pkt::add_proto(proto_number::type type, unsigned int id) {
 }
 
 
-void pkt::process(pa_task parse_packet_done) {
+void pkt::process(pa_task process_packet_done) {
 
-	for (auto it = proto_stack_.begin(); it != proto_stack_.end(); it++) {
-		it->get()->parse();
+	process_packet_done_ = process_packet_done;
+	process_next();
+}
+
+void pkt::process_next() {
+
+	if (cur_proto_ >= proto_stack_.size()) {
+		// Processing of the packet is done
+		process_packet_done_();
+		return;
 	}
 
-	executor_->enqueue(parse_packet_done);
+	auto process_proto_next = [this]  { this->process_next(); };
+
+	proto_stack_.at(cur_proto_++)->parse(process_proto_next);
+
 }

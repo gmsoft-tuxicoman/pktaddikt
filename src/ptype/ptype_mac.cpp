@@ -24,7 +24,7 @@ bool ptype_mac::parse(const std::string& val) {
 }
 
 
-const std::string ptype_mac::print() {
+const std::string ptype_mac::print() const {
 
 	std::ostringstream stream;
 	stream << std::setfill('0') << std::right << std::setw(2) << std::hex << (int)value_[0] << ":" << (int)value_[1] << ":" << (int)value_[2] << ":" << (int)value_[3] << ":" << (int)value_[4] << ":" << (int)value_[5];

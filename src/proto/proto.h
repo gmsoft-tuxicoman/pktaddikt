@@ -5,26 +5,26 @@
 #include <functional>
 #include <map>
 #include "ptype/ptype.h"
+#include "tasks/task_executor.h"
 
 class pkt;
 class proto;
 using proto_fields = std::vector<std::pair<std::string, ptype*>>;
-using proto_factory = std::function<proto*(pkt*)>;
+using proto_factory = std::function<proto*(pkt*, task_executor_ptr)>;
 
 class proto {
 
 	public:
-		proto(pkt* pkt, unsigned int parse_flags): pkt_(pkt), parse_flags_(parse_flags) {};
+		proto(pkt* pkt, unsigned int parse_flags, task_executor_ptr executor): pkt_(pkt), parse_flags_(parse_flags), executor_(executor) {};
 
 		enum parse_status { todo, ok, stop, invalid, error};
 		parse_status get_parse_status() { return parse_status_; };
 
-		void parse();
+		void parse(pa_task parse_done);
 
 		virtual void parse_pre_session() {};
-		virtual void parse_fetch_session() {};
+		virtual void parse_fetch_session(pa_task fetch_session_done) {};
 		virtual void parse_in_session() {};
-
 
 	protected:
 
@@ -42,6 +42,13 @@ class proto {
 
 		parse_status parse_status_ = todo;
 
+	private:
+		task_executor_ptr executor_;
+
+		pa_task parse_done_;
+
+		void fetch_session_done();
+
 
 
 };
@@ -54,7 +61,7 @@ class proto_number {
 		enum type { dlt, ethernet, ip, ppp, PROTO_NUMBER_TYPE_COUNT};
 
 		void register_number(type type, unsigned int id, proto_factory f);
-		static proto* get_proto(type type, unsigned int id, pkt *pkt);
+		static proto* get_proto(type type, unsigned int id, pkt *pkt, task_executor_ptr executor);
 
 	protected:
 		static proto_numbers_vector numbers_[PROTO_NUMBER_TYPE_COUNT];

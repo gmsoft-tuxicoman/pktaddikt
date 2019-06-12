@@ -31,7 +31,7 @@ bool ptype_uint8::parse(const std::string& val) {
 }
 
 
-const std::string ptype_uint8::print() {
+const std::string ptype_uint8::print() const {
 
 	return std::to_string(value_);
 }

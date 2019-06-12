@@ -8,27 +8,30 @@
 #include "ptype/ptype_uint8.h"
 
 
-class proto_ipv4_session : public proto_session {
+class proto_ipv4_session {
 
 	public:
 		int some_value;
 };
 
+using proto_ipv4_session_both = proto_session_both<ptype_ipv4, proto_ipv4_session>;
 
-class proto_ipv4 : public proto, public proto_session_both<ptype_ipv4> {
+class proto_ipv4 : public proto, public proto_ipv4_session_both {
 
 	public:
 		static void register_number();
 
-		proto_ipv4(pkt *pkt): proto(pkt, parse_flag_pre), proto_session_both(field_src_, field_dst_) {};
+		proto_ipv4(pkt *pkt, task_executor_ptr executor): proto(pkt, parse_flag_pre | parse_flag_fetch, executor), proto_session_both(field_src_, field_dst_, sessions_, executor) {};
 
-		static proto* factory(pkt *pkt) { return new proto_ipv4(pkt); };
+		static proto* factory(pkt *pkt, task_executor_ptr executor) { return new proto_ipv4(pkt, executor); };
 
 		void parse_pre_session();
+		void parse_fetch_session(pa_task fetch_session_done) { this->fetch_session(fetch_session_done); };
 		void parse_in_session();
 		
 		enum fields_id { src, dst, protocol, tos, ttl };
 
+		static proto_ipv4_session_both::proto_session_list sessions_;
 
 	protected:
 

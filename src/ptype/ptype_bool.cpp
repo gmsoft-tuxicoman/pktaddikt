@@ -30,7 +30,7 @@ bool ptype_bool::parse(const std::string& val) {
 }
 
 
-const std::string ptype_bool::print() {
+const std::string ptype_bool::print() const {
 	if (value_)
 		return "yes";
 

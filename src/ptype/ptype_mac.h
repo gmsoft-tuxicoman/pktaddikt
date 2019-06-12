@@ -13,7 +13,7 @@ class ptype_mac : public ptype {
 		ptype_mac(const std::string& val);
 
 		bool parse(const std::string& val) override;
-		const std::string print() override;
+		const std::string print() const override;
 
 		const unsigned char* get_value() const { return value_; };
 		void set_value(const unsigned char* val) { memcpy(value_, val, 6); };

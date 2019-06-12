@@ -13,7 +13,7 @@ class ptype_uint16 : public ptype {
 		ptype_uint16(const std::string& val);
 
 		bool parse(const std::string& val) override;
-		const std::string print() override;
+		const std::string print() const override;
 
 		uint16_t get_value() const { return value_; };
 		void set_value(uint16_t val) { value_ = val; };

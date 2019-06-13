@@ -9,8 +9,7 @@
 
 void proto_ethernet::register_number() {
 
-	proto_factory factory = [] (pkt* pkt, task_executor_ptr executor) { return new proto_ethernet(pkt, executor); };
-	proto_number().register_number(proto_number::type::dlt, DLT_EN10MB, factory);
+	proto_number().register_number(proto_number::type::dlt, DLT_EN10MB, proto_ethernet::factory);
 }
 
 void proto_ethernet::parse_pre_session() {

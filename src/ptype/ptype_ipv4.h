@@ -39,7 +39,7 @@ namespace std {
 	};
 
 	template <> struct hash<ptype_ipv4_pair> {
-		std::size_t operator()(ptype_ipv4_pair const &p) const noexcept {
+		std::size_t operator() (ptype_ipv4_pair const &p) const noexcept {
 			uint32_t first = p.first.get_ip().s_addr;
 			uint32_t second = p.second.get_ip().s_addr;
 			if (second < first) {
@@ -57,7 +57,7 @@ namespace std {
 	};
 
 	template <> struct equal_to<ptype_ipv4_pair> {
-		bool operator()(const ptype_ipv4_pair &lhs, const ptype_ipv4_pair &rhs) const {
+		bool operator() (const ptype_ipv4_pair &lhs, const ptype_ipv4_pair &rhs) const {
 			return (((lhs.first.get_ip().s_addr == rhs.first.get_ip().s_addr) && (lhs.second.get_ip().s_addr == rhs.second.get_ip().s_addr))
 				|| ((lhs.first.get_ip().s_addr == rhs.second.get_ip().s_addr) && (lhs.second.get_ip().s_addr == rhs.first.get_ip().s_addr)));
 		}

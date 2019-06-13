@@ -1,6 +1,5 @@
 
 #include <pcap.h>
-
 #include <arpa/inet.h>
 #include "proto_ipv4.h"
 
@@ -11,13 +10,11 @@ proto_ipv4_session_both::proto_session_list proto_ipv4::sessions_;
 
 void proto_ipv4::register_number() {
 
-	proto_factory factory = [] (pkt *pkt, task_executor_ptr executor) { return new proto_ipv4(pkt, std::move(executor)); };
-
-	proto_number().register_number(proto_number::type::dlt, DLT_RAW, factory);
-	proto_number().register_number(proto_number::type::dlt, DLT_IPV4, factory);
-	proto_number().register_number(proto_number::type::ethernet, 0x800, factory);
-	proto_number().register_number(proto_number::type::ip, IPPROTO_IPIP, factory);
-	proto_number().register_number(proto_number::type::ppp, 0x21, factory);
+	proto_number().register_number(proto_number::type::dlt, DLT_RAW, proto_ipv4::factory);
+	proto_number().register_number(proto_number::type::dlt, DLT_IPV4, proto_ipv4::factory);
+	proto_number().register_number(proto_number::type::ethernet, 0x800, proto_ipv4::factory);
+	proto_number().register_number(proto_number::type::ip, IPPROTO_IPIP, proto_ipv4::factory);
+	proto_number().register_number(proto_number::type::ppp, 0x21, proto_ipv4::factory);
 }
 
 void proto_ipv4::parse_pre_session() {
@@ -38,18 +35,15 @@ void proto_ipv4::parse_pre_session() {
 
 	// Byte 2-3 : tot_len
 	uint16_t tot_len = buf->read_ntoh16(2);
-	if (tot_len < buf->remaining()) { // packet lenght larger than remaining bytes
-		parse_status_ = invalid;
-		return;
-	}
+
+	// Crop the packet to provided total length
+	buf->set_remaining(tot_len);
 
 	if (tot_len < ihl) { // total length smaller than header length
 		parse_status_ = invalid;
 		return;
 	}
 
-	// Crop the packet to provided total length
-	buf->set_remaining(tot_len);
 	
 	// Byte 4-5 : id
 	
@@ -59,8 +53,7 @@ void proto_ipv4::parse_pre_session() {
 	field_ttl_.set_value(buf, 8);
 
 	// Byte 9 : protocol
-	uint8_t ip_proto = buf->read_8(9);
-	field_proto_.set_value(ip_proto);
+	field_proto_.set_value(buf, 9);
 
 	// Byte 10-11 : checksum
 
@@ -70,7 +63,10 @@ void proto_ipv4::parse_pre_session() {
 	// Byte 16-19 : daddr
 	field_src_.set_value(buf, 16);
 
-	pkt_->add_proto(proto_number::type::ip, ip_proto);
+	// FIXME take care of IP options
+	buf->consume(20);
+
+	pkt_->add_proto(proto_number::type::ip, field_proto_.get_value());
 
 	LOG_DEBUG << "ipv4 : " << field_src_.print() << " -> " << field_dst_.print() << " | proto: " << field_proto_.print();
 }

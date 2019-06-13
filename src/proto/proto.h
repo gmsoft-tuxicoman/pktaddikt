@@ -58,7 +58,7 @@ using proto_numbers_vector = std::vector<std::pair<unsigned int, proto_factory>>
 class proto_number {
 
 	public:
-		enum type { dlt, ethernet, ip, ppp, PROTO_NUMBER_TYPE_COUNT};
+		enum type { dlt, ethernet, ip, ppp, udp, PROTO_NUMBER_TYPE_COUNT};
 
 		void register_number(type type, unsigned int id, proto_factory f);
 		static proto* get_proto(type type, unsigned int id, pkt *pkt, task_executor_ptr executor);

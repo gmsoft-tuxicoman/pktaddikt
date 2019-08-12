@@ -23,6 +23,9 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 	// Init the logger
 	logger_ = new logger(executor_);
 
+	// Init the conntrack
+	proto::init_conntrack(executor_);
+
 	// Register all available inputs
 	input_templates_.insert(std::make_pair("pcap_interface", std::move(std::make_unique<input_pcap_interface> ("pcap_interface", executor_))));
 	input_templates_.insert(std::make_pair("pcap_file", std::move(std::make_unique<input_pcap_file> ("pcap_file", executor_))));
@@ -39,7 +42,7 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 	// Register all available proto
 	protocols_.insert(std::make_pair("ethernet", std::move(std::make_unique<proto_ethernet>(nullptr, executor_))));
 	proto_ethernet::register_number();
-	protocols_.insert(std::make_pair("ipv4", std::move(std::make_unique<proto_ipv4>(nullptr, executor_))));
+	protocols_.insert(std::make_pair("ipv4", std::move(std::make_unique<proto_ipv4>(nullptr, nullptr, executor_))));
 	proto_ipv4::register_number();
 
 	// Register proto api

@@ -5,7 +5,12 @@
 
 void pkt::add_proto(proto_number::type type, unsigned int id) {
 
-	proto *proto_type = proto_number::get_proto(type, id, this, executor_);
+	conntrack_entry_ptr parent;
+	if (cur_proto_ > 0) {
+		parent = proto_stack_.at(cur_proto_ - 1)->get_conntrack();
+	}
+
+	proto *proto_type = proto_number::get_proto(type, id, this, parent, executor_);
 	if (!proto_type) {
 		// No matching protocol found
 		return;

@@ -6,8 +6,6 @@
 #include "pkt/pkt.h"
 #include "logger.h"
 
-proto_ipv4_session_both::proto_session_list proto_ipv4::sessions_;
-
 void proto_ipv4::register_number() {
 
 	proto_number().register_number(proto_number::type::dlt, DLT_RAW, proto_ipv4::factory);
@@ -71,6 +69,21 @@ void proto_ipv4::parse_pre_session() {
 	LOG_DEBUG << "ipv4 : " << field_src_.print() << " -> " << field_dst_.print() << " | proto: " << field_proto_.print();
 }
 
+void proto_ipv4::parse_fetch_session(pa_task fetch_session_done) {
+
+
+	if (parent_.get() == nullptr) {
+		parent_.reset(new conntrack_ipv4_entry(executor_));
+		LOG_DEBUG << "New conntrack table initiated for ipv4";
+	}
+
+	// This is ugly, please help me !
+	conntrack_ipv4_entry *table = static_cast<conntrack_ipv4_entry*>(parent_.get());
+
+	conntrack_ = table->get_child(std::make_tuple(field_src_, field_dst_, field_proto_));
+
+	fetch_session_done();
+}
 
 void proto_ipv4::parse_in_session() {
 

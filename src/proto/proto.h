@@ -7,24 +7,32 @@
 #include "ptype/ptype.h"
 #include "tasks/task_executor.h"
 
+#include "conntrack.h"
+
 class pkt;
 class proto;
 using proto_fields = std::vector<std::pair<std::string, ptype*>>;
-using proto_factory = std::function<proto*(pkt*, task_executor_ptr)>;
+using proto_factory = std::function<proto*(pkt*, conntrack_entry_ptr, task_executor_ptr)>;
 
 class proto {
 
 	public:
-		proto(pkt* pkt, unsigned int parse_flags, task_executor_ptr executor): pkt_(pkt), parse_flags_(parse_flags), executor_(executor) {};
+		proto(pkt* pkt, unsigned int parse_flags, conntrack_entry_ptr parent, task_executor_ptr executor): pkt_(pkt), parse_flags_(parse_flags), parent_(parent), executor_(executor) {};
 
 		enum parse_status { todo, ok, stop, invalid, error};
 		parse_status get_parse_status() { return parse_status_; };
+
+		conntrack_entry_ptr get_conntrack() { return conntrack_; };
 
 		void parse(pa_task parse_done);
 
 		virtual void parse_pre_session() {};
 		virtual void parse_fetch_session(pa_task fetch_session_done) {};
 		virtual void parse_in_session() {};
+
+
+		static void init_conntrack(task_executor_ptr executor);
+		static conntrack_table_ptr conntrack_table_factory(task_executor executor) { return nullptr; };
 
 	protected:
 
@@ -42,12 +50,18 @@ class proto {
 
 		parse_status parse_status_ = todo;
 
-	private:
+		conntrack_entry_ptr parent_;
+		conntrack_entry_ptr conntrack_;
+
 		task_executor_ptr executor_;
+
+	private:
 
 		pa_task parse_done_;
 
 		void fetch_session_done();
+
+		static conntrack_entry_ptr conntrack_root_;
 
 
 
@@ -61,7 +75,7 @@ class proto_number {
 		enum type { dlt, ethernet, ip, ppp, udp, PROTO_NUMBER_TYPE_COUNT};
 
 		void register_number(type type, unsigned int id, proto_factory f);
-		static proto* get_proto(type type, unsigned int id, pkt *pkt, task_executor_ptr executor);
+		static proto* get_proto(type type, unsigned int id, pkt *pkt, conntrack_entry_ptr parent, task_executor_ptr executor);
 
 	protected:
 		static proto_numbers_vector numbers_[PROTO_NUMBER_TYPE_COUNT];

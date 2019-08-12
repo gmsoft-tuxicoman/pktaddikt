@@ -18,8 +18,9 @@ struct task_wrapper : tbb::task {
 main_task_executor::main_task_executor() {};
 
 void main_task_executor::enqueue(pa_task t) {
-
-	auto& tbb_task = *new(tbb::task::allocate_root()) task_wrapper(std::move(t));
-	tbb::task::enqueue(tbb_task);
+	
+	t();
+	//auto& tbb_task = *new(tbb::task::allocate_root()) task_wrapper(std::move(t));
+	//tbb::task::enqueue(tbb_task);
 
 }

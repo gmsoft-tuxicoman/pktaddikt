@@ -8,7 +8,7 @@ add_subdirectory(common)
 add_subdirectory(httpd)
 add_subdirectory(input)
 add_subdirectory(pkt)
-add_subdirectory(proto)
+#add_subdirectory(proto)
 add_subdirectory(ptype)
 add_subdirectory(tasks)
 

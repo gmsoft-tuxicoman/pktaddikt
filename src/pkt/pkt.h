@@ -9,36 +9,29 @@
 #include "pkt_buffer.h"
 #include "tasks/task_executor.h"
 
-using pkt_timestamp = std::chrono::duration<uint64_t, std::micro>;
+class pkt;
 
-using pkt_proto_stack = std::vector<std::unique_ptr<proto>>;
+using pkt_timestamp = std::chrono::duration<uint64_t, std::micro>;
+using pkt_ptr = std::shared_ptr<pkt>;
 
 class pkt {
 
 	public:
-		pkt(pkt_buffer *buf, pkt_timestamp ts, task_executor_ptr executor) : buf_(buf), executor_(executor) {};
+		pkt(pkt_buffer_ptr buf, pkt_timestamp ts, pkt_ptr parent, task_executor_ptr executor) : buf_(buf), ts_(ts), parent_(parent), executor_(executor) {};
 
-		pkt_buffer *get_buffer() { return buf_; };
+		void set_proto(proto_number::type type, unsigned int id);
 
-		void add_proto(proto_number::type type, unsigned int id);
-
-		void process(pa_task process_packet_done);
+		void process();
 
 	protected:
-		void process_next();
-
 		pkt_timestamp ts_;
-
-		// FIXME use shared_ptr ?
-		pkt_buffer *buf_;
-
-		pkt_proto_stack::size_type cur_proto_ = 0;
-		pkt_proto_stack proto_stack_;
-
+		pkt_buffer_ptr buf_;
+		proto *proto_ = NULL;
+		pkt_ptr parent_;
 		task_executor_ptr executor_;
 
-		pa_task process_packet_done_;
-
 };
+
+
 
 #endif

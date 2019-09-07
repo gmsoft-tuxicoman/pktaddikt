@@ -11,9 +11,7 @@ uint8_t pkt_buffer::read_bits8(std::size_t bit_offset, std::size_t bit_len) {
 
 	std::size_t offset = bit_offset >> 3;
 	bit_offset %= 8;
-	boundary_check(sizeof(uint8_t), offset);
-
-	uint8_t data = *(buff_ + offset);
+	uint8_t data = *(safe_ptr(sizeof(uint8_t), offset);
 
 	data >> bit_offset;
 	data &= 0xff >> ( 8 - bit_offset);
@@ -22,40 +20,27 @@ uint8_t pkt_buffer::read_bits8(std::size_t bit_offset, std::size_t bit_len) {
 }
 
 uint8_t pkt_buffer::read_8(std::size_t offset) {
-	boundary_check(sizeof(uint8_t), offset);
-	return *(buff_ + offset);
+	return *(safe_ptr(sizeof(uint8_t), offset));
 }
 
 uint16_t pkt_buffer::read_ntoh16(std::size_t offset) {
-	boundary_check(sizeof(uint16_t), offset);
-	uint8_t *data = buff_ + offset;
+	const unsigned char *safe_ptr(sizeof(uint16_t), offset);
 	return ((uint16_t) data[1]) | ((uint16_t) data[0] << 8);
 }
 
 
 void pkt_buffer::read(void *dst, std::size_t src_offset, std::size_t size) {
-	boundary_check(size, src_offset);
-	memcpy(dst, buff_ + src_offset, size);
+	memcpy(dst, safe_ptr(src_offset, size), size);
 }
 
-void pkt_buffer::consume(std::size_t size) {
-	boundary_check(size, 0);
-	buff_ += size;
-}
 
-void pkt_buffer::boundary_check(std::size_t size, std::size_t offset) {
-	if (buff_ + size + offset >= end_) {
+unsigned char *pkt_buffer::safe_ptr(std::size_t offset, std::size_t size) {
+
+	unsigned char *ptr = data_ + offset;
+	if (ptr + size >= data_size_) {
 		throw std::out_of_range("Read past the end of the buffer");
 	}
+
+	return ptr;
 }
 
-std::size_t pkt_buffer::remaining() {
-	return end_ - buff_;
-}
-
-void pkt_buffer::set_remaining(std::size_t remaining) {
-
-	// Use offset -1 to end up at the end of the packet if the provided lenght is the remaining size
-	boundary_check(remaining, -1);
-	end_ = buff_ + remaining;
-}

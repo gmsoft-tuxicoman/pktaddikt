@@ -24,7 +24,7 @@ pkt* input_pcap::read_packet() {
 	pkt_buffer *buf = new pkt_buffer_copy(phdr->len, static_cast<const unsigned char*>(data));
 	pkt *p = new pkt(buf, std::chrono::seconds{phdr->ts.tv_sec} + std::chrono::microseconds{phdr->ts.tv_usec}, executor_);
 
-	p->add_proto(proto_number::type::dlt, DLT_EN10MB);
+	p->set_proto(proto_number::type::dlt, DLT_EN10MB);
 
 	return p;
 

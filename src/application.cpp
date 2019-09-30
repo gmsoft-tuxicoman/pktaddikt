@@ -10,6 +10,7 @@
 
 #include "proto/ethernet/pkt_ethernet.h"
 #include "proto/ipv4/pkt_ipv4.h"
+#include "proto/tcp/pkt_tcp.h"
 
 #include "logger.h"
 
@@ -38,6 +39,7 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 	// Register all available proto
 	pkt_ethernet::register_number();
 	pkt_ipv4::register_number();
+	pkt_tcp::register_number();
 
 }
 

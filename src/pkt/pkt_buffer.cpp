@@ -18,8 +18,8 @@ uint8_t pkt_buffer::read_bits8(std::size_t bit_offset, std::size_t bit_len) {
 	bit_offset %= 8;
 	uint8_t data = *(safe_ptr(offset, sizeof(uint8_t)));
 
-	data >> bit_offset;
-	data &= 0xff >> ( 8 - bit_offset);
+	data >>= (8 - (bit_offset + bit_len));
+	data &= 0xff >> (8 - bit_len);
 
 	return data;
 }

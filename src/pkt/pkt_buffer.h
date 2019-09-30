@@ -54,8 +54,12 @@ class pkt_buffer_part : public pkt_buffer {
 
 	public:
 		pkt_buffer_part(pkt_buffer_ptr src, std::size_t offset, std::size_t size) : pkt_buffer(*src) {
+			if (offset + size > size_) {
+				throw std::out_of_range("Allocating partial buffer larger than original");
+			}
 			data_ += offset;
 			parent_ = src;
+			size_ = size;
 		}
 		pkt_buffer_part(pkt_buffer_ptr src, std::size_t offset) : pkt_buffer(*src) {
 			data_ += offset;

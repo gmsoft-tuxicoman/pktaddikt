@@ -38,9 +38,9 @@ namespace std {
 			uint16_t first = p.first.get_value();
 			uint16_t second = p.second.get_value();
 			if (first < second) {
-				return (first << 8 * sizeof(uint16_t)) + second;
+				return (first << (8 * sizeof(uint16_t))) + second;
 			}
-			return (second << 8 * sizeof(uint16_t)) + first;
+			return (second << (8 * sizeof(uint16_t))) + first;
 		}
 	};
 

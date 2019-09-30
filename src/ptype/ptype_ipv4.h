@@ -48,11 +48,12 @@ namespace std {
 				second = tmp;
 			}
 			if (sizeof(std::size_t) >= 8) {
+				// 64bit platform
 				return (std::size_t) (first << (8 * sizeof(uint32_t)) + second);
-			} else {
-				assert(sizeof(std::size_t) >= 4);
-				return first ^ bswap_32(second);
 			}
+			// 32bit platform
+			assert(sizeof(std::size_t) >= 4);
+			return first ^ bswap_32(second);
 		}
 	};
 

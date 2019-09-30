@@ -1,34 +1,48 @@
 #ifndef __PKT_H__
 #define __PKT_H__
 
-#include <chrono>
 #include <vector>
 #include <memory>
 
-#include "proto/proto.h"
+
+#include "ptype/ptype.h"
 #include "pkt_buffer.h"
 #include "tasks/task_executor.h"
 
 class pkt;
 
-using pkt_timestamp = std::chrono::duration<uint64_t, std::micro>;
 using pkt_ptr = std::shared_ptr<pkt>;
+//using pkt_list_ptr = std::vector<std::shared_ptr<pkt>>;
+using pkt_fields = std::vector<std::pair<std::string, ptype*>>;
 
 class pkt {
 
 	public:
-		pkt(pkt_buffer_ptr buf, pkt_timestamp ts, pkt_ptr parent, task_executor_ptr executor) : buf_(buf), ts_(ts), parent_(parent), executor_(executor) {};
-
-		void set_proto(proto_number::type type, unsigned int id);
+		pkt(pkt_buffer_ptr buf, pkt_ptr parent, task_executor_ptr executor) : buf_(buf), parent_(parent), executor_(executor), self_(this) {};
+		virtual ~pkt() {};
 
 		void process();
 
+
+		enum parse_result { unknown, ok, invalid };
+
+
 	protected:
-		pkt_timestamp ts_;
+
+		virtual parse_result parse() = 0;
+
+		pkt_fields fields_;
+		pkt_ptr self_;
+
 		pkt_buffer_ptr buf_;
-		proto *proto_ = NULL;
-		pkt_ptr parent_;
 		task_executor_ptr executor_;
+
+		pkt_ptr parent_; // Packet containing this one
+		//pkt_list_ptr next_; // Packets contained in this one
+	
+	private:
+		parse_result result_ = unknown;
+
 
 };
 

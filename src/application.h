@@ -9,7 +9,6 @@
 class application;
 
 #include "input/input.h"
-#include "proto/proto.h"
 #include "httpd/httpd.h"
 #include "rapidjson/document.h"
 #include "tasks/main_task_executor.h"
@@ -19,7 +18,6 @@ class application;
 
 using input_template_map = std::map<const std::string, std::unique_ptr<input>>;
 using input_map = tbb::concurrent_hash_map<const std::string, std::unique_ptr<input>>;
-using protocol_map = std::map<const std::string, std::unique_ptr<proto>>;
 
 class application {
 
@@ -42,7 +40,6 @@ class application {
 
 		input_template_map input_templates_;
 		input_map inputs_;
-		protocol_map protocols_;
 
 		std::string httpd_addr_ = APPLICATION_HTTPD_DEFAULT_ADDRESS;
 		uint16_t httpd_port_ = APPLICATION_HTTPD_DEFAULT_PORT;

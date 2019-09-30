@@ -6,6 +6,7 @@
 #include <deque>
 
 #include "pkt/pkt.h"
+#include "pkt/pkt_factory.h"
 #include "common/component.h"
 #include "tasks/task_serializer.h"
 
@@ -19,9 +20,6 @@ class input : public component {
 		void start();
 		virtual void break_loop() {};
 		void stop();
-
-		void process_packet(pkt *p, pa_task processing_done);
-		void process_packet_done(pkt *p);
 
 		enum running_status { idle, starting, running, stopping };
 		const running_status get_running_status() const { return running_status_; };

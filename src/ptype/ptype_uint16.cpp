@@ -36,6 +36,6 @@ const std::string ptype_uint16::print() const {
 	return std::to_string(value_);
 }
 
-void ptype_uint16::set_value(pkt_buffer *buf, std::size_t offset) {
-	buf->read_ntoh16(offset);
+void ptype_uint16::set_value(pkt_buffer &buf, std::size_t offset) {
+	value_ = buf.read_ntoh16(offset);
 }

@@ -8,9 +8,8 @@
 
 #include "input/input_pcap.h"
 
-
-#include "proto/proto_ethernet.h"
-#include "proto/proto_ipv4.h"
+#include "proto/ethernet/pkt_ethernet.h"
+#include "proto/ipv4/pkt_ipv4.h"
 
 #include "logger.h"
 
@@ -22,9 +21,6 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 
 	// Init the logger
 	logger_ = new logger(executor_);
-
-	// Init the conntrack
-	proto::init_conntrack(executor_);
 
 	// Register all available inputs
 	input_templates_.insert(std::make_pair("pcap_interface", std::move(std::make_unique<input_pcap_interface> ("pcap_interface", executor_))));
@@ -40,13 +36,9 @@ application::application() : httpd_(std::make_unique<httpd>(this)) {
 
 
 	// Register all available proto
-	protocols_.insert(std::make_pair("ethernet", std::move(std::make_unique<proto_ethernet>(nullptr, executor_))));
-	proto_ethernet::register_number();
-	protocols_.insert(std::make_pair("ipv4", std::move(std::make_unique<proto_ipv4>(nullptr, nullptr, executor_))));
-	proto_ipv4::register_number();
+	pkt_ethernet::register_number();
+	pkt_ipv4::register_number();
 
-	// Register proto api
-	//api_endpoint proto_list_api = [&] (rapidjson::Document &res, const rapidjson::Document &param) { return this->proto_list_api(res, param); };
 }
 
 application::~application() {

@@ -16,7 +16,7 @@ class ptype {
 		virtual const std::string print() const = 0;
 
 		const std::string& get_type() const { return type_name_; };
-		virtual void set_value(pkt_buffer *pkt, std::size_t offset) { throw std::runtime_error("This ptype cannot read value from pkt_buffer");};
+		virtual void set_value(pkt_buffer &pkt, std::size_t offset) { throw std::runtime_error("This ptype cannot read value from pkt_buffer");};
 
 		friend std::ostream& operator<<(std::ostream &os, const ptype &p) {
 			os << p.print();

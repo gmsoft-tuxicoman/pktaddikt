@@ -27,9 +27,8 @@ void input::read_packets() {
 			break;
 		}
 
-		auto process_packet_done = [this, p] { this->process_packet_done(p); };
 
-		executor_->enqueue([this, p, process_packet_done] { this->process_packet(p, std::move(process_packet_done)); });
+		executor_->enqueue([p]{ p->process(); });
 
 	}
 
@@ -38,22 +37,6 @@ void input::read_packets() {
 	}
 
 }
-
-void input::process_packet(pkt *p, pa_task processing_done) {
-
-	pkts_count_++;
-	p->process(processing_done);
-}
-
-void input::process_packet_done(pkt *p) {
-
-	pkts_count_--;
-	if (!pkts_count_) {
-		LOG_DEBUG << "Queue empty";
-	}
-	delete p;
-}
-
 
 void input::stop() {
 

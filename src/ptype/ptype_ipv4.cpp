@@ -27,7 +27,7 @@ const std::string ptype_ipv4::print() const {
 	return res;
 }
 
-void ptype_ipv4::set_value(pkt_buffer *buf, std::size_t offset) {
+void ptype_ipv4::set_value(pkt_buffer &buf, std::size_t offset) {
 
-	 buf->read(&ip_, offset, sizeof(in_addr));
+	 buf.read(&ip_, offset, sizeof(in_addr));
 }

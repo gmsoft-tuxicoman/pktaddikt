@@ -31,7 +31,7 @@ const std::string ptype_mac::print() const {
 	return stream.str();
 }
 
-void ptype_mac::set_value(pkt_buffer *buf, std::size_t offset) {
+void ptype_mac::set_value(pkt_buffer &buf, std::size_t offset) {
 
-	buf->read(value_, offset, 6);
+	buf.read(value_, offset, 6);
 }

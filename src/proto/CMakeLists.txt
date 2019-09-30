@@ -1,8 +1,8 @@
 
 target_sources(pktaddikt PRIVATE
-	proto.cpp proto.h proto_conntrack.h
-	proto_ethernet.cpp proto_ethernet.h
-	proto_ipv4.cpp proto_ipv4.h
-	proto_udp.cpp proto_udp.h
-	)
+
+	ethernet/pkt_ethernet.cpp ethernet/pkt_ethernet.h
+
+	ipv4/pkt_ipv4.cpp ipv4/pkt_ipv4.h
+)
 

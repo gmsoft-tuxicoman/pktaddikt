@@ -21,10 +21,10 @@ pkt* input_pcap::read_packet() {
 	}
 
 	// We need to copy the packet as pcap does not garantee that the data will still be avail on the next call to pcap_next_ex()
-	pkt_buffer *buf = new pkt_buffer_copy(phdr->len, static_cast<const unsigned char*>(data));
-	pkt *p = new pkt(buf, std::chrono::seconds{phdr->ts.tv_sec} + std::chrono::microseconds{phdr->ts.tv_usec}, executor_);
+	pkt_buffer_timestamp ts = std::chrono::seconds{phdr->ts.tv_sec} + std::chrono::microseconds{phdr->ts.tv_usec};
+	pkt_buffer_ptr buf(new pkt_buffer_copy(ts, phdr->len, static_cast<const unsigned char*>(data)));
 
-	p->set_proto(proto_number::type::dlt, DLT_EN10MB);
+	pkt *p = pkt_factory::factory(pkt_factory::type::dlt, DLT_EN10MB, buf, nullptr, executor_);
 
 	return p;
 

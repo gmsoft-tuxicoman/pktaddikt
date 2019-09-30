@@ -36,9 +36,9 @@ const std::string ptype_uint8::print() const {
 	return std::to_string(value_);
 }
 
-void ptype_uint8::set_value(pkt_buffer *buf, std::size_t offset) {
+void ptype_uint8::set_value(pkt_buffer &buf, std::size_t offset) {
 
-	value_ = buf->read_8(offset);
+	value_ = buf.read_8(offset);
 
 }
 

@@ -90,4 +90,5 @@ int main(int argc, char *argv[]) {
 	delete app;
 
 	LOG_INFO << "Finished";
+	delete logger_;
 }

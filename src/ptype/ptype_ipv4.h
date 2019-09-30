@@ -20,7 +20,7 @@ class ptype_ipv4 : public ptype {
 
 		in_addr get_ip() const { return ip_; };
 		void set_ip(in_addr ip) { ip_ = ip; };
-		void set_value(pkt_buffer *buf, std::size_t offset);
+		void set_value(pkt_buffer &buf, std::size_t offset);
 
 		bool operator==(ptype_ipv4 const& p) const { return this->ip_.s_addr == p.ip_.s_addr; };
 

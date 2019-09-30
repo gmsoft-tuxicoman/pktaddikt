@@ -55,5 +55,14 @@ pkt::parse_result pkt_ipv4::parse() {
 	
 	LOG_DEBUG << "ipv4 : " << field_src_.print() << " -> " << field_dst_.print() << " | proto: " << field_proto_.print();
 
+	pkt_buffer_ptr buf(new pkt_buffer_part(buf_, ihl, tot_len - ihl));
+
+
+	pkt *p = pkt_factory::factory(pkt_factory::type::ip, field_proto_.get_value(), buf, self_, executor_);
+
+	if (p) {
+		p->process();
+	}
+
 	return ok;
 }

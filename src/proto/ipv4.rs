@@ -1,5 +1,4 @@
 use crate::proto::ProtoParser;
-use crate::proto::ProtoProcessResult; 
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 
@@ -12,7 +11,10 @@ pub struct ProtoIpv4<'a> {
 
 
 impl<'a> ProtoParser for ProtoIpv4<'a> {
-    fn process(&self) -> ProtoProcessResult {
+    fn name(&self) -> &str {
+        return "ip"
+    }
+    fn process(&self) -> Result<ProtoSlice, ()> {
         let src = Ipv4Addr::new(self.pload[12], self.pload[13], self.pload[14], self.pload[15]);
         let dst = Ipv4Addr::new(self.pload[16], self.pload[17], self.pload[17], self.pload[18]);
         let proto = self.pload[9];
@@ -21,7 +23,7 @@ impl<'a> ProtoParser for ProtoIpv4<'a> {
 
         println!("{} -> {}, proto : {}, len {}, hlen : {}", src, dst, proto, self.pload.len(), header_len);
 
-        ProtoProcessResult::Ok( ProtoSlice {
+        Ok( ProtoSlice {
             number_type :ProtoNumberType::Ip,
             number: proto as u32,
             start : header_len,

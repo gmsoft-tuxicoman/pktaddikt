@@ -7,7 +7,8 @@ use crate::proto::udp::ProtoUdp;
 
 pub trait ProtoParser {
 
-    fn process(&self) -> ProtoProcessResult;
+    fn name(&self) -> &str;
+    fn process(&self) -> Result<ProtoSlice, ()>;
 }
 
 pub enum ProtoNumberType {
@@ -24,12 +25,6 @@ pub struct ProtoSlice {
     pub end : usize,
 }
 
-pub enum ProtoProcessResult {
-    Ok(ProtoSlice),
-    End,
-    Invalid,
-    Error
-}
 
 pub fn get_next_proto<'a>(t: ProtoNumberType, num: u32, pload: &'a [u8]) -> Result<Box<dyn ProtoParser + 'a>, &str> {
 

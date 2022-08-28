@@ -38,13 +38,17 @@ fn process_packet(data: &[u8], lt: Linktype) {
         };
         let res =  p.process();
         match res {
-            proto::ProtoProcessResult::Ok(proto_slice) => {
-                    t = proto_slice.number_type;
-                    n = proto_slice.number;
-                    data = &data[proto_slice.start .. proto_slice.end];
+            Ok(proto_slice) => {
+                t = proto_slice.number_type;
+                n = proto_slice.number;
+                data = &data[proto_slice.start .. proto_slice.end];
             },
-            _ => break 
+            Err(()) => {
+                print!("[!{}]", p.name());
+                break
+            }
         }
         
     }
+    println!()
 }

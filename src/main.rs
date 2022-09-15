@@ -3,6 +3,9 @@ use pcap::{Capture,Linktype};
 
 pub mod proto;
 
+use crate::proto::ProtoParser;
+use crate::proto::ProtoStackEntry;
+
 
 fn main() {
 
@@ -22,7 +25,7 @@ fn main() {
 }
 
 
-fn process_packet(data: &[u8], lt: Linktype) {
+fn process_packet<'a>(data: &'a[u8], lt: Linktype) {
     
     assert_eq!(lt, Linktype(1));
 
@@ -30,9 +33,10 @@ fn process_packet(data: &[u8], lt: Linktype) {
     let mut n = lt.0 as u32;
     let mut data = data;
 
+    let mut stack = Vec::new();
     loop {
         let p_res = proto::get_next_proto(t, n, data);
-        let p = match p_res {
+        let mut p = match p_res {
             Ok(p) => p,
             _ => break,
         };
@@ -42,13 +46,22 @@ fn process_packet(data: &[u8], lt: Linktype) {
                 t = proto_slice.number_type;
                 n = proto_slice.number;
                 data = &data[proto_slice.start .. proto_slice.end];
+                stack.push(ProtoStackEntry{parser: p, parse_result: true});
             },
             Err(()) => {
-                print!("[!{}]", p.name());
+                stack.push(ProtoStackEntry{parser: p, parse_result: true});
                 break
             }
         }
         
+    }
+    let mut prev_layer : Option<Box<dyn ProtoParser>> = None;
+    for p in stack {
+        match prev_layer {
+            None => p.parser.print(None),
+            Some(l) => p.parser.print(Some(&l))
+        }
+        prev_layer = Some(p.parser);
     }
     println!()
 }

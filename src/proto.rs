@@ -1,12 +1,15 @@
 pub mod ethernet;
 pub mod ipv4;
+pub mod ipv6;
 pub mod udp;
 use crate::proto::ethernet::ProtoEthernet;
 use crate::proto::ipv4::ProtoIpv4;
+use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
 
 
 use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 
 pub trait ProtoParser {
 
@@ -47,7 +50,8 @@ pub enum ProtoField<'a> {
     U64(u64),
     Str(&'a str),
     Mac([u8;6]),
-    Ipv4(Ipv4Addr)
+    Ipv4(Ipv4Addr),
+    Ipv6(Ipv6Addr)
 }
 
 impl<'a> ProtoField<'a> {
@@ -94,6 +98,12 @@ impl<'a> ProtoField<'a> {
             _ => panic!("Trying to fetch ipv4")
         }
     }
+    fn get_ipv6(&self) -> Ipv6Addr {
+        match self {
+            ProtoField::Ipv6(val) => *val,
+            _ => panic!("Trying to fetch ipv6")
+        }
+    }
 
 }
 
@@ -107,6 +117,7 @@ pub fn get_next_proto<'a>(t: ProtoNumberType, num: u32, pload: &'a [u8]) -> Resu
         },
         ProtoNumberType::Ethernet => match num {
             0x800 => Ok(Box::new(ProtoIpv4::new(pload))),
+            0x86DD => Ok(Box::new(ProtoIpv6::new(pload))),
             _ => Err("Unsuported ethernet type")
         },
         ProtoNumberType::Ip => match num {

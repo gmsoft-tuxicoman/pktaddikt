@@ -61,6 +61,6 @@ impl<'a> ProtoParser for ProtoIpv4<'a> {
         let proto = self.fields[2].1.unwrap().get_u8();
         let ihl = self.fields[3].1.unwrap().get_u16();
 
-        println!("{} -> {}, proto : {}, len {}, hlen : {}", src, dst, proto, self.pload.len(), ihl);
+        print!("{} -> {}, proto : {}, len {}, hlen : {} ", src, dst, proto, self.pload.len(), ihl);
     }
 }

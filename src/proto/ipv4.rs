@@ -3,13 +3,41 @@ use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
 
-use std::net::Ipv4Addr;
+use crate::conntrack::ConntrackTable;
+use crate::conntrack::ConntrackKey;
 
+use std::net::Ipv4Addr;
+use std::sync::RwLock;
+use lazy_static::lazy_static;
+
+
+
+type ConntrackKeyIpv4 = (u32, u32);
+
+
+struct ConntrackIpv4 {
+
+    packet_count: u64
+}
+
+
+impl ConntrackKey for ConntrackKeyIpv4 {
+    fn bidir_hash(&self) -> u64 {
+        self.0 as u64 * self.1 as u64
+    }
+}
+
+
+lazy_static! {
+    static ref CT_IPV4: RwLock<ConntrackTable> = RwLock::new(ConntrackTable::new());
+}
 
 pub struct ProtoIpv4<'a> {
     pub pload: &'a [u8],
-    fields : Vec<(&'a str, Option<ProtoField<'a>>)>
+    fields : Vec<(&'a str, Option<ProtoField<'a>>)>,
 }
+
+
 
 impl<'a> ProtoIpv4<'a> {
 
@@ -27,6 +55,7 @@ impl<'a> ProtoIpv4<'a> {
 }
 
 impl<'a> ProtoParser for ProtoIpv4<'a> {
+
     fn name(&self) -> &str {
         return "ip"
     }
@@ -47,6 +76,11 @@ impl<'a> ProtoParser for ProtoIpv4<'a> {
         self.fields[3].1 = Some(ProtoField::U16(header_len));
 
 
+        let ct_key: ConntrackKeyIpv4 = (src.to_bits(), dst.to_bits());
+        let mut ct_table = CT_IPV4.write().unwrap();
+        ct_table.get(ct_key);
+
+
         Ok( ProtoSlice {
             number_type :ProtoNumberType::Ip,
             number: proto as u32,
@@ -54,7 +88,7 @@ impl<'a> ProtoParser for ProtoIpv4<'a> {
             end: self.pload.len()} )
     }
 
-    fn print<'b>(&self, prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
+    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
 
         let src = self.fields[0].1.unwrap().get_ipv4();
         let dst = self.fields[1].1.unwrap().get_ipv4();

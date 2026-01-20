@@ -2,6 +2,7 @@ use crate::proto::ProtoParser;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
+//use crate::conntrack;
 
 use std::net::Ipv6Addr;
 
@@ -35,6 +36,7 @@ impl<'a> ProtoParser for ProtoIpv6<'a> {
         & self.fields
     }
 
+    //fn process(&mut self, ct_table: &mut conntrack::ConntrackTable) -> Result<ProtoSlice, ()> {
     fn process(&mut self) -> Result<ProtoSlice, ()> {
         let src = Ipv6Addr::new((self.pload[8] as u16) << 8 | (self.pload[9] as u16),
                                 (self.pload[10] as u16) << 8 | (self.pload[11] as u16),
@@ -85,7 +87,7 @@ impl<'a> ProtoParser for ProtoIpv6<'a> {
             end: self.pload.len()} )
     }
 
-    fn print<'b>(&self, prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
+    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
 
         let src = self.fields[0].1.unwrap().get_ipv6();
         let dst = self.fields[1].1.unwrap().get_ipv6();

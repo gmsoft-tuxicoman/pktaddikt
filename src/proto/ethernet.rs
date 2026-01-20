@@ -2,6 +2,7 @@ use crate::proto::ProtoParser;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
+//use crate::conntrack;
 
 pub struct ProtoEthernet<'a> {
     pub pload: &'a [u8],
@@ -46,6 +47,7 @@ impl<'a> ProtoParser for ProtoEthernet<'a> {
         & self.fields
     }
 
+    //fn process(&mut self, _ct_table: &mut conntrack::ConntrackTable) -> Result<ProtoSlice, ()> {
     fn process(&mut self) -> Result<ProtoSlice, ()> {
 
         if self.pload.len() < 14 {
@@ -68,7 +70,7 @@ impl<'a> ProtoParser for ProtoEthernet<'a> {
             end: self.pload.len()} )
     }
 
-    fn print<'b>(&self, prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
+    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
 
         let src = self.fields[0].1.unwrap().get_mac();
         print_ether_addr(&src);

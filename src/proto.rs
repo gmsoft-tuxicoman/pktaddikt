@@ -2,14 +2,15 @@ pub mod ethernet;
 pub mod ipv4;
 pub mod ipv6;
 pub mod udp;
+use pcap::Linktype;
 use crate::proto::ethernet::ProtoEthernet;
 use crate::proto::ipv4::ProtoIpv4;
 use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
 
-
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
+
 
 pub trait ProtoParser {
 
@@ -108,25 +109,72 @@ impl<'a> ProtoField<'a> {
 }
 
 
-pub fn get_next_proto<'a>(t: ProtoNumberType, num: u32, pload: &'a [u8]) -> Result<Box<dyn ProtoParser + 'a>, &str> {
+pub struct Proto;
 
-    match t {
-        ProtoNumberType::Pcap => match num {
-            1 => Ok(Box::new(ProtoEthernet::new(pload))),
-            _ => Err("Unsupported pcap type")
-        },
-        ProtoNumberType::Ethernet => match num {
-            0x800 => Ok(Box::new(ProtoIpv4::new(pload))),
-            0x86DD => Ok(Box::new(ProtoIpv6::new(pload))),
-            _ => Err("Unsuported ethernet type")
-        },
-        ProtoNumberType::Ip => match num {
-            4 => Ok(Box::new(ProtoIpv4::new(pload))),
-            17 => Ok(Box::new(ProtoUdp::new(pload))),
-            _ => Err("Unknown Ip protocol")
-        },
-        ProtoNumberType::Udp => Err("Not implemented")
-        
+impl Proto {
+
+    fn get_next<'a>(&self, t: ProtoNumberType, num: u32, pload: &'a [u8]) -> Result<Box<dyn ProtoParser + 'a>, &'a str> {
+
+        match t {
+            ProtoNumberType::Pcap => match num {
+                1 => Ok(Box::new(ProtoEthernet::new(pload))),
+                _ => Err("Unsupported pcap type")
+            },
+            ProtoNumberType::Ethernet => match num {
+                0x800 => Ok(Box::new(ProtoIpv4::new(pload))),
+                0x86DD => Ok(Box::new(ProtoIpv6::new(pload))),
+                _ => Err("Unsuported ethernet type")
+            },
+            ProtoNumberType::Ip => match num {
+                4 => Ok(Box::new(ProtoIpv4::new(pload))),
+                17 => Ok(Box::new(ProtoUdp::new(pload))),
+                _ => Err("Unknown Ip protocol")
+            },
+            ProtoNumberType::Udp => Err("Not implemented")
+
+        }
     }
 
+    pub fn process_packet<'a>(&mut self, data: &'a[u8], lt: Linktype) {
+
+        assert_eq!(lt, Linktype(1));
+
+        let mut t = ProtoNumberType::Pcap;
+        let mut n = lt.0 as u32;
+        let mut data = data;
+
+        let mut stack = Vec::new();
+        loop {
+            let p_res = self.get_next(t, n, data);
+            let mut p = match p_res {
+                Ok(p) => p,
+                _ => break,
+            };
+            let res =  p.process();
+            match res {
+                Ok(proto_slice) => {
+                    t = proto_slice.number_type;
+                    n = proto_slice.number;
+                    println!("{} -> {}",proto_slice.start, proto_slice.end);
+                    data = &data[proto_slice.start .. proto_slice.end];
+                    stack.push(ProtoStackEntry{parser: p, parse_result: true});
+                },
+                Err(()) => {
+                    stack.push(ProtoStackEntry{parser: p, parse_result: false});
+                    break
+                }
+            }
+        }
+
+
+        let mut prev_layer : Option<Box<dyn ProtoParser>> = None;
+        for p in stack {
+            match prev_layer {
+                None => p.parser.print(None),
+                Some(l) => p.parser.print(Some(&l))
+            }
+            prev_layer = Some(p.parser);
+        }
+        println!()
+    }
 }

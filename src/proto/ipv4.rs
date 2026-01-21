@@ -22,14 +22,22 @@ struct ConntrackIpv4 {
 
 
 impl ConntrackKey for ConntrackKeyIpv4 {
-    fn bidir_hash(&self) -> u64 {
+    fn bidir_key(&self) -> u64 {
         self.0 as u64 * self.1 as u64
+    }
+
+    fn fwd_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn rev_eq(&self, other: &Self) -> bool {
+        self.0 == other.1 && self.1 == other.0
     }
 }
 
 
 lazy_static! {
-    static ref CT_IPV4: RwLock<ConntrackTable> = RwLock::new(ConntrackTable::new());
+    static ref CT_IPV4: RwLock<ConntrackTable<ConntrackKeyIpv4>> = RwLock::new(ConntrackTable::new());
 }
 
 pub struct ProtoIpv4<'a> {
@@ -67,7 +75,7 @@ impl<'a> ProtoParser for ProtoIpv4<'a> {
     fn process(&mut self) -> Result<ProtoSlice, ()> {
         let src = Ipv4Addr::new(self.pload[12], self.pload[13], self.pload[14], self.pload[15]);
         self.fields[0].1 = Some(ProtoField::Ipv4(src));
-        let dst = Ipv4Addr::new(self.pload[16], self.pload[17], self.pload[17], self.pload[18]);
+        let dst = Ipv4Addr::new(self.pload[16], self.pload[17], self.pload[18], self.pload[19]);
         self.fields[1].1 = Some(ProtoField::Ipv4(dst));
         let proto = self.pload[9];
         self.fields[2].1 = Some(ProtoField::U8(proto));

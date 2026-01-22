@@ -4,7 +4,7 @@ use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
 
 use crate::conntrack::ConntrackTable;
-use crate::conntrack::ConntrackKey;
+use crate::conntrack::ConntrackKeyBidir;
 
 use std::net::Ipv4Addr;
 use std::sync::RwLock;
@@ -12,28 +12,13 @@ use lazy_static::lazy_static;
 
 
 
-type ConntrackKeyIpv4 = (u32, u32);
-
+type ConntrackKeyIpv4 = ConntrackKeyBidir<u32>;
 
 struct ConntrackIpv4 {
 
     packet_count: u64
 }
 
-
-impl ConntrackKey for ConntrackKeyIpv4 {
-    fn bidir_key(&self) -> u64 {
-        self.0 as u64 * self.1 as u64
-    }
-
-    fn fwd_eq(&self, other: &Self) -> bool {
-        self == other
-    }
-
-    fn rev_eq(&self, other: &Self) -> bool {
-        self.0 == other.1 && self.1 == other.0
-    }
-}
 
 
 lazy_static! {
@@ -84,7 +69,7 @@ impl<'a> ProtoParser for ProtoIpv4<'a> {
         self.fields[3].1 = Some(ProtoField::U16(header_len));
 
 
-        let ct_key: ConntrackKeyIpv4 = (src.to_bits(), dst.to_bits());
+        let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
         let mut ct_table = CT_IPV4.write().unwrap();
         ct_table.get(ct_key);
 

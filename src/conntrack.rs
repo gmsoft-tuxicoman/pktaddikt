@@ -9,11 +9,32 @@ use std::collections::hash_map::Entry;
 type ConntrackRef = Arc<Mutex<Conntrack>>;
 
 
-
-pub trait ConntrackKey : Copy {
+pub trait ConntrackKey {
     fn bidir_key(&self) -> u64;
     fn fwd_eq(&self, other: &Self) -> bool;
     fn rev_eq(&self, other: &Self) -> bool;
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct ConntrackKeyBidir<T> {
+    pub a: T,
+    pub b: T,
+}
+
+impl<T> ConntrackKey for ConntrackKeyBidir<T>
+    where T: Copy + PartialEq + Into<u64>
+{
+    fn bidir_key(&self) -> u64 {
+        self.a.into() * self.b.into()
+    }
+
+    fn fwd_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn rev_eq(&self, other: &Self) -> bool {
+        self.a == other.b && self.b == other.a
+    }
 }
 
 pub type ConntrackData = Box<dyn Any + Send + Sync>;

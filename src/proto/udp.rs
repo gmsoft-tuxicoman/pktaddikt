@@ -2,8 +2,17 @@ use crate::proto::ProtoParser;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
-//use crate::conntrack;
  
+use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
+use std::sync::RwLock;
+use lazy_static::lazy_static;
+
+
+type ConntrackKeyUdp = ConntrackKeyBidir<u16>;
+
+lazy_static! {
+    static ref CT_UDP: RwLock<ConntrackTable<ConntrackKeyUdp>> = RwLock::new(ConntrackTable::new());
+}
 
 pub struct ProtoUdp<'a> {
     pub pload: &'a [u8],
@@ -45,6 +54,10 @@ impl<'a> ProtoParser for ProtoUdp<'a> {
             return Err(());
         }
 
+
+        let ct_key = ConntrackKeyUdp { a: sport, b: dport };
+        let mut ct_table = CT_UDP.write().unwrap();
+        ct_table.get(ct_key);
 
 
         Ok( ProtoSlice {

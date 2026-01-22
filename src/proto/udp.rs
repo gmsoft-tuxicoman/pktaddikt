@@ -6,15 +6,17 @@ use crate::proto::ProtoProcessResult;
  
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use std::sync::Arc;
-use lazy_static::lazy_static;
+use std::sync::OnceLock;
 
 
 type ConntrackKeyUdp = ConntrackKeyBidir<u16>;
 
 
 static CT_UDP_SIZE :usize = 32768;
-lazy_static! {
-    static ref CT_UDP: ConntrackTable<ConntrackKeyUdp> = ConntrackTable::new(CT_UDP_SIZE);
+static CT_UDP: OnceLock<ConntrackTable<ConntrackKeyUdp>> = OnceLock::new();
+
+fn ct_udp() -> &'static ConntrackTable<ConntrackKeyUdp> {
+    CT_UDP.get_or_init(|| ConntrackTable::new(CT_UDP_SIZE))
 }
 
 pub struct ProtoUdp<'a> {
@@ -58,7 +60,7 @@ impl<'a> ProtoProcessor for ProtoUdp<'a> {
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        let ct = CT_UDP.get(ct_key);
+        let ct = ct_udp().get(ct_key);
 
 
         Ok( ProtoProcessResult {

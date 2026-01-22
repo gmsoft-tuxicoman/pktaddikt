@@ -1,4 +1,4 @@
-use crate::proto::ProtoParser;
+use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
@@ -7,7 +7,6 @@ use crate::conntrack::ConntrackTable;
 use crate::conntrack::ConntrackKeyBidir;
 
 use std::net::Ipv4Addr;
-use std::sync::RwLock;
 use lazy_static::lazy_static;
 
 
@@ -20,9 +19,9 @@ struct ConntrackIpv4 {
 }
 
 
-
+static CT_IPV4_SIZE :usize = 65535;
 lazy_static! {
-    static ref CT_IPV4: RwLock<ConntrackTable<ConntrackKeyIpv4>> = RwLock::new(ConntrackTable::new());
+    static ref CT_IPV4: ConntrackTable<ConntrackKeyIpv4> = ConntrackTable::new(CT_IPV4_SIZE);
 }
 
 pub struct ProtoIpv4<'a> {
@@ -47,7 +46,7 @@ impl<'a> ProtoIpv4<'a> {
 
 }
 
-impl<'a> ProtoParser for ProtoIpv4<'a> {
+impl<'a> ProtoProcessor for ProtoIpv4<'a> {
 
     fn name(&self) -> &str {
         return "ip"
@@ -70,8 +69,7 @@ impl<'a> ProtoParser for ProtoIpv4<'a> {
 
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let mut ct_table = CT_IPV4.write().unwrap();
-        ct_table.get(ct_key);
+        CT_IPV4.get(ct_key);
 
 
         Ok( ProtoSlice {
@@ -81,7 +79,7 @@ impl<'a> ProtoParser for ProtoIpv4<'a> {
             end: self.pload.len()} )
     }
 
-    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
+    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
 
         let src = self.fields[0].1.unwrap().get_ipv4();
         let dst = self.fields[1].1.unwrap().get_ipv4();

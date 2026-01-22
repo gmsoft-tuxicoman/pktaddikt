@@ -1,17 +1,18 @@
-use crate::proto::ProtoParser;
+use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
  
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
-use std::sync::RwLock;
 use lazy_static::lazy_static;
 
 
 type ConntrackKeyUdp = ConntrackKeyBidir<u16>;
 
+
+static CT_UDP_SIZE :usize = 32768;
 lazy_static! {
-    static ref CT_UDP: RwLock<ConntrackTable<ConntrackKeyUdp>> = RwLock::new(ConntrackTable::new());
+    static ref CT_UDP: ConntrackTable<ConntrackKeyUdp> = ConntrackTable::new(CT_UDP_SIZE);
 }
 
 pub struct ProtoUdp<'a> {
@@ -33,7 +34,7 @@ impl<'a> ProtoUdp<'a> {
 
 }
 
-impl<'a> ProtoParser for ProtoUdp<'a> {
+impl<'a> ProtoProcessor for ProtoUdp<'a> {
     fn name(&self) -> &str {
         return "udp"
     }
@@ -56,8 +57,7 @@ impl<'a> ProtoParser for ProtoUdp<'a> {
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        let mut ct_table = CT_UDP.write().unwrap();
-        ct_table.get(ct_key);
+        CT_UDP.get(ct_key);
 
 
         Ok( ProtoSlice {
@@ -68,7 +68,7 @@ impl<'a> ProtoParser for ProtoUdp<'a> {
 
     }
 
-    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
+    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
 
         let sport = self.fields[0].1.unwrap().get_u16();
         let dport = self.fields[1].1.unwrap().get_u16();

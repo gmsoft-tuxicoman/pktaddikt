@@ -8,11 +8,13 @@ use crate::proto::ipv4::ProtoIpv4;
 use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
 
+use crate::conntrack::ConntrackWeakRef;
+
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 
 
-pub trait ProtoParser {
+pub trait ProtoProcessor {
 
     fn name(&self) -> &str;
     fn process(&mut self) -> Result<ProtoSlice, ()>;
@@ -20,7 +22,7 @@ pub trait ProtoParser {
     fn get_field(&self, name: &str) -> Option<ProtoField> {
        self.get_fields().into_iter().find_map(| &(x,y)| { if x == name { y } else { None }})
     }
-    fn print<'a>(&self, prev_layer: Option<&'a Box<dyn ProtoParser + 'a>>);
+    fn print<'a>(&self, prev_layer: Option<&'a Box<dyn ProtoProcessor + 'a>>);
 }
 
 pub enum ProtoNumberType {
@@ -28,6 +30,12 @@ pub enum ProtoNumberType {
     Ethernet,
     Ip,
     Udp,
+}
+
+
+pub struct ProtoParseResult {
+    pub next_slice: ProtoSlice,
+    pub ct: ConntrackWeakRef
 }
 
 pub struct ProtoSlice {
@@ -38,7 +46,7 @@ pub struct ProtoSlice {
 }
 
 pub struct ProtoStackEntry<'a> {
-    pub parser: Box<dyn ProtoParser + 'a>,
+    pub parser: Box<dyn ProtoProcessor + 'a>,
     pub parse_result: bool
 
 }
@@ -113,7 +121,7 @@ pub struct Proto;
 
 impl Proto {
 
-    fn get_next<'a>(&self, t: ProtoNumberType, num: u32, pload: &'a [u8]) -> Result<Box<dyn ProtoParser + 'a>, &'a str> {
+    fn get_next<'a>(&self, t: ProtoNumberType, num: u32, pload: &'a [u8]) -> Result<Box<dyn ProtoProcessor + 'a>, &'a str> {
 
         match t {
             ProtoNumberType::Pcap => match num {
@@ -167,7 +175,7 @@ impl Proto {
         }
 
 
-        let mut prev_layer : Option<Box<dyn ProtoParser>> = None;
+        let mut prev_layer : Option<Box<dyn ProtoProcessor>> = None;
         for p in stack {
             match prev_layer {
                 None => p.parser.print(None),

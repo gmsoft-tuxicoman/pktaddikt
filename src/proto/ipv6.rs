@@ -1,4 +1,4 @@
-use crate::proto::ProtoParser;
+use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
@@ -27,7 +27,7 @@ impl<'a> ProtoIpv6<'a> {
 
 }
 
-impl<'a> ProtoParser for ProtoIpv6<'a> {
+impl<'a> ProtoProcessor for ProtoIpv6<'a> {
     fn name(&self) -> &str {
         return "ip6"
     }
@@ -87,7 +87,7 @@ impl<'a> ProtoParser for ProtoIpv6<'a> {
             end: self.pload.len()} )
     }
 
-    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
+    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
 
         let src = self.fields[0].1.unwrap().get_ipv6();
         let dst = self.fields[1].1.unwrap().get_ipv6();

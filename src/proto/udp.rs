@@ -2,8 +2,10 @@ use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
+use crate::proto::ProtoProcessResult;
  
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
+use std::sync::Arc;
 use lazy_static::lazy_static;
 
 
@@ -43,8 +45,7 @@ impl<'a> ProtoProcessor for ProtoUdp<'a> {
         & self.fields
     }
 
-    //fn process(&mut self, ct_table: &mut conntrack::ConntrackTable) -> Result<ProtoSlice, ()> {
-    fn process(&mut self) -> Result<ProtoSlice, ()> {
+    fn process(&mut self) -> Result<ProtoProcessResult, ()> {
         let sport : u16 = (self.pload[0] as u16) << 8 | (self.pload[1] as u16);
         self.fields[0].1 = Some(ProtoField::U16(sport));
         let dport : u16 = (self.pload[2] as u16) << 8 | (self.pload[3] as u16);
@@ -57,14 +58,17 @@ impl<'a> ProtoProcessor for ProtoUdp<'a> {
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        CT_UDP.get(ct_key);
+        let ct = CT_UDP.get(ct_key);
 
 
-        Ok( ProtoSlice {
-            number_type :ProtoNumberType::Udp,
-            number: dport as u32,
-            start : 8,
-            end: len as usize} )
+        Ok( ProtoProcessResult {
+            next_slice: ProtoSlice {
+                number_type :ProtoNumberType::Udp,
+                number: dport as u32,
+                start : 8,
+                end: len as usize},
+            ct: Some(Arc::downgrade(&ct))
+            })
 
     }
 

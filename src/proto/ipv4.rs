@@ -9,8 +9,8 @@ use crate::conntrack::ConntrackKeyBidir;
 
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::net::Ipv4Addr;
-use lazy_static::lazy_static;
 
 
 
@@ -23,8 +23,10 @@ struct ConntrackIpv4 {
 
 
 static CT_IPV4_SIZE :usize = 65535;
-lazy_static! {
-    static ref CT_IPV4: ConntrackTable<ConntrackKeyIpv4> = ConntrackTable::new(CT_IPV4_SIZE);
+static CT_IPV4: OnceLock<ConntrackTable<ConntrackKeyIpv4>> = OnceLock::new();
+
+fn ct_ipv4() -> &'static ConntrackTable<ConntrackKeyIpv4> {
+    CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE))
 }
 
 pub struct ProtoIpv4<'a> {
@@ -72,7 +74,7 @@ impl<'a> ProtoProcessor for ProtoIpv4<'a> {
 
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let ct = CT_IPV4.get(ct_key);
+        let ct = ct_ipv4().get(ct_key);
 
 
         Ok( ProtoProcessResult {

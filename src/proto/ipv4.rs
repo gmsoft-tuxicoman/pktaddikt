@@ -2,10 +2,13 @@ use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
+use crate::proto::ProtoProcessResult;
 
 use crate::conntrack::ConntrackTable;
 use crate::conntrack::ConntrackKeyBidir;
 
+
+use std::sync::Arc;
 use std::net::Ipv4Addr;
 use lazy_static::lazy_static;
 
@@ -56,7 +59,7 @@ impl<'a> ProtoProcessor for ProtoIpv4<'a> {
         & self.fields
     }
 
-    fn process(&mut self) -> Result<ProtoSlice, ()> {
+    fn process(&mut self) -> Result<ProtoProcessResult, ()> {
         let src = Ipv4Addr::new(self.pload[12], self.pload[13], self.pload[14], self.pload[15]);
         self.fields[0].1 = Some(ProtoField::Ipv4(src));
         let dst = Ipv4Addr::new(self.pload[16], self.pload[17], self.pload[18], self.pload[19]);
@@ -69,14 +72,18 @@ impl<'a> ProtoProcessor for ProtoIpv4<'a> {
 
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        CT_IPV4.get(ct_key);
+        let ct = CT_IPV4.get(ct_key);
 
 
-        Ok( ProtoSlice {
-            number_type :ProtoNumberType::Ip,
-            number: proto as u32,
-            start : header_len as usize,
-            end: self.pload.len()} )
+        Ok( ProtoProcessResult {
+            next_slice: ProtoSlice {
+                number_type :ProtoNumberType::Ip,
+                number: proto as u32,
+                start : header_len as usize,
+                end: self.pload.len()},
+            ct: Some(Arc::downgrade(&ct))
+        })
+
     }
 
     fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {

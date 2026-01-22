@@ -1,5 +1,6 @@
 use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
+use crate::proto::ProtoProcessResult;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
 //use crate::conntrack;
@@ -47,8 +48,7 @@ impl<'a> ProtoProcessor for ProtoEthernet<'a> {
         & self.fields
     }
 
-    //fn process(&mut self, _ct_table: &mut conntrack::ConntrackTable) -> Result<ProtoSlice, ()> {
-    fn process(&mut self) -> Result<ProtoSlice, ()> {
+    fn process(&mut self) -> Result<ProtoProcessResult, ()> {
 
         if self.pload.len() < 14 {
             return Err(())
@@ -63,11 +63,15 @@ impl<'a> ProtoProcessor for ProtoEthernet<'a> {
         self.fields[2].1 = Some(ProtoField::U16(eth_type));
 
 
-        Ok( ProtoSlice {
-            number_type :ProtoNumberType::Ethernet,
-            number: eth_type as u32,
-            start : 14,
-            end: self.pload.len()} )
+        Ok( ProtoProcessResult {
+            next_slice: ProtoSlice {
+                number_type :ProtoNumberType::Ethernet,
+                number: eth_type as u32,
+                start : 14,
+                end: self.pload.len()},
+            ct: None
+        })
+
     }
 
     fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {

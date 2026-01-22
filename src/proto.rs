@@ -17,7 +17,7 @@ use std::net::Ipv6Addr;
 pub trait ProtoProcessor {
 
     fn name(&self) -> &str;
-    fn process(&mut self) -> Result<ProtoSlice, ()>;
+    fn process(&mut self) -> Result<ProtoProcessResult, ()>;
     fn get_fields(&self) -> &Vec<(&str, Option<ProtoField>)>;
     fn get_field(&self, name: &str) -> Option<ProtoField> {
        self.get_fields().into_iter().find_map(| &(x,y)| { if x == name { y } else { None }})
@@ -33,9 +33,9 @@ pub enum ProtoNumberType {
 }
 
 
-pub struct ProtoParseResult {
+pub struct ProtoProcessResult {
     pub next_slice: ProtoSlice,
-    pub ct: ConntrackWeakRef
+    pub ct: Option<ConntrackWeakRef>
 }
 
 pub struct ProtoSlice {
@@ -158,13 +158,14 @@ impl Proto {
                 Ok(p) => p,
                 _ => break,
             };
-            let res =  p.process();
-            match res {
-                Ok(proto_slice) => {
-                    t = proto_slice.number_type;
-                    n = proto_slice.number;
-                    println!("{} -> {}",proto_slice.start, proto_slice.end);
-                    data = &data[proto_slice.start .. proto_slice.end];
+            let opt_res = p.process();
+            match opt_res {
+                Ok(res) => {
+                    let slice = res.next_slice;
+                    t = slice.number_type;
+                    n = slice.number;
+                    println!("{} -> {}",slice.start, slice.end);
+                    data = &data[slice.start .. slice.end];
                     stack.push(ProtoStackEntry{parser: p, parse_result: true});
                 },
                 Err(()) => {

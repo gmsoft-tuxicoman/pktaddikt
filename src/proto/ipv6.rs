@@ -2,7 +2,7 @@ use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
-//use crate::conntrack;
+use crate::proto::ProtoProcessResult;
 
 use std::net::Ipv6Addr;
 
@@ -36,8 +36,7 @@ impl<'a> ProtoProcessor for ProtoIpv6<'a> {
         & self.fields
     }
 
-    //fn process(&mut self, ct_table: &mut conntrack::ConntrackTable) -> Result<ProtoSlice, ()> {
-    fn process(&mut self) -> Result<ProtoSlice, ()> {
+    fn process(&mut self) -> Result<ProtoProcessResult, ()> {
         let src = Ipv6Addr::new((self.pload[8] as u16) << 8 | (self.pload[9] as u16),
                                 (self.pload[10] as u16) << 8 | (self.pload[11] as u16),
                                 (self.pload[12] as u16) << 8 | (self.pload[13] as u16),
@@ -80,11 +79,14 @@ impl<'a> ProtoProcessor for ProtoIpv6<'a> {
 
         }
 
-        Ok( ProtoSlice {
-            number_type :ProtoNumberType::Ip,
-            number: nhdr as u32,
-            start : offset,
-            end: self.pload.len()} )
+        Ok( ProtoProcessResult {
+            next_slice: ProtoSlice {
+                number_type :ProtoNumberType::Ip,
+                number: nhdr as u32,
+                start : offset,
+                end: self.pload.len()},
+            ct: None // FIXME when adding conntrack
+        })
     }
 
     fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {

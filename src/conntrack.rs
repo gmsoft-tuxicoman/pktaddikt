@@ -1,16 +1,12 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Weak, Mutex};
 use std::any::Any;
-use std::collections::hash_map::Entry;
-
-//#[derive(Eq, Hash, PartialEq)]
 
 
 type ConntrackRef = Arc<Mutex<Conntrack>>;
-
+pub type ConntrackWeakRef = Weak<Mutex<Conntrack>>;
 
 pub trait ConntrackKey {
-    fn bidir_key(&self) -> u64;
+    fn key(&self) -> u64;
     fn fwd_eq(&self, other: &Self) -> bool;
     fn rev_eq(&self, other: &Self) -> bool;
 }
@@ -24,7 +20,7 @@ pub struct ConntrackKeyBidir<T> {
 impl<T> ConntrackKey for ConntrackKeyBidir<T>
     where T: Copy + PartialEq + Into<u64>
 {
-    fn bidir_key(&self) -> u64 {
+    fn key(&self) -> u64 {
         self.a.into() * self.b.into()
     }
 
@@ -53,7 +49,7 @@ struct ConntrackEntry<K: ConntrackKey> {
 }
 
 pub struct ConntrackTable<K: ConntrackKey> {
-    entries: HashMap<u64, ConntrackList<K>>
+    entries: Vec<Mutex<ConntrackList<K>>>
 }
 
 
@@ -74,61 +70,50 @@ impl Conntrack {
 
 impl<K: ConntrackKey> ConntrackTable<K> {
 
-    pub fn new() -> Self {
-        ConntrackTable { entries: HashMap::new() }
+    pub fn new(size: usize) -> Self {
+
+        let mut entries = Vec::with_capacity(size);
+
+        for _ in 0..size {
+            entries.push(Mutex::new(ConntrackList::new()));
+        }
+
+        Self { entries }
     }
 
 
-    pub fn get(&mut self, key: K) -> ConntrackRef {
+    pub fn get(&self, key: K) -> ConntrackRef {
 
 
-        // Calculate the bi-directional key and try to find it in the hash map
-        let bidir_key = key.bidir_key();
+        // Calculate the key and try to find it in the array
+        let hash_key = key.key();
+        let ct_index : usize = (((hash_key >> 32) as u32 ^ hash_key as u32)) as usize % self.entries.capacity();
 
-        println!("Searching for conntrack with key {}", bidir_key);
+        println!("Searching for conntrack with key {}", hash_key);
 
+        let mut ct_list = self.entries[ct_index].lock().unwrap();
 
-        match self.entries.entry(bidir_key) {
-            Entry::Occupied(mut entry) => {
-
-                let ct_list = entry.get_mut();
-
-                for ct_entry in ct_list.iter() { // Try to find the exact conntrack in the ConntrackList
-                    if ct_entry.key.fwd_eq(&key) {
-                        // Conntrack found, forward direction
-                        println!("Conntrack found in forward direction");
-                        return ct_entry.ce.clone();
-                    } else if ct_entry.key.rev_eq(&key) {
-                        // Conntrack found, reverse direction
-                        println!("Conntrack found in reverse direction");
-                        return ct_entry.ce.clone();
-                    }
-                }
-
-                // Not found, create and add to the ConntrackList
-                let ce = Conntrack::new();
-                let ct_entry = ConntrackEntry {
-                    key: key,
-                    ce: ce.clone()
-                };
-                ct_list.push(ct_entry);
-                println!("New conntrack in an existing list");
-                ce
-
+        for ct_entry in ct_list.iter() { // Try to find the exact conntrack in the ConntrackList
+            if ct_entry.key.fwd_eq(&key) {
+                // Conntrack found, forward direction
+                println!("Conntrack found in forward direction");
+                return ct_entry.ce.clone();
+            } else if ct_entry.key.rev_eq(&key) {
+                // Conntrack found, reverse direction
+                println!("Conntrack found in reverse direction");
+                return ct_entry.ce.clone();
             }
-
-            Entry::Vacant(entry) => {
-                let ce = Conntrack::new();
-                let ct_entry = ConntrackEntry {
-                    key: key,
-                    ce: ce.clone()
-                };
-                entry.insert(vec![ct_entry]);
-                println!("New conntrack with a new list");
-                ce
-            }
-
         }
+
+        // Not found, create and add to the ConntrackList
+        let ce = Conntrack::new();
+        let ct_entry = ConntrackEntry {
+            key: key,
+            ce: ce.clone()
+        };
+        ct_list.push(ct_entry);
+        println!("New conntrack in an existing list");
+        ce
 
     }
 }

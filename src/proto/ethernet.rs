@@ -1,4 +1,4 @@
-use crate::proto::ProtoParser;
+use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
@@ -36,7 +36,7 @@ impl<'a> ProtoEthernet<'a> {
 
 }
 
-impl<'a> ProtoParser for ProtoEthernet<'a> {
+impl<'a> ProtoProcessor for ProtoEthernet<'a> {
 
 
     fn name(&self) -> &str {
@@ -70,7 +70,7 @@ impl<'a> ProtoParser for ProtoEthernet<'a> {
             end: self.pload.len()} )
     }
 
-    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoParser + 'b>>) {
+    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
 
         let src = self.fields[0].1.unwrap().get_mac();
         print_ether_addr(&src);

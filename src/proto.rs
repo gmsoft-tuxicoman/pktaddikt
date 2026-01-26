@@ -18,10 +18,6 @@ pub trait ProtoProcessor {
 
     fn name(&self) -> &str;
     fn process(&mut self) -> Result<ProtoProcessResult, ()>;
-    fn get_fields(&self) -> &Vec<(&str, Option<ProtoField>)>;
-    fn get_field(&self, name: &str) -> Option<ProtoField> {
-       self.get_fields().into_iter().find_map(| &(x,y)| { if x == name { y } else { None }})
-    }
     fn print<'a>(&self, prev_layer: Option<&'a Box<dyn ProtoProcessor + 'a>>);
 }
 
@@ -32,6 +28,10 @@ pub enum ProtoNumberType {
     Udp,
 }
 
+pub struct ProtoProcessArgs {
+    pub slice: ProtoSlice,
+    pub parent_ct: Option<ConntrackWeakRef>
+}
 
 pub struct ProtoProcessResult {
     pub next_slice: ProtoSlice,

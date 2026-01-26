@@ -43,10 +43,6 @@ impl<'a> ProtoProcessor for ProtoUdp<'a> {
         return "udp"
     }
 
-    fn get_fields(&self) -> &Vec<(&str, Option<ProtoField<'a>>)> {
-        & self.fields
-    }
-
     fn process(&mut self) -> Result<ProtoProcessResult, ()> {
         let sport : u16 = (self.pload[0] as u16) << 8 | (self.pload[1] as u16);
         self.fields[0].1 = Some(ProtoField::U16(sport));

@@ -16,7 +16,7 @@ use std::net::Ipv6Addr;
 
 pub trait ProtoProcessor {
 
-    fn process(&mut self) -> Result<ProtoProcessResult, ()>;
+    fn process(&mut self, ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()>;
     fn print<'a>(&self, prev_layer: Option<&'a Box<dyn ProtoProcessor + 'a>>);
 }
 
@@ -25,11 +25,6 @@ pub enum ProtoNumberType {
     Ethernet,
     Ip,
     Udp,
-}
-
-pub struct ProtoProcessArgs {
-    pub slice: ProtoSlice,
-    pub parent_ct: Option<ConntrackWeakRef>
 }
 
 pub struct ProtoProcessResult {
@@ -149,6 +144,8 @@ impl Proto {
         let mut t = ProtoNumberType::Pcap;
         let mut n = lt.0 as u32;
         let mut data = data;
+        let mut ce_parent: Option<ConntrackWeakRef> = None;
+
 
         let mut stack = Vec::new();
         loop {
@@ -157,15 +154,15 @@ impl Proto {
                 Ok(p) => p,
                 _ => break,
             };
-            let opt_res = p.process();
+            let opt_res = p.process(ce_parent);
             match opt_res {
                 Ok(res) => {
                     let slice = res.next_slice;
                     t = slice.number_type;
                     n = slice.number;
-                    println!("{} -> {}",slice.start, slice.end);
                     data = &data[slice.start .. slice.end];
                     stack.push(ProtoStackEntry{parser: p, parse_result: true});
+                    ce_parent = res.ct;
                 },
                 Err(()) => {
                     stack.push(ProtoStackEntry{parser: p, parse_result: false});

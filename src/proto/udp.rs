@@ -5,6 +5,8 @@ use crate::proto::ProtoField;
 use crate::proto::ProtoProcessResult;
  
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
+use crate::conntrack::ConntrackWeakRef;
+
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -40,7 +42,7 @@ impl<'a> ProtoUdp<'a> {
 
 impl<'a> ProtoProcessor for ProtoUdp<'a> {
 
-    fn process(&mut self) -> Result<ProtoProcessResult, ()> {
+    fn process(&mut self, ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
         let sport : u16 = (self.pload[0] as u16) << 8 | (self.pload[1] as u16);
         self.fields[0].1 = Some(ProtoField::U16(sport));
         let dport : u16 = (self.pload[2] as u16) << 8 | (self.pload[3] as u16);
@@ -53,7 +55,7 @@ impl<'a> ProtoProcessor for ProtoUdp<'a> {
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        let ct = ct_udp().get(ct_key);
+        let ct = ct_udp().get(ct_key, ce_parent);
 
 
         Ok( ProtoProcessResult {

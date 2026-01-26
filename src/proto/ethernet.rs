@@ -3,7 +3,7 @@ use crate::proto::ProtoNumberType;
 use crate::proto::ProtoProcessResult;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
-//use crate::conntrack;
+use crate::conntrack::ConntrackWeakRef;
 
 pub struct ProtoEthernet<'a> {
     pub pload: &'a [u8],
@@ -40,7 +40,7 @@ impl<'a> ProtoEthernet<'a> {
 impl<'a> ProtoProcessor for ProtoEthernet<'a> {
 
 
-    fn process(&mut self) -> Result<ProtoProcessResult, ()> {
+    fn process(&mut self, _ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
 
         if self.pload.len() < 14 {
             return Err(())

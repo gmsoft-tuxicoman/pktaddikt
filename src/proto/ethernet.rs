@@ -40,10 +40,6 @@ impl<'a> ProtoEthernet<'a> {
 impl<'a> ProtoProcessor for ProtoEthernet<'a> {
 
 
-    fn name(&self) -> &str {
-        return "ether"
-    }
-
     fn process(&mut self) -> Result<ProtoProcessResult, ()> {
 
         if self.pload.len() < 14 {

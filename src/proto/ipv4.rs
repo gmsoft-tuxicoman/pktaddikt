@@ -53,10 +53,6 @@ impl<'a> ProtoIpv4<'a> {
 
 impl<'a> ProtoProcessor for ProtoIpv4<'a> {
 
-    fn name(&self) -> &str {
-        return "ip"
-    }
-
 
     fn process(&mut self) -> Result<ProtoProcessResult, ()> {
 

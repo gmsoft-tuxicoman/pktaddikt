@@ -16,7 +16,6 @@ use std::net::Ipv6Addr;
 
 pub trait ProtoProcessor {
 
-    fn name(&self) -> &str;
     fn process(&mut self) -> Result<ProtoProcessResult, ()>;
     fn print<'a>(&self, prev_layer: Option<&'a Box<dyn ProtoProcessor + 'a>>);
 }

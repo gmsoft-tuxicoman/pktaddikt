@@ -39,9 +39,6 @@ impl<'a> ProtoUdp<'a> {
 }
 
 impl<'a> ProtoProcessor for ProtoUdp<'a> {
-    fn name(&self) -> &str {
-        return "udp"
-    }
 
     fn process(&mut self) -> Result<ProtoProcessResult, ()> {
         let sport : u16 = (self.pload[0] as u16) << 8 | (self.pload[1] as u16);

@@ -3,6 +3,7 @@ use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoField;
 use crate::proto::ProtoProcessResult;
+use crate::conntrack::ConntrackWeakRef;
 
 use std::net::Ipv6Addr;
 
@@ -29,7 +30,7 @@ impl<'a> ProtoIpv6<'a> {
 
 impl<'a> ProtoProcessor for ProtoIpv6<'a> {
 
-    fn process(&mut self) -> Result<ProtoProcessResult, ()> {
+    fn process(&mut self, ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
         let src = Ipv6Addr::new((self.pload[8] as u16) << 8 | (self.pload[9] as u16),
                                 (self.pload[10] as u16) << 8 | (self.pload[11] as u16),
                                 (self.pload[12] as u16) << 8 | (self.pload[13] as u16),

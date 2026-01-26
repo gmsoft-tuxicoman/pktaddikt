@@ -6,6 +6,7 @@ use crate::proto::ProtoProcessResult;
 
 use crate::conntrack::ConntrackTable;
 use crate::conntrack::ConntrackKeyBidir;
+use crate::conntrack::ConntrackWeakRef;
 
 
 use std::sync::Arc;
@@ -54,7 +55,7 @@ impl<'a> ProtoIpv4<'a> {
 impl<'a> ProtoProcessor for ProtoIpv4<'a> {
 
 
-    fn process(&mut self) -> Result<ProtoProcessResult, ()> {
+    fn process(&mut self, ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
 
         let plen = self.pload.len();
         if plen < 20 { // length smaller than IP header
@@ -92,7 +93,7 @@ impl<'a> ProtoProcessor for ProtoIpv4<'a> {
 
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let ct = ct_ipv4().get(ct_key);
+        let ct = ct_ipv4().get(ct_key, ce_parent);
 
 
         Ok( ProtoProcessResult {

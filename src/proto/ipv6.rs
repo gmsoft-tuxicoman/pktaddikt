@@ -28,9 +28,6 @@ impl<'a> ProtoIpv6<'a> {
 }
 
 impl<'a> ProtoProcessor for ProtoIpv6<'a> {
-    fn name(&self) -> &str {
-        return "ip6"
-    }
 
     fn process(&mut self) -> Result<ProtoProcessResult, ()> {
         let src = Ipv6Addr::new((self.pload[8] as u16) << 8 | (self.pload[9] as u16),

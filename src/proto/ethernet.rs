@@ -44,10 +44,6 @@ impl<'a> ProtoProcessor for ProtoEthernet<'a> {
         return "ether"
     }
 
-    fn get_fields(&self) -> &Vec<(&str, Option<ProtoField<'a>>)> {
-        & self.fields
-    }
-
     fn process(&mut self) -> Result<ProtoProcessResult, ()> {
 
         if self.pload.len() < 14 {

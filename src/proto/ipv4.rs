@@ -57,11 +57,33 @@ impl<'a> ProtoProcessor for ProtoIpv4<'a> {
         return "ip"
     }
 
-    fn get_fields(&self) -> &Vec<(&str, Option<ProtoField<'a>>)> {
-        & self.fields
-    }
 
     fn process(&mut self) -> Result<ProtoProcessResult, ()> {
+
+        let plen = self.pload.len();
+        if plen < 20 { // length smaller than IP header
+            return Err(());
+        }
+
+        if self.pload[0] >> 4 != 4 { // not IP version 4
+            return Err(());
+        }
+
+        let header_len = (self.pload[0] & 0xf) as u16 * 4;
+        self.fields[3].1 = Some(ProtoField::U16(header_len));
+
+        if header_len < 20 { // header length smaller than minimum IP header
+            return Err(());
+        }
+
+        let tot_len :u16 = (self.pload[2] as u16) << 8 | self.pload[3] as u16;
+        if tot_len < header_len { // datagram size < header length
+            return Err(());
+        } else if (tot_len as usize) > plen { // Truncated packet
+            return Err(());
+        }
+
+
         let src = Ipv4Addr::new(self.pload[12], self.pload[13], self.pload[14], self.pload[15]);
         self.fields[0].1 = Some(ProtoField::Ipv4(src));
         let dst = Ipv4Addr::new(self.pload[16], self.pload[17], self.pload[18], self.pload[19]);

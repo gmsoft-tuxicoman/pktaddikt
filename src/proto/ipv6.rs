@@ -32,10 +32,6 @@ impl<'a> ProtoProcessor for ProtoIpv6<'a> {
         return "ip6"
     }
 
-    fn get_fields(&self) -> &Vec<(&str, Option<ProtoField<'a>>)> {
-        & self.fields
-    }
-
     fn process(&mut self) -> Result<ProtoProcessResult, ()> {
         let src = Ipv6Addr::new((self.pload[8] as u16) << 8 | (self.pload[9] as u16),
                                 (self.pload[10] as u16) << 8 | (self.pload[11] as u16),

@@ -4,6 +4,7 @@ use crate::proto::ProtoSlice;
 use crate::proto::ProtoProcessResult;
 
 use crate::param::Param;
+use crate::param::ParamValue;
 
 use crate::conntrack::ConntrackTable;
 use crate::conntrack::ConntrackKeyBidir;
@@ -33,7 +34,7 @@ fn ct_ipv4() -> &'static ConntrackTable<ConntrackKeyIpv4> {
 
 pub struct ProtoIpv4<'a> {
     pub pload: &'a [u8],
-    fields : Vec<(&'a str, Option<Param<'a>>)>,
+    fields : Vec<Param<'a>>,
 }
 
 
@@ -44,10 +45,10 @@ impl<'a> ProtoIpv4<'a> {
         ProtoIpv4{
             pload : pload,
             fields : vec![
-                ("src", None),
-                ("dst", None),
-                ("proto", None),
-                ("ihl", None)],
+                Param { name: "src", value: None},
+                Param { name: "dst", value: None},
+                Param { name: "proto", value: None},
+                Param { name: "ihl", value: None}],
         }
     }
 
@@ -68,7 +69,7 @@ impl<'a> ProtoProcessor for ProtoIpv4<'a> {
         }
 
         let header_len = (self.pload[0] & 0xf) as u16 * 4;
-        self.fields[3].1 = Some(Param::U16(header_len));
+        self.fields[3].value = Some(ParamValue::U16(header_len));
 
         if header_len < 20 { // header length smaller than minimum IP header
             return Err(());
@@ -83,14 +84,14 @@ impl<'a> ProtoProcessor for ProtoIpv4<'a> {
 
 
         let src = Ipv4Addr::new(self.pload[12], self.pload[13], self.pload[14], self.pload[15]);
-        self.fields[0].1 = Some(Param::Ipv4(src));
+        self.fields[0].value = Some(ParamValue::Ipv4(src));
         let dst = Ipv4Addr::new(self.pload[16], self.pload[17], self.pload[18], self.pload[19]);
-        self.fields[1].1 = Some(Param::Ipv4(dst));
+        self.fields[1].value = Some(ParamValue::Ipv4(dst));
         let proto = self.pload[9];
-        self.fields[2].1 = Some(Param::U8(proto));
+        self.fields[2].value = Some(ParamValue::U8(proto));
 
         let header_len = (self.pload[0] & 0xf) as u16 * 4;
-        self.fields[3].1 = Some(Param::U16(header_len));
+        self.fields[3].value = Some(ParamValue::U16(header_len));
 
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
@@ -110,10 +111,10 @@ impl<'a> ProtoProcessor for ProtoIpv4<'a> {
 
     fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
 
-        let src = self.fields[0].1.unwrap().get_ipv4();
-        let dst = self.fields[1].1.unwrap().get_ipv4();
-        let proto = self.fields[2].1.unwrap().get_u8();
-        let ihl = self.fields[3].1.unwrap().get_u16();
+        let src = self.fields[0].value.unwrap().get_ipv4();
+        let dst = self.fields[1].value.unwrap().get_ipv4();
+        let proto = self.fields[2].value.unwrap().get_u8();
+        let ihl = self.fields[3].value.unwrap().get_u16();
 
         print!("{} -> {}, proto : {}, len {}, hlen : {} ", src, dst, proto, self.pload.len(), ihl);
     }

@@ -3,6 +3,7 @@ use crate::proto::ProtoNumberType;
 use crate::proto::ProtoSlice;
 use crate::proto::ProtoProcessResult;
 use crate::param::Param;
+use crate::param::ParamValue;
  
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::conntrack::ConntrackWeakRef;
@@ -23,7 +24,7 @@ fn ct_udp() -> &'static ConntrackTable<ConntrackKeyUdp> {
 
 pub struct ProtoUdp<'a> {
     pub pload: &'a [u8],
-    fields : Vec<(&'a str, Option<Param<'a>>)>
+    fields : Vec<Param<'a>>
 }
 
 
@@ -33,8 +34,8 @@ impl<'a> ProtoUdp<'a> {
         ProtoUdp{
             pload : pload,
             fields : vec![
-                ("sport", None),
-                ("dport", None) ],
+                Param { name: "sport", value: None },
+                Param { name: "dport", value: None} ],
         }
     }
 
@@ -44,9 +45,9 @@ impl<'a> ProtoProcessor for ProtoUdp<'a> {
 
     fn process(&mut self, ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
         let sport : u16 = (self.pload[0] as u16) << 8 | (self.pload[1] as u16);
-        self.fields[0].1 = Some(Param::U16(sport));
+        self.fields[0].value = Some(ParamValue::U16(sport));
         let dport : u16 = (self.pload[2] as u16) << 8 | (self.pload[3] as u16);
-        self.fields[1].1 = Some(Param::U16(dport));
+        self.fields[1].value = Some(ParamValue::U16(dport));
         let len : u16 = (self.pload[4] as u16) << 8 | (self.pload[5] as u16);
 
         if (len > (self.pload.len() as u16)) || (len < 8) {
@@ -71,8 +72,8 @@ impl<'a> ProtoProcessor for ProtoUdp<'a> {
 
     fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
 
-        let sport = self.fields[0].1.unwrap().get_u16();
-        let dport = self.fields[1].1.unwrap().get_u16();
+        let sport = self.fields[0].value.unwrap().get_u16();
+        let dport = self.fields[1].value.unwrap().get_u16();
 
 
         print!("UDP {} -> {}", sport, dport);

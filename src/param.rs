@@ -1,8 +1,14 @@
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 
+
+pub struct Param<'a> {
+    pub name: &'static str,
+    pub value: Option<ParamValue<'a>>
+}
+
 #[derive(Debug, Clone, Copy)]
-pub enum Param<'a> {
+pub enum ParamValue<'a> {
     U8(u8),
     U16(u16),
     U32(u32),
@@ -13,53 +19,53 @@ pub enum Param<'a> {
     Ipv6(Ipv6Addr)
 }
 
-impl<'a> Param<'a> {
+impl<'a> ParamValue<'a> {
 
     pub fn get_u8(&self) -> u8 {
         match self {
-            Param::U8(val) => *val,
+            ParamValue::U8(val) => *val,
             _ => panic!("Trying to fetch u8")
         }
     }
     pub fn get_u16(&self) -> u16 {
         match self {
-            Param::U16(val) => *val,
+            ParamValue::U16(val) => *val,
             _ => panic!("Trying to fetch u16")
         }
     }
     pub fn get_u32(&self) -> u32 {
         match self {
-            Param::U32(val) => *val,
+            ParamValue::U32(val) => *val,
             _ => panic!("Trying to fetch u32")
         }
     }
     pub fn get_u64(&self) -> u64 {
         match self {
-            Param::U64(val) => *val,
+            ParamValue::U64(val) => *val,
             _ => panic!("Trying to fetch u64")
         }
     }
     pub fn get_str(&self) -> &str {
         match self {
-            Param::Str(val) => val,
+            ParamValue::Str(val) => val,
             _ => panic!("Trying to fetch string")
         }
     }
     pub fn get_mac(&self) -> [u8;6] {
         match self {
-            Param::Mac(val) => *val,
+            ParamValue::Mac(val) => *val,
             _ => panic!("Trying to fetch mac address")
         }
     }
     pub fn get_ipv4(&self) -> Ipv4Addr {
         match self {
-            Param::Ipv4(val) => *val,
+            ParamValue::Ipv4(val) => *val,
             _ => panic!("Trying to fetch ipv4")
         }
     }
     pub fn get_ipv6(&self) -> Ipv6Addr {
         match self {
-            Param::Ipv6(val) => *val,
+            ParamValue::Ipv6(val) => *val,
             _ => panic!("Trying to fetch ipv6")
         }
     }

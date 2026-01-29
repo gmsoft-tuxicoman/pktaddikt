@@ -5,13 +5,14 @@ use crate::proto::ProtoProcessResult;
 use crate::conntrack::ConntrackWeakRef;
 
 use crate::param::Param;
+use crate::param::ParamValue;
 
 use std::net::Ipv6Addr;
 
 
 pub struct ProtoIpv6<'a> {
     pub pload: &'a [u8],
-    fields : Vec<(&'a str, Option<Param<'a>>)>
+    fields : Vec<Param<'a>>
 }
 
 impl<'a> ProtoIpv6<'a> {
@@ -20,9 +21,9 @@ impl<'a> ProtoIpv6<'a> {
         ProtoIpv6{
             pload : pload,
             fields : vec![
-                ("src", None),
-                ("dst", None),
-                ("hlim", None)
+                Param { name: "src", value: None },
+                Param { name: "dst", value: None },
+                Param { name: "hlim", value: None}
             ]
         }
     }
@@ -40,7 +41,7 @@ impl<'a> ProtoProcessor for ProtoIpv6<'a> {
                                 (self.pload[18] as u16) << 8 | (self.pload[19] as u16),
                                 (self.pload[20] as u16) << 8 | (self.pload[21] as u16),
                                 (self.pload[22] as u16) << 8 | (self.pload[23] as u16));
-        self.fields[0].1 = Some(Param::Ipv6(src));
+        self.fields[0].value = Some(ParamValue::Ipv6(src));
         let dst = Ipv6Addr::new((self.pload[24] as u16) << 8 | (self.pload[25] as u16),
                                 (self.pload[26] as u16) << 8 | (self.pload[27] as u16),
                                 (self.pload[28] as u16) << 8 | (self.pload[29] as u16),
@@ -49,10 +50,10 @@ impl<'a> ProtoProcessor for ProtoIpv6<'a> {
                                 (self.pload[34] as u16) << 8 | (self.pload[35] as u16),
                                 (self.pload[36] as u16) << 8 | (self.pload[37] as u16),
                                 (self.pload[38] as u16) << 8 | (self.pload[39] as u16));
-        self.fields[1].1 = Some(Param::Ipv6(dst));
+        self.fields[1].value = Some(ParamValue::Ipv6(dst));
 
         let hop_limit = self.pload[7];
-        self.fields[2].1 = Some(Param::U8(hop_limit));
+        self.fields[2].value = Some(ParamValue::U8(hop_limit));
 
         let mut nhdr: u8 = self.pload[6];
         let mut offset: usize = 40;
@@ -86,8 +87,8 @@ impl<'a> ProtoProcessor for ProtoIpv6<'a> {
 
     fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
 
-        let src = self.fields[0].1.unwrap().get_ipv6();
-        let dst = self.fields[1].1.unwrap().get_ipv6();
+        let src = self.fields[0].value.unwrap().get_ipv6();
+        let dst = self.fields[1].value.unwrap().get_ipv6();
 
         print!("{} -> {} ", src, dst);
     }

@@ -4,10 +4,11 @@ use crate::proto::ProtoProcessResult;
 use crate::proto::ProtoSlice;
 use crate::conntrack::ConntrackWeakRef;
 use crate::param::Param;
+use crate::param::ParamValue;
 
 pub struct ProtoEthernet<'a> {
     pub pload: &'a [u8],
-    fields : Vec<(&'a str, Option<Param<'a>>)>
+    fields : Vec<Param<'a>>
 }
 
 fn print_ether_addr(addr : &[u8]) {
@@ -29,9 +30,9 @@ impl<'a> ProtoEthernet<'a> {
         ProtoEthernet{
             pload : pload,
             fields : vec![
-                ("src", None),
-                ("dst", None),
-                ("type", None) ],
+                Param { name: "src", value: None },
+                Param { name: "dst", value: None },
+                Param { name: "type", value: None} ],
         }
     }
 
@@ -47,12 +48,12 @@ impl<'a> ProtoProcessor for ProtoEthernet<'a> {
         }
 
         let src : &[u8] = &self.pload[..6];
-        self.fields[0].1 = Some(Param::Mac(src.try_into().expect("MAC too small")));
+        self.fields[0].value = Some(ParamValue::Mac(src.try_into().expect("MAC too small")));
         let dst : &[u8] = &self.pload[6..12];
-        self.fields[1].1 = Some(Param::Mac(dst.try_into().expect("MAC too small")));
+        self.fields[1].value = Some(ParamValue::Mac(dst.try_into().expect("MAC too small")));
 
         let eth_type: u16 = (self.pload[12] as u16) << 8 | (self.pload[13] as u16);
-        self.fields[2].1 = Some(Param::U16(eth_type));
+        self.fields[2].value = Some(ParamValue::U16(eth_type));
 
 
         Ok( ProtoProcessResult {
@@ -68,19 +69,19 @@ impl<'a> ProtoProcessor for ProtoEthernet<'a> {
 
     fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
 
-        let src = self.fields[0].1.unwrap().get_mac();
+        let src = self.fields[0].value.unwrap().get_mac();
         print_ether_addr(&src);
         print!(" > ");
-        let dst = self.fields[1].1.unwrap().get_mac();
+        let dst = self.fields[1].value.unwrap().get_mac();
         print_ether_addr(&dst);
 
-        let type_opt = ETHER_TYPES.into_iter().find_map(| (x,y)| { if x == self.fields[2].1.unwrap().get_u16() { Some(y) } else { None }});
+        let type_opt = ETHER_TYPES.into_iter().find_map(| (x,y)| { if x == self.fields[2].value.unwrap().get_u16() { Some(y) } else { None }});
         let type_str;
         match type_opt {
             Some(t) => type_str = t,
             None => type_str = "Unknown"
         }
-        print!(", ethertype {} ({:#06x}), length {}: ", type_str, self.fields[2].1.unwrap().get_u16(), self.pload.len());
+        print!(", ethertype {} ({:#06x}), length {}: ", type_str, self.fields[2].value.unwrap().get_u16(), self.pload.len());
 
     }
 }

@@ -1,5 +1,6 @@
 use std::sync::{Arc, Weak, Mutex};
 use std::any::Any;
+use tracing::debug;
 
 
 type ConntrackRef = Arc<Mutex<Conntrack>>;
@@ -11,7 +12,7 @@ pub trait ConntrackKey {
     fn rev_eq(&self, other: &Self) -> bool;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ConntrackKeyBidir<T> {
     pub a: T,
     pub b: T,
@@ -80,7 +81,7 @@ impl<K: ConntrackKey> ConntrackTable<K> {
         Self { entries }
     }
 
-
+    //#[tracing::instrument(skip(self))]
     pub fn get(&self, key: K, parent: Option<ConntrackWeakRef>) -> ConntrackRef {
 
 
@@ -91,7 +92,7 @@ impl<K: ConntrackKey> ConntrackTable<K> {
         let hash_key = key.key();
         let ct_index : usize = (((hash_key >> 32) as u32 ^ hash_key as u32)) as usize % self.entries.capacity();
 
-        println!("Searching for conntrack with key {}", hash_key);
+        debug!("Searching for conntrack with key {}", hash_key);
 
         let mut ct_list = self.entries[ct_index].lock().unwrap();
 
@@ -99,10 +100,10 @@ impl<K: ConntrackKey> ConntrackTable<K> {
 
             if let Some(ref parent_weak) = parent { // If we were provided a parent
                 if let Some(ct_parent_weak) = &ct_entry.parent { // Check the parent of the conntrack entry
-                    println!("Comparing ct_entry {:p} with parent {:p}", Weak::as_ptr(&ct_parent_weak), Weak::as_ptr(&parent_weak));
+                    debug!("Comparing ct_entry {:p} with parent {:p}", Weak::as_ptr(&ct_parent_weak), Weak::as_ptr(&parent_weak));
                     // Make sure the parent is the same
                     if !Weak::ptr_eq(&ct_parent_weak, &parent_weak) {
-                        println!("Parent did not match");
+                        debug!("Parent did not match");
                         continue;
                     }
                 }
@@ -110,11 +111,11 @@ impl<K: ConntrackKey> ConntrackTable<K> {
 
             if ct_entry.key.fwd_eq(&key) {
                 // Conntrack found, forward direction
-                println!("Conntrack found in forward direction");
+                debug!("Conntrack found in forward direction");
                 return ct_entry.ce.clone();
             } else if ct_entry.key.rev_eq(&key) {
                 // Conntrack found, reverse direction
-                println!("Conntrack found in reverse direction");
+                debug!("Conntrack found in reverse direction");
                 return ct_entry.ce.clone();
             };
 
@@ -129,7 +130,7 @@ impl<K: ConntrackKey> ConntrackTable<K> {
             parent: parent.clone(),
             ce: ce.clone()
         };
-        println!("Created new conntrack {:p}", Arc::as_ptr(&ct_entry.ce));
+        debug!("Created new conntrack {:p}", Arc::as_ptr(&ct_entry.ce));
         ct_list.push(ct_entry);
 
         if let Some(ref parent_weak) = parent {
@@ -139,7 +140,7 @@ impl<K: ConntrackKey> ConntrackTable<K> {
         }
 
 
-        println!("New conntrack in an existing list");
+        debug!("New conntrack in an existing list");
 
         ce
     }

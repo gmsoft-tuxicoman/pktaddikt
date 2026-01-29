@@ -3,6 +3,9 @@ use getopts::Options;
 use pcap::Capture;
 use std::env;
 
+use tracing::info;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
 pub mod proto;
 pub mod conntrack;
 
@@ -30,6 +33,14 @@ fn main() {
         print_usage(&program, opts);
         return;
     }
+
+
+    let subscriber = tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env());
+
+    tracing::subscriber::set_global_default(subscriber)
+            .expect("Failed to set global subscriber");
 
 
     let filename = match matches.opt_str("r") {

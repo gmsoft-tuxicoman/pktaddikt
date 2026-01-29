@@ -10,9 +10,14 @@ use crate::proto::udp::ProtoUdp;
 
 use crate::conntrack::ConntrackWeakRef;
 
-use std::net::Ipv4Addr;
-use std::net::Ipv6Addr;
 
+// List of implemented protocols
+pub enum Protocols {
+    Ethernet,
+    Ipv4,
+    IPv6,
+    Udp
+}
 
 pub trait ProtoProcessor {
 
@@ -45,70 +50,6 @@ pub struct ProtoStackEntry<'a> {
 
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum ProtoField<'a> {
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    U64(u64),
-    Str(&'a str),
-    Mac([u8;6]),
-    Ipv4(Ipv4Addr),
-    Ipv6(Ipv6Addr)
-}
-
-impl<'a> ProtoField<'a> {
-
-    fn get_u8(&self) -> u8 {
-        match self {
-            ProtoField::U8(val) => *val,
-            _ => panic!("Trying to fetch u8")
-        }
-    }
-    fn get_u16(&self) -> u16 {
-        match self {
-            ProtoField::U16(val) => *val,
-            _ => panic!("Trying to fetch u16")
-        }
-    }
-    fn get_u32(&self) -> u32 {
-        match self {
-            ProtoField::U32(val) => *val,
-            _ => panic!("Trying to fetch u32")
-        }
-    }
-    fn get_u64(&self) -> u64 {
-        match self {
-            ProtoField::U64(val) => *val,
-            _ => panic!("Trying to fetch u64")
-        }
-    }
-    fn get_str(&self) -> &str {
-        match self {
-            ProtoField::Str(val) => val,
-            _ => panic!("Trying to fetch string")
-        }
-    }
-    fn get_mac(&self) -> [u8;6] {
-        match self {
-            ProtoField::Mac(val) => *val,
-            _ => panic!("Trying to fetch mac address")
-        }
-    }
-    fn get_ipv4(&self) -> Ipv4Addr {
-        match self {
-            ProtoField::Ipv4(val) => *val,
-            _ => panic!("Trying to fetch ipv4")
-        }
-    }
-    fn get_ipv6(&self) -> Ipv6Addr {
-        match self {
-            ProtoField::Ipv6(val) => *val,
-            _ => panic!("Trying to fetch ipv6")
-        }
-    }
-
-}
 
 
 pub struct Proto;

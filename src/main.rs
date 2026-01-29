@@ -3,11 +3,11 @@ use getopts::Options;
 use pcap::Capture;
 use std::env;
 
-use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub mod proto;
 pub mod conntrack;
+pub mod param;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);

@@ -1,0 +1,67 @@
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
+
+#[derive(Debug, Clone, Copy)]
+pub enum Param<'a> {
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    Str(&'a str),
+    Mac([u8;6]),
+    Ipv4(Ipv4Addr),
+    Ipv6(Ipv6Addr)
+}
+
+impl<'a> Param<'a> {
+
+    pub fn get_u8(&self) -> u8 {
+        match self {
+            Param::U8(val) => *val,
+            _ => panic!("Trying to fetch u8")
+        }
+    }
+    pub fn get_u16(&self) -> u16 {
+        match self {
+            Param::U16(val) => *val,
+            _ => panic!("Trying to fetch u16")
+        }
+    }
+    pub fn get_u32(&self) -> u32 {
+        match self {
+            Param::U32(val) => *val,
+            _ => panic!("Trying to fetch u32")
+        }
+    }
+    pub fn get_u64(&self) -> u64 {
+        match self {
+            Param::U64(val) => *val,
+            _ => panic!("Trying to fetch u64")
+        }
+    }
+    pub fn get_str(&self) -> &str {
+        match self {
+            Param::Str(val) => val,
+            _ => panic!("Trying to fetch string")
+        }
+    }
+    pub fn get_mac(&self) -> [u8;6] {
+        match self {
+            Param::Mac(val) => *val,
+            _ => panic!("Trying to fetch mac address")
+        }
+    }
+    pub fn get_ipv4(&self) -> Ipv4Addr {
+        match self {
+            Param::Ipv4(val) => *val,
+            _ => panic!("Trying to fetch ipv4")
+        }
+    }
+    pub fn get_ipv6(&self) -> Ipv6Addr {
+        match self {
+            Param::Ipv6(val) => *val,
+            _ => panic!("Trying to fetch ipv6")
+        }
+    }
+
+}

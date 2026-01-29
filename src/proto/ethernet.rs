@@ -2,12 +2,12 @@ use crate::proto::ProtoProcessor;
 use crate::proto::ProtoNumberType;
 use crate::proto::ProtoProcessResult;
 use crate::proto::ProtoSlice;
-use crate::proto::ProtoField;
 use crate::conntrack::ConntrackWeakRef;
+use crate::param::Param;
 
 pub struct ProtoEthernet<'a> {
     pub pload: &'a [u8],
-    fields : Vec<(&'a str, Option<ProtoField<'a>>)>
+    fields : Vec<(&'a str, Option<Param<'a>>)>
 }
 
 fn print_ether_addr(addr : &[u8]) {
@@ -47,12 +47,12 @@ impl<'a> ProtoProcessor for ProtoEthernet<'a> {
         }
 
         let src : &[u8] = &self.pload[..6];
-        self.fields[0].1 = Some(ProtoField::Mac(src.try_into().expect("MAC too small")));
+        self.fields[0].1 = Some(Param::Mac(src.try_into().expect("MAC too small")));
         let dst : &[u8] = &self.pload[6..12];
-        self.fields[1].1 = Some(ProtoField::Mac(dst.try_into().expect("MAC too small")));
+        self.fields[1].1 = Some(Param::Mac(dst.try_into().expect("MAC too small")));
 
         let eth_type: u16 = (self.pload[12] as u16) << 8 | (self.pload[13] as u16);
-        self.fields[2].1 = Some(ProtoField::U16(eth_type));
+        self.fields[2].1 = Some(Param::U16(eth_type));
 
 
         Ok( ProtoProcessResult {

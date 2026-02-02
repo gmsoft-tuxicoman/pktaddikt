@@ -20,7 +20,7 @@ impl ProtoProcessor for ProtoIpv4 {
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {
 
-        let plen = pkt.data_len();
+        let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than IP header
             return ProtoParseResult::Invalid;
         }

@@ -21,6 +21,7 @@ pub enum Protocols {
     Udp
 }
 
+#[derive(PartialEq)]
 pub enum ProtoParseResult {
     Ok,
     Err,
@@ -48,7 +49,7 @@ impl Proto {
 
         loop {
 
-            match next_proto {
+            let ret = match next_proto {
                 Protocols::None => break,
                 Protocols::Ethernet => ProtoEthernet::process(pkt),
                 Protocols::Ipv4 => ProtoIpv4::process(pkt),
@@ -56,10 +57,15 @@ impl Proto {
                 Protocols::Udp => ProtoUdp::process(pkt)
             };
 
+            if ret != ProtoParseResult::Ok {
+                break;
+            }
+
             next_proto = pkt.stack_last().proto;
 
         }
 
+        print!("{}.{} ", pkt.ts / 1000000, pkt.ts % 1000000);
         for s in pkt.iter_stack() {
             if s.proto == Protocols::None {
                 break;

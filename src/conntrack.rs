@@ -3,7 +3,7 @@ use std::any::Any;
 use tracing::debug;
 
 
-type ConntrackRef = Arc<Mutex<Conntrack>>;
+pub type ConntrackRef = Arc<Mutex<Conntrack>>;
 pub type ConntrackWeakRef = Weak<Mutex<Conntrack>>;
 
 pub trait ConntrackKey {
@@ -22,7 +22,8 @@ impl<T> ConntrackKey for ConntrackKeyBidir<T>
     where T: Copy + PartialEq + Into<u64>
 {
     fn key(&self) -> u64 {
-        self.a.into() * self.b.into()
+        // FIXME: This hash algo is wayy too simple
+        self.a.into().overflowing_mul(self.b.into()).0
     }
 
     fn fwd_eq(&self, other: &Self) -> bool {
@@ -92,7 +93,7 @@ impl<K: ConntrackKey> ConntrackTable<K> {
         let hash_key = key.key();
         let ct_index : usize = (((hash_key >> 32) as u32 ^ hash_key as u32)) as usize % self.entries.capacity();
 
-        debug!("Searching for conntrack with key {}", hash_key);
+        debug!("Searching for conntrack with key {} and parent {:?}", hash_key, parent);
 
         let mut ct_list = self.entries[ct_index].lock().unwrap();
 
@@ -138,9 +139,6 @@ impl<K: ConntrackKey> ConntrackTable<K> {
                 parent_strong.lock().unwrap().children.push(ce.clone());
             }
         }
-
-
-        debug!("New conntrack in an existing list");
 
         ce
     }

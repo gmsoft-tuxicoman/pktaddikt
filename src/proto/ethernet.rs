@@ -1,87 +1,41 @@
-use crate::proto::ProtoProcessor;
-use crate::proto::ProtoNumberType;
-use crate::proto::ProtoProcessResult;
-use crate::proto::ProtoSlice;
-use crate::conntrack::ConntrackWeakRef;
-use crate::param::Param;
-use crate::param::ParamValue;
+use crate::proto::{ProtoProcessor, Protocols, ProtoParseResult};
+use crate::param::{Param, ParamValue};
+use crate::packet::Packet;
 
-pub struct ProtoEthernet<'a> {
-    pub pload: &'a [u8],
-    fields : Vec<Param<'a>>
-}
+pub struct ProtoEthernet {}
 
-fn print_ether_addr(addr : &[u8]) {
-    print!("{:x}:{:x}:{:x}:{:x}:{:x}:{:x}", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
-}
-
-const ETHER_TYPES : [(u16, &str); 4] = [
-  (0x0800, "IPv4"),
-  (0x0806, "ARP"),
-  (0x86DD, "IPv6"),
-  (0x0810, "802.1Q")
-
-];
+impl ProtoProcessor for ProtoEthernet {
 
 
-impl<'a> ProtoEthernet<'a> {
-
-    pub fn new(pload: &'a [u8]) -> Self {
-        ProtoEthernet{
-            pload : pload,
-            fields : vec![
-                Param { name: "src", value: None },
-                Param { name: "dst", value: None },
-                Param { name: "type", value: None} ],
-        }
-    }
-
-}
-
-impl<'a> ProtoProcessor for ProtoEthernet<'a> {
+    fn process(pkt: &mut Packet) -> ProtoParseResult {
 
 
-    fn process(&mut self, _ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
-
-        if self.pload.len() < 14 {
-            return Err(())
+        if pkt.data_len() < 14 {
+            return ProtoParseResult::Invalid;
         }
 
-        let src : &[u8] = &self.pload[..6];
-        self.fields[0].value = Some(ParamValue::Mac(src.try_into().expect("MAC too small")));
-        let dst : &[u8] = &self.pload[6..12];
-        self.fields[1].value = Some(ParamValue::Mac(dst.try_into().expect("MAC too small")));
-
-        let eth_type: u16 = (self.pload[12] as u16) << 8 | (self.pload[13] as u16);
-        self.fields[2].value = Some(ParamValue::U16(eth_type));
 
 
-        Ok( ProtoProcessResult {
-            next_slice: ProtoSlice {
-                number_type :ProtoNumberType::Ethernet,
-                number: eth_type as u32,
-                start : 14,
-                end: self.pload.len()},
-            ct: None
-        })
+        let f_src = ParamValue::Mac(pkt.read_bytes(6).unwrap().try_into().unwrap());
+        let f_dst = ParamValue::Mac(pkt.read_bytes(6).unwrap().try_into().unwrap());
+        let eth_type = pkt.read_u16().unwrap();
+        let f_eth_type = ParamValue::U16(eth_type);
 
-    }
+        let info = pkt.stack_last_mut();
 
-    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
+        info.field_push(Param { name: "src", value: Some(f_src)});
+        info.field_push(Param { name: "dst", value: Some(f_dst)});
+        info.field_push(Param { name: "type", value: Some(f_eth_type)});
 
-        let src = self.fields[0].value.unwrap().get_mac();
-        print_ether_addr(&src);
-        print!(" > ");
-        let dst = self.fields[1].value.unwrap().get_mac();
-        print_ether_addr(&dst);
+        let next_proto = match eth_type {
+            0x0800 => Protocols::Ipv4,
+            0x86DD => Protocols::Ipv6,
+            _ => Protocols::None
+        };
 
-        let type_opt = ETHER_TYPES.into_iter().find_map(| (x,y)| { if x == self.fields[2].value.unwrap().get_u16() { Some(y) } else { None }});
-        let type_str;
-        match type_opt {
-            Some(t) => type_str = t,
-            None => type_str = "Unknown"
-        }
-        print!(", ethertype {} ({:#06x}), length {}: ", type_str, self.fields[2].value.unwrap().get_u16(), self.pload.len());
+        pkt.stack_push(next_proto, None);
+
+        ProtoParseResult::Ok
 
     }
 }

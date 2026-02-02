@@ -3,11 +3,14 @@ use getopts::Options;
 use pcap::Capture;
 use std::env;
 
+use crate::packet::{Packet, PktTime, PktDatalink};
+
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub mod proto;
 pub mod conntrack;
 pub mod param;
+pub mod packet;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
@@ -56,9 +59,16 @@ fn main() {
 
     let mut p = proto::Proto;
 
-    while let Ok(packet) = cap.next_packet() {
+    while let Ok(pcap_pkt) = cap.next_packet() {
 
-        p.process_packet(packet.data, datalink);
+        let ts: PktTime = (pcap_pkt.header.ts.tv_sec * 1000000) + pcap_pkt.header.ts.tv_usec;
+
+
+        let mut pkt = Packet::new(ts, PktDatalink::Ethernet, pcap_pkt.data);
+
+
+
+        p.process_packet(&mut pkt);
     }
 
 }

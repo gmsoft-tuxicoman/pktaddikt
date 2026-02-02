@@ -1,14 +1,8 @@
-use crate::proto::ProtoProcessor;
-use crate::proto::ProtoNumberType;
-use crate::proto::ProtoSlice;
-use crate::proto::ProtoProcessResult;
-use crate::param::Param;
-use crate::param::ParamValue;
- 
+use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
+use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
-use crate::conntrack::ConntrackWeakRef;
+use crate::packet::Packet;
 
-use std::sync::Arc;
 use std::sync::OnceLock;
 
 
@@ -22,61 +16,39 @@ fn ct_udp() -> &'static ConntrackTable<ConntrackKeyUdp> {
     CT_UDP.get_or_init(|| ConntrackTable::new(CT_UDP_SIZE))
 }
 
-pub struct ProtoUdp<'a> {
-    pub pload: &'a [u8],
-    fields : Vec<Param<'a>>
-}
+pub struct ProtoUdp {}
 
 
-impl<'a> ProtoUdp<'a> {
+impl ProtoProcessor for ProtoUdp {
 
-    pub fn new(pload: &'a [u8]) -> Self {
-        ProtoUdp{
-            pload : pload,
-            fields : vec![
-                Param { name: "sport", value: None },
-                Param { name: "dport", value: None} ],
+    fn process(pkt: &mut Packet) -> ProtoParseResult {
+
+        let plen = pkt.data_len();
+        if plen < 8 { // length smaller than UDP header
+            return ProtoParseResult::Invalid;
         }
-    }
 
-}
+        let hdr = pkt.read_bytes(8).unwrap();
 
-impl<'a> ProtoProcessor for ProtoUdp<'a> {
+        let sport : u16 = (hdr[0] as u16) << 8 | (hdr[1] as u16);
+        let dport : u16 = (hdr[2] as u16) << 8 | (hdr[3] as u16);
+        let len : u16 = (hdr[4] as u16) << 8 | (hdr[5] as u16);
 
-    fn process(&mut self, ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
-        let sport : u16 = (self.pload[0] as u16) << 8 | (self.pload[1] as u16);
-        self.fields[0].value = Some(ParamValue::U16(sport));
-        let dport : u16 = (self.pload[2] as u16) << 8 | (self.pload[3] as u16);
-        self.fields[1].value = Some(ParamValue::U16(dport));
-        let len : u16 = (self.pload[4] as u16) << 8 | (self.pload[5] as u16);
-
-        if (len > (self.pload.len() as u16)) || (len < 8) {
-            return Err(());
+        if (len as usize) > pkt.data_len() {
+            return ProtoParseResult::Invalid;
         }
+
+        let info = pkt.stack_last_mut();
+        info.field_push(Param { name: "sport", value: Some(ParamValue::U16(sport)) });
+        info.field_push(Param { name: "dport", value: Some(ParamValue::U16(dport)) });
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        let ct = ct_udp().get(ct_key, ce_parent);
+        let ce = ct_udp().get(ct_key, info.parent_ce());
 
+        pkt.stack_push(Protocols::None, Some(ce));
 
-        Ok( ProtoProcessResult {
-            next_slice: ProtoSlice {
-                number_type :ProtoNumberType::Udp,
-                number: dport as u32,
-                start : 8,
-                end: len as usize},
-            ct: Some(Arc::downgrade(&ct))
-            })
-
-    }
-
-    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
-
-        let sport = self.fields[0].value.unwrap().get_u16();
-        let dport = self.fields[1].value.unwrap().get_u16();
-
-
-        print!("UDP {} -> {}", sport, dport);
+        ProtoParseResult::Ok
 
     }
 

@@ -20,7 +20,7 @@ impl ProtoProcessor for ProtoIpv6 {
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {
 
-        let plen = pkt.data_len();
+        let plen = pkt.remaining_len();
         if plen < 40 {
             return ProtoParseResult::Invalid;
         }

@@ -79,8 +79,8 @@ impl<'a> Packet<'a> {
         self.stack.iter()
     }
 
-    pub fn data_len(&self) -> usize {
-        self.data.length
+    pub fn remaining_len(&self) -> usize {
+        self.data.length - self.data.read_offset
     }
 
     pub fn skip_bytes(&mut self, size: usize) -> Result<(),()> {
@@ -95,7 +95,7 @@ impl<'a> Packet<'a> {
 
     pub fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
 
-        trace!("Reading {} bytes from pkt {:p}", size, self);
+        trace!("Reading {} bytes from pkt {:p}i (off: {}, len: {})", size, self, self.data.read_offset, self.data.length);
 
         // FIXME handle multiple buffers
         if self.data.length - self.data.read_offset < size {

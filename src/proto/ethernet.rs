@@ -10,7 +10,7 @@ impl ProtoProcessor for ProtoEthernet {
     fn process(pkt: &mut Packet) -> ProtoParseResult {
 
 
-        if pkt.data_len() < 14 {
+        if pkt.remaining_len() < 14 {
             return ProtoParseResult::Invalid;
         }
 

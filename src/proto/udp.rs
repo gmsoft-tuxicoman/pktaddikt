@@ -23,7 +23,7 @@ impl ProtoProcessor for ProtoUdp {
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {
 
-        let plen = pkt.data_len();
+        let plen = pkt.remaining_len();
         if plen < 8 { // length smaller than UDP header
             return ProtoParseResult::Invalid;
         }
@@ -34,7 +34,7 @@ impl ProtoProcessor for ProtoUdp {
         let dport : u16 = (hdr[2] as u16) << 8 | (hdr[3] as u16);
         let len : u16 = (hdr[4] as u16) << 8 | (hdr[5] as u16);
 
-        if (len as usize) > pkt.data_len() {
+        if (len as usize) > pkt.remaining_len() {
             return ProtoParseResult::Invalid;
         }
 

@@ -1,121 +1,78 @@
-use crate::proto::ProtoProcessor;
-use crate::proto::ProtoNumberType;
-use crate::proto::ProtoSlice;
-use crate::proto::ProtoProcessResult;
-
-use crate::param::Param;
-use crate::param::ParamValue;
-
-use crate::conntrack::ConntrackTable;
-use crate::conntrack::ConntrackKeyBidir;
-use crate::conntrack::ConntrackWeakRef;
+use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
+use crate::param::{Param, ParamValue};
+use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
+use crate::packet::Packet;
 
 
-use std::sync::Arc;
 use std::sync::OnceLock;
 use std::net::Ipv4Addr;
 
 
+pub struct ProtoIpv4 {}
 
 type ConntrackKeyIpv4 = ConntrackKeyBidir<u32>;
-
-struct ConntrackIpv4 {
-
-    packet_count: u64
-}
-
 
 static CT_IPV4_SIZE :usize = 65535;
 static CT_IPV4: OnceLock<ConntrackTable<ConntrackKeyIpv4>> = OnceLock::new();
 
-fn ct_ipv4() -> &'static ConntrackTable<ConntrackKeyIpv4> {
-    CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE))
-}
-
-pub struct ProtoIpv4<'a> {
-    pub pload: &'a [u8],
-    fields : Vec<Param<'a>>,
-}
+impl ProtoProcessor for ProtoIpv4 {
 
 
+    fn process(pkt: &mut Packet) -> ProtoParseResult {
 
-impl<'a> ProtoIpv4<'a> {
-
-    pub fn new(pload: &'a [u8]) -> Self {
-        ProtoIpv4{
-            pload : pload,
-            fields : vec![
-                Param { name: "src", value: None},
-                Param { name: "dst", value: None},
-                Param { name: "proto", value: None},
-                Param { name: "ihl", value: None}],
-        }
-    }
-
-}
-
-impl<'a> ProtoProcessor for ProtoIpv4<'a> {
-
-
-    fn process(&mut self, ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
-
-        let plen = self.pload.len();
+        let plen = pkt.data_len();
         if plen < 20 { // length smaller than IP header
-            return Err(());
+            return ProtoParseResult::Invalid;
         }
 
-        if self.pload[0] >> 4 != 4 { // not IP version 4
-            return Err(());
+        let hdr = pkt.read_bytes(20).unwrap();
+
+
+        if hdr[0] >> 4 != 4 { // not IP version 4
+            return ProtoParseResult::Invalid;
         }
 
-        let header_len = (self.pload[0] & 0xf) as u16 * 4;
-        self.fields[3].value = Some(ParamValue::U16(header_len));
+        let hdr_len = (hdr[0] & 0xf) as u16 * 4;
 
-        if header_len < 20 { // header length smaller than minimum IP header
-            return Err(());
+        if hdr_len < 20 { // header length smaller than minimum IP header
+            return ProtoParseResult::Invalid;
         }
 
-        let tot_len :u16 = (self.pload[2] as u16) << 8 | self.pload[3] as u16;
-        if tot_len < header_len { // datagram size < header length
-            return Err(());
+        let tot_len :u16 = (hdr[2] as u16) << 8 | hdr[3] as u16;
+        if tot_len < hdr_len { // datagram size < header length
+            return ProtoParseResult::Invalid;
         } else if (tot_len as usize) > plen { // Truncated packet
-            return Err(());
+            return ProtoParseResult::Invalid;
         }
 
+        let src = Ipv4Addr::new(hdr[12], hdr[13], hdr[14], hdr[15]);
+        let dst = Ipv4Addr::new(hdr[16], hdr[17], hdr[18], hdr[19]);
+        let proto = hdr[9];
 
-        let src = Ipv4Addr::new(self.pload[12], self.pload[13], self.pload[14], self.pload[15]);
-        self.fields[0].value = Some(ParamValue::Ipv4(src));
-        let dst = Ipv4Addr::new(self.pload[16], self.pload[17], self.pload[18], self.pload[19]);
-        self.fields[1].value = Some(ParamValue::Ipv4(dst));
-        let proto = self.pload[9];
-        self.fields[2].value = Some(ParamValue::U8(proto));
+        let f_src = ParamValue::Ipv4(src);
+        let f_dst = ParamValue::Ipv4(dst);
+        let f_hdr_len = ParamValue::U16(hdr_len);
+        let f_proto = ParamValue::U8(proto);
 
-        let header_len = (self.pload[0] & 0xf) as u16 * 4;
-        self.fields[3].value = Some(ParamValue::U16(header_len));
+        let info = pkt.stack_last_mut();
+        info.field_push(Param { name: "src", value: Some(f_src) });
+        info.field_push(Param { name: "dst", value: Some(f_dst) });
+        info.field_push(Param { name: "hdr_len", value: Some(f_hdr_len) });
+        info.field_push(Param { name: "proto", value: Some(f_proto) });
 
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let ct = ct_ipv4().get(ct_key, ce_parent);
+        let ce = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce());
 
+        let next_proto = match proto {
+            17 => Protocols::Udp,
+            _ => Protocols::None
+        };
 
-        Ok( ProtoProcessResult {
-            next_slice: ProtoSlice {
-                number_type :ProtoNumberType::Ip,
-                number: proto as u32,
-                start : header_len as usize,
-                end: self.pload.len()},
-            ct: Some(Arc::downgrade(&ct))
-        })
+        pkt.stack_push(next_proto, Some(ce));
+
+        ProtoParseResult::Ok
 
     }
 
-    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
-
-        let src = self.fields[0].value.unwrap().get_ipv4();
-        let dst = self.fields[1].value.unwrap().get_ipv4();
-        let proto = self.fields[2].value.unwrap().get_u8();
-        let ihl = self.fields[3].value.unwrap().get_u16();
-
-        print!("{} -> {}, proto : {}, len {}, hlen : {} ", src, dst, proto, self.pload.len(), ihl);
-    }
 }

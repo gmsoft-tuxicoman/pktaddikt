@@ -1,95 +1,108 @@
-use crate::proto::ProtoProcessor;
-use crate::proto::ProtoNumberType;
-use crate::proto::ProtoSlice;
-use crate::proto::ProtoProcessResult;
-use crate::conntrack::ConntrackWeakRef;
+use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
+use crate::param::{Param, ParamValue};
+use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
+use crate::packet::Packet;
 
-use crate::param::Param;
-use crate::param::ParamValue;
-
+use std::sync::OnceLock;
 use std::net::Ipv6Addr;
 
+pub struct ProtoIpv6 {}
 
-pub struct ProtoIpv6<'a> {
-    pub pload: &'a [u8],
-    fields : Vec<Param<'a>>
-}
 
-impl<'a> ProtoIpv6<'a> {
+type ConntrackKeyIpv6 = ConntrackKeyBidir<u64>;
 
-    pub fn new(pload: &'a [u8]) -> Self {
-        ProtoIpv6{
-            pload : pload,
-            fields : vec![
-                Param { name: "src", value: None },
-                Param { name: "dst", value: None },
-                Param { name: "hlim", value: None}
-            ]
+
+
+static CT_IPV6_SIZE :usize = 65535;
+static CT_IPV6: OnceLock<ConntrackTable<ConntrackKeyIpv6>> = OnceLock::new();
+
+impl ProtoProcessor for ProtoIpv6 {
+
+    fn process(pkt: &mut Packet) -> ProtoParseResult {
+
+        let plen = pkt.data_len();
+        if plen < 40 {
+            return ProtoParseResult::Invalid;
         }
-    }
 
-}
+        let hdr = pkt.read_bytes(40).unwrap();
 
-impl<'a> ProtoProcessor for ProtoIpv6<'a> {
+        if hdr[0] >> 4 != 6 { // not IP version 6
+            return ProtoParseResult::Invalid;
+        }
 
-    fn process(&mut self, ce_parent: Option<ConntrackWeakRef>) -> Result<ProtoProcessResult, ()> {
-        let src = Ipv6Addr::new((self.pload[8] as u16) << 8 | (self.pload[9] as u16),
-                                (self.pload[10] as u16) << 8 | (self.pload[11] as u16),
-                                (self.pload[12] as u16) << 8 | (self.pload[13] as u16),
-                                (self.pload[14] as u16) << 8 | (self.pload[15] as u16),
-                                (self.pload[16] as u16) << 8 | (self.pload[17] as u16),
-                                (self.pload[18] as u16) << 8 | (self.pload[19] as u16),
-                                (self.pload[20] as u16) << 8 | (self.pload[21] as u16),
-                                (self.pload[22] as u16) << 8 | (self.pload[23] as u16));
-        self.fields[0].value = Some(ParamValue::Ipv6(src));
-        let dst = Ipv6Addr::new((self.pload[24] as u16) << 8 | (self.pload[25] as u16),
-                                (self.pload[26] as u16) << 8 | (self.pload[27] as u16),
-                                (self.pload[28] as u16) << 8 | (self.pload[29] as u16),
-                                (self.pload[30] as u16) << 8 | (self.pload[31] as u16),
-                                (self.pload[32] as u16) << 8 | (self.pload[33] as u16),
-                                (self.pload[34] as u16) << 8 | (self.pload[35] as u16),
-                                (self.pload[36] as u16) << 8 | (self.pload[37] as u16),
-                                (self.pload[38] as u16) << 8 | (self.pload[39] as u16));
-        self.fields[1].value = Some(ParamValue::Ipv6(dst));
+        let src = Ipv6Addr::new((hdr[8] as u16) << 8 | (hdr[9] as u16),
+                                (hdr[10] as u16) << 8 | (hdr[11] as u16),
+                                (hdr[12] as u16) << 8 | (hdr[13] as u16),
+                                (hdr[14] as u16) << 8 | (hdr[15] as u16),
+                                (hdr[16] as u16) << 8 | (hdr[17] as u16),
+                                (hdr[18] as u16) << 8 | (hdr[19] as u16),
+                                (hdr[20] as u16) << 8 | (hdr[21] as u16),
+                                (hdr[22] as u16) << 8 | (hdr[23] as u16));
+        let dst = Ipv6Addr::new((hdr[24] as u16) << 8 | (hdr[25] as u16),
+                                (hdr[26] as u16) << 8 | (hdr[27] as u16),
+                                (hdr[28] as u16) << 8 | (hdr[29] as u16),
+                                (hdr[30] as u16) << 8 | (hdr[31] as u16),
+                                (hdr[32] as u16) << 8 | (hdr[33] as u16),
+                                (hdr[34] as u16) << 8 | (hdr[35] as u16),
+                                (hdr[36] as u16) << 8 | (hdr[37] as u16),
+                                (hdr[38] as u16) << 8 | (hdr[39] as u16));
 
-        let hop_limit = self.pload[7];
-        self.fields[2].value = Some(ParamValue::U8(hop_limit));
+        let hop_limit = hdr[7];
 
-        let mut nhdr: u8 = self.pload[6];
-        let mut offset: usize = 40;
+
+        let mut nhdr_type: u8 = hdr[6];
 
         loop {
-            match nhdr {
+            nhdr_type = match nhdr_type {
                 0  |  // HOPOPTS
                 43 |  // ROUTING
                 44 |  // FRAGMENT (TODO)
                 60 => { // DSTOPTS
-                    let hdr_len: u8 = self.pload[offset + 1];
-                    offset += (hdr_len as usize) + 1;
-                    nhdr = self.pload[offset];
+                    // Read header length
+                    let nhdr_len = pkt.read_u8();
+                    if nhdr_len == None {
+                        return ProtoParseResult::Invalid;
+                    }
+                    // Skip header
+                    if pkt.skip_bytes(nhdr_len.unwrap() as usize) == Err(()) {
+                        return ProtoParseResult::Invalid;
+                    }
+                    // Read next header value
+                    let nhdr_type_opt = pkt.read_u8();
+                    if nhdr_type_opt == None {
+                        return ProtoParseResult::Invalid;
+                    }
+                    nhdr_type_opt.unwrap()
                 }
+
                 _ => {
                     break;
                 }
             }
-
         }
 
-        Ok( ProtoProcessResult {
-            next_slice: ProtoSlice {
-                number_type :ProtoNumberType::Ip,
-                number: nhdr as u32,
-                start : offset,
-                end: self.pload.len()},
-            ct: None // FIXME when adding conntrack
-        })
+        let info = pkt.stack_last_mut();
+        info.field_push(Param { name: "src", value: Some(ParamValue::Ipv6(src)) });
+        info.field_push(Param { name: "dst", value: Some(ParamValue::Ipv6(dst)) });
+        info.field_push(Param { name: "hop_limit", value: Some(ParamValue::U8(hop_limit)) });
+
+        let a = src.to_bits();
+        let b = dst.to_bits();
+
+        let ct_key = ConntrackKeyIpv6 { a: ((a >> 8) as u64) ^ (a as u64) , b: ((b >> 8) as u64) ^ (b as u64) };
+        let ce = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce());
+
+        let next_proto = match nhdr_type {
+            17 => Protocols::Udp,
+            _ => Protocols::None
+
+        };
+
+        pkt.stack_push(next_proto, Some(ce));
+
+        ProtoParseResult::Ok
+
     }
 
-    fn print<'b>(&self, _prev_layer: Option<&'b Box<dyn ProtoProcessor + 'b>>) {
-
-        let src = self.fields[0].value.unwrap().get_ipv6();
-        let dst = self.fields[1].value.unwrap().get_ipv6();
-
-        print!("{} -> {} ", src, dst);
-    }
 }

@@ -8,7 +8,6 @@ use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
 
 use crate::packet::Packet;
-use crate::packet::PktDatalink;
 
 
 // List of implemented protocols
@@ -39,9 +38,6 @@ pub struct Proto;
 impl Proto {
 
     pub fn process_packet<'a>(&mut self, pkt: &mut Packet) {
-
-        // Only support ethernet for now
-        assert_eq!(pkt.datalink, PktDatalink::Ethernet);
 
 
         let mut next_proto = Protocols::Ethernet;

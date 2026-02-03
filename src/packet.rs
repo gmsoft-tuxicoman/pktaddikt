@@ -9,17 +9,10 @@ use tracing::trace;
 pub type PktTime = i64;
 
 
-// Layer at which the packet was captured
-#[derive(PartialEq, Debug)]
-pub enum PktDatalink {
-    Ethernet,
-}
-
-
 // All info about a packet
 pub struct Packet<'a> {
     pub ts: PktTime,
-    pub datalink: PktDatalink,
+    pub datalink: Protocols,
     stack: Vec<PktInfo<'a>>,
     data: PktData<'a>
 }
@@ -46,7 +39,7 @@ struct PktBuff<'a> {
 
 impl<'a> Packet<'a> {
 
-    pub fn new(ts: PktTime, datalink: PktDatalink, data: &'a[u8]) -> Self {
+    pub fn new(ts: PktTime, datalink: Protocols, data: &'a[u8]) -> Self {
 
         Packet {
             ts: ts,

@@ -4,7 +4,7 @@ use pcap::{Capture, Linktype};
 use std::env;
 
 use crate::packet::{Packet, PktTime, PktDataSimple};
-use crate::proto::Protocols;
+use crate::proto::{Proto, Protocols};
 
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
@@ -61,8 +61,6 @@ fn main() {
     // We only handle ethernet for now
     assert_eq!(datalink, Linktype::ETHERNET);
 
-    let mut p = proto::Proto;
-
     while let Ok(pcap_pkt) = cap.next_packet() {
 
         let ts: PktTime = (pcap_pkt.header.ts.tv_sec * 1000000) + pcap_pkt.header.ts.tv_usec;
@@ -72,7 +70,7 @@ fn main() {
 
 
 
-        p.process_packet(&mut pkt);
+        Proto::process_packet(&mut pkt);
     }
 
 }

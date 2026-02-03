@@ -37,7 +37,7 @@ pub struct Proto;
 
 impl Proto {
 
-    pub fn process_packet<'a>(&mut self, pkt: &mut Packet) {
+    pub fn process_packet<'a>(pkt: &mut Packet) {
 
 
         let mut next_proto = Protocols::Ethernet;

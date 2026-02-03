@@ -2,26 +2,46 @@ use crate::proto::Protocols;
 use crate::param::Param;
 use crate::conntrack::{ConntrackRef, ConntrackWeakRef};
 use std::sync::Arc;
-use tracing::trace;
+use std::ops::Range;
+use tracing::{warn, trace};
 
 
 // Time in microsecond
 pub type PktTime = i64;
 
 
+
 // All info about a packet
+pub struct PktInfo<'a> {
+    pub proto: Protocols,
+    parent_ce: Option<ConntrackRef>,
+    fields: Vec<Param<'a>>
+}
+
+
+impl<'a> PktInfo<'a> {
+
+    pub fn field_push(&mut self, param: Param<'a>) {
+        self.fields.push(param);
+    }
+
+    pub fn iter_fields<'b>(&'b self) -> impl Iterator<Item = &'b Param<'b>> {
+        self.fields.iter()
+    }
+
+    pub fn parent_ce(&self) -> Option<ConntrackWeakRef> {
+        Some(Arc::downgrade(self.parent_ce.as_ref()?))
+    }
+
+}
+
+
+// Packet for all your packet needs
 pub struct Packet<'a> {
     pub ts: PktTime,
     pub datalink: Protocols,
     stack: Vec<PktInfo<'a>>,
     pub data: &'a mut dyn PktData
-}
-
-
-pub struct PktInfo<'a> {
-    pub proto: Protocols,
-    parent_ce: Option<ConntrackRef>,
-    fields: Vec<Param<'a>>
 }
 
 
@@ -87,6 +107,7 @@ impl<'a> Packet<'a> {
     }
 }
 
+// Data of a packet
 pub trait PktData {
 
     fn remaining_len(&self) -> usize;
@@ -95,6 +116,7 @@ pub trait PktData {
     fn read_bytes(&mut self, size: usize) -> Option<&[u8]>;
 }
 
+// A packet with a reference to some data
 pub struct PktDataSimple<'a> {
     read_offset: usize,
     data: &'a[u8]
@@ -146,18 +168,113 @@ impl PktData for PktDataSimple<'_> {
 
 }
 
-impl<'a> PktInfo<'a> {
 
-    pub fn field_push(&mut self, param: Param<'a>) {
-        self.fields.push(param);
+// A packet created by multiple fragments
+pub struct PktDataMultipart {
+    status: PktDataMultipartStatus, // Status of the multipart
+    read_offset: usize, // Current read offset
+    data: Vec<u8>, // Concatenated data
+    ranges: Vec<Range<usize>> // Info tracking about data
+}
+
+#[derive(PartialEq, Debug)]
+enum PktDataMultipartStatus {
+    Incomplete,
+    Complete,
+    Processed
+}
+
+impl<'b> PktDataMultipart {
+
+    pub fn new(capacity: usize) -> Self {
+        PktDataMultipart {
+            status: PktDataMultipartStatus::Incomplete,
+            read_offset: 0,
+            data: Vec::with_capacity(capacity),
+            ranges: Vec::with_capacity(2)
+        }
     }
 
-    pub fn iter_fields<'b>(&'b self) -> impl Iterator<Item = &'b Param<'b>> {
-        self.fields.iter()
+    pub fn add(&mut self, offset: usize, data: &'b [u8]) {
+        // This implementation only works for contiguous packets
+        // Packets nested or not having proper boundaries will be dropped
+
+        if self.status == PktDataMultipartStatus::Processed {
+            // Already been processed, discard extra part
+            trace!("Multipart {:p} has already been processed. Discarding data", self);
+            return
+        }
+
+
+        // Find out where to add the packet
+        let mut found: Option<usize> = None;
+        let range = Range::<usize> {
+            start: offset,
+            end: offset + data.len()
+        };
+
+        for (index, value) in self.ranges.iter().enumerate() {
+            if value.end <= range.start { // We reached the packet after this one
+                found = Some(index);
+                break;
+            }
+            if value.start == range.start { // We found the same packet
+                if value.end != range.end {
+                    // FIXME should I use the biggest packet ?
+                    // This scenario isn't supposed to happen, at least for IP
+                    warn!("Size mismatch ({} -> {}) for multipart {:p}. Discarding part", range.start, range.end, self);
+                }
+                trace!("Discarded duplicate part {} -> {} for multipart {:p}", range.start, range.end, self);
+
+                // Nothing to do
+                return
+
+            }
+        }
+
+        // Copy the data into the buffer
+        if self.data.len() < range.end {
+            self.data.reserve(range.end)
+        }
+        self.data[range.start..range.end].copy_from_slice(data);
+        trace!("Part {} -> {} added into multipart {:p}", range.start, range.end, self);
+
+        // Insert the range in the array
+        if let Some(index) = found {
+            self.ranges.insert(index + 1, range);
+        } else {
+            if offset == 0 {
+               self.ranges.insert(0, range);
+            }
+        }
+
     }
 
-    pub fn parent_ce(&self) -> Option<ConntrackWeakRef> {
-        Some(Arc::downgrade(self.parent_ce.as_ref()?))
+
+    pub fn set_complete(&mut self) {
+
+        // Check if the packet has already been marked as complete
+        if self.status != PktDataMultipartStatus::Incomplete {
+            trace!("Multipart {:p} cannot be marked as completed as it's already {:?}", self, self.status);
+            return
+        }
+        self.status = PktDataMultipartStatus::Complete;
+        trace!("Multipart {:p} marked complete", self);
+        self.process();
     }
 
+    fn process(&mut self) {
+
+        // Check for gaps by checking that we have the same ammount of data than the last offset of
+        // the last part
+        let mut length :usize = 0;
+        for part in &self.ranges {
+            length += part.end - part.start;
+        }
+
+        if length != self.ranges.last().unwrap().end {
+            // Not complete
+            return
+        }
+    }
 }

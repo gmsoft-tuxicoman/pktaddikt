@@ -93,6 +93,12 @@ impl<'a> Packet<'a> {
         return Ok(());
     }
 
+    pub fn shrink(&mut self, new_size: usize) {
+        trace!("Shrinking data to {} (was {})", new_size, self.data.length);
+        assert!(self.data.length >= new_size, "Trying to shrink a packet with a bigger length!");
+        self.data.length = new_size;
+    }
+
     pub fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
 
         trace!("Reading {} bytes from pkt {:p}i (off: {}, len: {})", size, self, self.data.read_offset, self.data.length);

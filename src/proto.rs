@@ -23,7 +23,7 @@ pub enum Protocols {
 #[derive(PartialEq, Debug)]
 pub enum ProtoParseResult {
     Ok,
-    Err,
+    Stop,
     Invalid,
     None
 }

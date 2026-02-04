@@ -41,7 +41,9 @@ pub struct Packet<'a> {
     pub ts: PktTime,
     pub datalink: Protocols,
     stack: Vec<PktInfo<'a>>,
-    pub data: &'a mut dyn PktData
+    read_offset: usize,
+    length: usize,
+    pub data: &'a mut dyn PktData,
 }
 
 
@@ -53,6 +55,8 @@ impl<'a> Packet<'a> {
             ts: ts,
             datalink: datalink,
             stack: Vec::with_capacity(7),
+            read_offset: 0,
+            length: data.data().len(),
             data: data
         }
 
@@ -81,44 +85,58 @@ impl<'a> Packet<'a> {
     }
 
     pub fn read_u8(&mut self) -> Option<u8> {
-        let byte = self.data.read_bytes(1)?;
+        let byte = self.read_bytes(1)?;
         Some(byte[0])
     }
 
     pub fn read_u16(&mut self) -> Option<u16> {
-        let bytes = self.data.read_bytes(2)?;
+        let bytes = self.read_bytes(2)?;
         Some((bytes[0] as u16) << 8 | (bytes[1] as u16))
     }
 
     pub fn remaining_len(&self) -> usize {
-        self.data.remaining_len()
+        self.length - self.read_offset
     }
 
     pub fn skip_bytes(&mut self, size: usize) -> Result<(),()> {
-        self.data.skip_bytes(size)
+        trace!("Skipping {} bytes from pkt {:p}", size, self);
+        if self.length - self.read_offset < size {
+            self.read_offset = self.length;
+            return Err(());
+        }
+        self.read_offset += size;
+        return Ok(());
     }
 
     pub fn shrink(&mut self, new_size: usize) {
-        self.data.shrink(new_size)
+        trace!("Shrinking data to {} (was {})", new_size, self.length);
+        assert!(self.length >= new_size, "Trying to shrink a packet with a bigger length!");
+        self.length = new_size;
     }
 
     pub fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
-        self.data.read_bytes(size)
+
+        trace!("Reading {} bytes from pkt {:p}i (off: {}, len: {})", size, self, self.read_offset, self.length);
+        let data = self.data.data();
+        assert!(data.len() >= self.length);
+        if self.read_offset + size > self.length {
+            return None;
+        }
+        let bytes = &data[self.read_offset..(self.read_offset + size)];
+        self.read_offset += size;
+        Some(bytes)
+
     }
 }
 
 // Data of a packet
 pub trait PktData {
 
-    fn remaining_len(&self) -> usize;
-    fn skip_bytes(&mut self, size: usize) -> Result<(),()>;
-    fn shrink(&mut self, new_size: usize);
-    fn read_bytes(&mut self, size: usize) -> Option<&[u8]>;
+    fn data(&self) -> &[u8];
 }
 
 // A packet with a reference to some data
 pub struct PktDataSimple<'a> {
-    read_offset: usize,
     data: &'a[u8]
 }
 
@@ -126,44 +144,15 @@ impl<'a> PktDataSimple<'a> {
 
     pub fn new(data: &'a[u8]) -> Self {
         PktDataSimple {
-           read_offset: 0,
            data: data
         }
     }
 }
 
-impl PktData for PktDataSimple<'_> {
+impl<'a> PktData for PktDataSimple<'a> {
 
-    fn remaining_len(&self) -> usize {
-        self.data.len() - self.read_offset
-    }
-
-    fn skip_bytes(&mut self, size: usize) -> Result<(),()> {
-        trace!("Skipping {} bytes from pkt {:p}", size, self);
-        if self.data.len() - self.read_offset < size {
-            self.read_offset = self.data.len();
-            return Err(());
-        }
-        self.read_offset += size;
-        return Ok(());
-    }
-
-    fn shrink(&mut self, new_size: usize) {
-        trace!("Shrinking data to {} (was {})", new_size, self.data.len());
-        assert!(self.data.len() >= new_size, "Trying to shrink a packet with a bigger length!");
-        self.data = &self.data[0..new_size];
-    }
-
-    fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
-
-        trace!("Reading {} bytes from pkt {:p}i (off: {}, len: {})", size, self, self.read_offset, self.data.len());
-        if self.read_offset + size < self.data.len() {
-            return None;
-        }
-        let bytes = &self.data[self.read_offset..(self.read_offset + size)];
-        self.read_offset += size;
-        Some(bytes)
-
+    fn data(&self) -> &'a [u8] {
+        &self.data
     }
 
 }
@@ -182,6 +171,13 @@ enum PktDataMultipartStatus {
     Incomplete,
     Complete,
     Processed
+}
+
+impl PktData for PktDataMultipart {
+
+    fn data(&self) -> &[u8] {
+        &self.data
+    }
 }
 
 impl<'b> PktDataMultipart {

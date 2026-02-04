@@ -34,8 +34,13 @@ impl ProtoProcessor for ProtoUdp {
         let dport : u16 = (hdr[2] as u16) << 8 | (hdr[3] as u16);
         let len : u16 = (hdr[4] as u16) << 8 | (hdr[5] as u16);
 
-        if (len as usize) > pkt.remaining_len() {
-            return ProtoParseResult::Invalid;
+        let plen = (len as usize) - 8;
+        if plen > pkt.remaining_len() {
+            // Stop processing if payload is not complete
+            return ProtoParseResult::Stop;
+        } else if plen < pkt.remaining_len() {
+            // Shrink remaining payload to advertised size
+            pkt.shrink(plen);
         }
 
         let info = pkt.stack_last_mut();

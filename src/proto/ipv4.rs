@@ -40,31 +40,34 @@ impl ProtoProcessor for ProtoIpv4 {
 
         let hdr = pkt.read_bytes(20).unwrap();
 
-
         if hdr[0] >> 4 != 4 { // not IP version 4
             return ProtoParseResult::Invalid;
         }
 
-        let hdr_len = (hdr[0] & 0xf) as u16 * 4;
-
-        if hdr_len < 20 { // header length smaller than minimum IP header
-            return ProtoParseResult::Invalid;
-        }
-
-
         let tot_len :u16 = (hdr[2] as u16) << 8 | hdr[3] as u16;
-        if tot_len < hdr_len { // datagram size < header length
-            return ProtoParseResult::Invalid;
-        } else if (tot_len as usize) > plen { // Truncated packet
-            return ProtoParseResult::Invalid;
-        }
-
-
+        let hdr_len = (hdr[0] & 0xf) as u16 * 4;
         let id = (hdr[3] as u16) << 8 & (hdr[4] as u16);
         let src = Ipv4Addr::new(hdr[12], hdr[13], hdr[14], hdr[15]);
         let dst = Ipv4Addr::new(hdr[16], hdr[17], hdr[18], hdr[19]);
         let proto = hdr[9];
         let frag_off = (hdr[6] as u16) << 8 & (hdr[7] as u16);
+
+        if hdr_len < 20 { // header length smaller than minimum IP header
+            return ProtoParseResult::Invalid;
+        }
+
+        if tot_len <= hdr_len { // datagram size <= header length
+            return ProtoParseResult::Invalid;
+        } else if (tot_len as usize) > plen { // Truncated packet
+            return ProtoParseResult::Stop;
+        }
+
+        // Shrink payload to the right size
+        let data_len = (tot_len - hdr_len) as usize;
+        if data_len > plen {
+            pkt.shrink(data_len.into());
+        }
+
 
         // Skip IP options
         if hdr_len > 20 {
@@ -73,11 +76,6 @@ impl ProtoProcessor for ProtoIpv4 {
             }
         }
 
-        // Shrink payload to the right size
-        let data_len = tot_len - hdr_len;
-        if data_len > pkt.remaining_len() as u16 {
-            pkt.shrink(data_len.into());
-        }
 
         let f_src = ParamValue::Ipv4(src);
         let f_dst = ParamValue::Ipv4(dst);
@@ -120,7 +118,7 @@ impl ProtoProcessor for ProtoIpv4 {
         let offset = (frag_off & IP_OFFSET_MASK) << 3;
 
 
-        ProtoParseResult::Ok
+        ProtoParseResult::Stop
 
     }
 

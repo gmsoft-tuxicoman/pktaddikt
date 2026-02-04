@@ -98,6 +98,13 @@ impl<'a> Packet<'a> {
         self.length - self.read_offset
     }
 
+    pub fn remaining_data(&mut self) -> &[u8] {
+        let data = self.data.data();
+        let ret = &data[self.read_offset..self.length];
+        self.read_offset = self.length;
+        ret
+    }
+
     pub fn skip_bytes(&mut self, size: usize) -> Result<(),()> {
         trace!("Skipping {} bytes from pkt {:p}", size, self);
         if self.length - self.read_offset < size {
@@ -229,10 +236,17 @@ impl<'b> PktDataMultipart {
         }
 
         // Copy the data into the buffer
-        if self.data.len() < range.end {
-            self.data.reserve(range.end)
+
+        if self.data.len() == range.start {
+            // Most common case, we can simply append the data
+            self.data.extend_from_slice(data);
+        } else {
+            // Resize if needed then copy
+            if self.data.len() < range.end {
+                self.data.resize(range.end, 0)
+            }
+            self.data[range.start..range.end].copy_from_slice(data);
         }
-        self.data[range.start..range.end].copy_from_slice(data);
         trace!("Part {} -> {} added into multipart {:p}", range.start, range.end, self);
 
         // Insert the range in the array

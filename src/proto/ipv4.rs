@@ -1,12 +1,13 @@
 use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
-use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
-use crate::packet::Packet;
+use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
+use crate::packet::{PktTime, Packet, PktDataMultipart};
 
 
 use std::sync::OnceLock;
 use std::net::Ipv4Addr;
 use std::collections::HashMap;
+use std::any::Any;
 
 const IP_DONT_FRAG: u16 = 0x4000;
 const IP_MORE_FRAG: u16 = 0x2000;
@@ -17,12 +18,13 @@ pub struct ProtoIpv4 {}
 type ConntrackKeyIpv4 = ConntrackKeyBidir<u32>;
 
 
-struct Ipv4Frags<'a> {
-   pkt: Packet<'a>
+struct Ipv4Frags {
+    ts: PktTime,
+    data: PktDataMultipart
 }
 
-struct ConntrackIpv4<'a> {
-    fragments: HashMap<Ipv4Frags<'a>, u16>
+struct ConntrackIpv4 {
+    fragments: HashMap<u16, Ipv4Frags>
 }
 
 static CT_IPV4_SIZE :usize = 65535;
@@ -46,11 +48,11 @@ impl ProtoProcessor for ProtoIpv4 {
 
         let tot_len :u16 = (hdr[2] as u16) << 8 | hdr[3] as u16;
         let hdr_len = (hdr[0] & 0xf) as u16 * 4;
-        let id = (hdr[3] as u16) << 8 & (hdr[4] as u16);
+        let id = (hdr[3] as u16) << 8 | (hdr[4] as u16);
         let src = Ipv4Addr::new(hdr[12], hdr[13], hdr[14], hdr[15]);
         let dst = Ipv4Addr::new(hdr[16], hdr[17], hdr[18], hdr[19]);
         let proto = hdr[9];
-        let frag_off = (hdr[6] as u16) << 8 & (hdr[7] as u16);
+        let frag_off = (hdr[6] as u16) << 8 | (hdr[7] as u16);
 
         if hdr_len < 20 { // header length smaller than minimum IP header
             return ProtoParseResult::Invalid;
@@ -99,7 +101,6 @@ impl ProtoProcessor for ProtoIpv4 {
             _ => Protocols::None
         };
 
-        pkt.stack_push(next_proto, Some(ce));
 
 
 
@@ -107,15 +108,28 @@ impl ProtoProcessor for ProtoIpv4 {
 
         // Full packet (offset is 0 and no more packets)
         if (frag_off & IP_MORE_FRAG) == 0 && (frag_off & IP_OFFSET_MASK) == 0 {
+            pkt.stack_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
 
         // Packet cannot be fragmented
         if (frag_off & IP_DONT_FRAG) != 0 {
+            pkt.stack_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
 
-        let offset = (frag_off & IP_OFFSET_MASK) << 3;
+        pkt.stack_push(next_proto, Some(ce.clone()));
+
+        let offset = ((frag_off & IP_OFFSET_MASK) << 3) as usize;
+
+        let mut ce_mut = ce.lock().unwrap();
+
+        let cd = ce_mut.get_or_insert(Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
+                    .downcast_mut::<ConntrackIpv4>()
+                    .unwrap();
+
+        let frags = cd.fragments.entry(id).or_insert(Ipv4Frags {ts: pkt.ts, data: PktDataMultipart::new(1500) });
+        frags.data.add(offset, pkt.remaining_data());
 
 
         ProtoParseResult::Stop

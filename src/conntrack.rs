@@ -38,7 +38,7 @@ impl<T> ConntrackKey for ConntrackKeyBidir<T>
 pub type ConntrackData = Box<dyn Any + Send + Sync>;
 
 pub struct Conntrack {
-    data: ConntrackData,
+    data: Option<ConntrackData>,
     children: Vec<ConntrackRef>
 }
 
@@ -60,12 +60,30 @@ impl Conntrack {
     pub fn new() -> ConntrackRef {
         Arc::new(Mutex::new(
             Conntrack {
-                data: Box::new(()),
+                data: None,
                 children: Vec::new()
             }
         ))
 
     }
+
+    pub fn get_or_insert(&mut self, value: ConntrackData) -> &mut ConntrackData {
+        if self.data.is_none() {
+            self.data = Some(value)
+        }
+        self.data.as_mut().unwrap()
+    }
+
+/*    pub fn get_or_init<F>(&mut self, init: F) -> &mut ConntrackData
+    where
+        F: FnOnce() -> ConntrackRef,
+    {
+        if self.data.is_none() {
+            self.data = Some(Box::new(init()));
+        }
+        self.data.as_mut().unwrap()
+    }
+*/
 }
 
 

@@ -44,7 +44,7 @@ impl ProtoProcessor for ProtoUdp {
             return ProtoParseResult::Stop;
         } else if plen < pkt.remaining_len() {
             // Shrink remaining payload to advertised size
-            pkt.shrink(plen);
+            pkt.shrink_remaining(plen);
         }
 
         let info = pkt.stack_last_mut();

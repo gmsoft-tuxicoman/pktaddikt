@@ -7,7 +7,7 @@ pub struct Param<'a> {
     pub value: Option<ParamValue<'a>>
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ParamValue<'a> {
     U8(u8),
     U16(u16),
@@ -69,5 +69,18 @@ impl<'a> ParamValue<'a> {
             _ => panic!("Trying to fetch ipv6")
         }
     }
+
+}
+
+#[cfg(test)]
+pub mod tests {
+
+    use super::*;
+
+    pub fn param_assert_eq(param: &Param, name: &str, value: ParamValue) {
+        assert_eq!(param.name, name, "Param name {} does not match {}", param.name, name);
+        assert_eq!(param.value.unwrap(), value, "Param value {:?} does not match {:?}", param.value, value);
+    }
+
 
 }

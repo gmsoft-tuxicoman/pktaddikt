@@ -39,3 +39,36 @@ impl ProtoProcessor for ProtoEthernet {
 
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::param::tests::param_assert_eq;
+    use crate::packet::PktDataSimple;
+
+    #[test]
+    fn ethernet_parse_basic() {
+        let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE, 0xEF, 0x01, 0x02, 0x03];
+        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt = Packet::new(0, Protocols::Ethernet, &mut pkt_data);
+        pkt.stack_push(Protocols::Ethernet, None);
+
+        ProtoEthernet::process(&mut pkt);
+
+        let info = pkt.iter_stack().next().unwrap();
+
+        let mut field_iter = info.iter_fields();
+
+        let src = field_iter.next().unwrap();
+        param_assert_eq(src, "src", ParamValue::Mac([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]));
+        let dst = field_iter.next().unwrap();
+        param_assert_eq(dst, "dst", ParamValue::Mac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]));
+        let t = field_iter.next().unwrap();
+        param_assert_eq(t, "type", ParamValue::U16(0xBEEF));
+
+
+    }
+
+}

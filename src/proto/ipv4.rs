@@ -144,3 +144,29 @@ impl ProtoProcessor for ProtoIpv4 {
     }
 
 }
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::packet::PktDataSimple;
+
+    fn ipv4_parse_test(data: &[u8]) -> ProtoParseResult {
+        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt = Packet::new(0, Protocols::Ipv4, &mut pkt_data);
+        pkt.stack_push(Protocols::Ipv4, None);
+
+        ProtoIpv4::process(&mut pkt)
+
+
+    }
+
+    #[test]
+    fn ipv4_invalid_version() {
+        let data = vec![ 0x55, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
+        let ret = ipv4_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+    }
+
+}

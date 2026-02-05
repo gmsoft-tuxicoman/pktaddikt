@@ -6,6 +6,7 @@ use crate::packet::{Packet, PktDataMultipart};
 use std::sync::OnceLock;
 use std::net::Ipv4Addr;
 use std::collections::HashMap;
+use tracing::trace;
 
 const IP_DONT_FRAG: u16 = 0x4000;
 const IP_MORE_FRAG: u16 = 0x2000;
@@ -30,12 +31,15 @@ impl ProtoProcessor for ProtoIpv4 {
 
         let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than IP header
+            trace!("Payload lenght smaller than IP header in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
         let hdr = pkt.read_bytes(20).unwrap();
 
-        if hdr[0] >> 4 != 4 { // not IP version 4
+        let ip_version = hdr[0] >> 4;
+        if ip_version != 4 { // not IP version 4
+            trace!("Invalid protocol version : {} in packet {:p}", ip_version, pkt);
             return ProtoParseResult::Invalid;
         }
 
@@ -48,27 +52,29 @@ impl ProtoProcessor for ProtoIpv4 {
         let frag_off = (hdr[6] as u16) << 8 | (hdr[7] as u16);
 
         if hdr_len < 20 { // header length smaller than minimum IP header
+            trace!("Header length too small for packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
-        if tot_len <= hdr_len { // datagram size <= header length
+        if tot_len <= hdr_len { // Total length <= header length
+            trace!("Total length shorter than header size in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         } else if (tot_len as usize) > plen { // Truncated packet
+            trace!("Truncated packet {:p}", pkt);
             return ProtoParseResult::Stop;
         }
-
-        // Shrink payload to the right size
-        let data_len = (tot_len - hdr_len) as usize;
-        if data_len > plen {
-            pkt.shrink(data_len.into());
-        }
-
 
         // Skip IP options
         if hdr_len > 20 {
             if pkt.skip_bytes((hdr_len - 20).into()) == Err(()) {
                 return ProtoParseResult::Invalid;
             }
+        }
+
+        // Shrink payload to the right size
+        let data_len = (tot_len - hdr_len) as usize;
+        if data_len < pkt.remaining_len() {
+            pkt.shrink_remaining(data_len.into());
         }
 
 
@@ -151,6 +157,7 @@ mod tests {
 
     use super::*;
     use crate::packet::PktDataSimple;
+    use tracing_test::traced_test;
 
     fn ipv4_parse_test(data: &[u8]) -> ProtoParseResult {
         let mut pkt_data = PktDataSimple::new(&data);
@@ -163,10 +170,63 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
+    fn ipv4_packet_too_short() {
+        let data = vec![ 0x45, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02 ];
+        let ret = ipv4_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("Payload lenght smaller than IP header"));
+    }
+
+    #[test]
+    #[traced_test]
     fn ipv4_invalid_version() {
         let data = vec![ 0x55, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
         let ret = ipv4_parse_test(&data);
         assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("Invalid protocol version : 5"));
     }
 
+    #[test]
+    #[traced_test]
+    fn ipv4_hlen_too_short() {
+        let data = vec![ 0x44, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
+        let ret = ipv4_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("Header length too small"));
+    }
+
+    #[test]
+    #[traced_test]
+    fn ipv4_totlen_too_short() {
+        let data = vec![ 0x45, 0x00, 0x00, 0x14, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
+        let ret = ipv4_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("Total length shorter than header size"));
+    }
+
+    #[test]
+    #[traced_test]
+    fn ipv4_truncated_pkt() {
+        let data = vec![ 0x45, 0x00, 0x00, 0xff, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
+        let ret = ipv4_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Stop);
+        assert!(logs_contain("Truncated packet"));
+    }
+
+    #[test]
+    fn ipv4_pkt_shrink() {
+        let data = vec![ 0x45, 0x00, 0x00, 0x15, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0xff, 0xff ];
+        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt = Packet::new(0, Protocols::Ipv4, &mut pkt_data);
+        pkt.stack_push(Protocols::Ipv4, None);
+
+        let ret = ProtoIpv4::process(&mut pkt);
+        assert_eq!(ret, ProtoParseResult::Ok);
+
+        let remaining = pkt.remaining_len();
+        println!("remaining: {}", remaining);
+        assert_eq!(pkt.remaining_len(), 1);
+
+    }
 }

@@ -9,5 +9,9 @@ edition = "2021"
 pcap = "2.0.0"
 getopts = "0.2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rangemap = "1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tracing-test = "0.1"
+regex = { version = "1", features = ["unicode-case"] }

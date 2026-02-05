@@ -157,6 +157,7 @@ mod tests {
 
     use super::*;
     use crate::packet::PktDataSimple;
+    use crate::param::tests::param_assert_eq;
     use tracing_test::traced_test;
 
     fn ipv4_parse_test(data: &[u8]) -> ProtoParseResult {
@@ -165,6 +166,31 @@ mod tests {
         pkt.stack_push(Protocols::Ipv4, None);
 
         ProtoIpv4::process(&mut pkt)
+    }
+
+    #[test]
+    fn ipv4_parse_basic() {
+        let data = vec![ 0x45, 0x00, 0x00, 0x16, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40, 0xde, 0xad ];
+        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt = Packet::new(0, Protocols::Ipv4, &mut pkt_data);
+        pkt.stack_push(Protocols::Ipv4, None);
+
+        let ret = ProtoIpv4::process(&mut pkt);
+        assert_eq!(ret, ProtoParseResult::Ok);
+
+        let info = pkt.iter_stack().next().unwrap();
+        let mut field_iter = info.iter_fields();
+
+        let src = field_iter.next().unwrap();
+        param_assert_eq(src, "src", ParamValue::Ipv4(Ipv4Addr::new(0x01, 0x02, 0x03, 0x04)));
+        let dst = field_iter.next().unwrap();
+        param_assert_eq(dst, "dst", ParamValue::Ipv4(Ipv4Addr::new(0x10, 0x20, 0x30, 0x40)));
+        let hdr_len = field_iter.next().unwrap();
+        param_assert_eq(hdr_len, "hdr_len", ParamValue::U16(20));
+        let id = field_iter.next().unwrap();
+        param_assert_eq(id, "id", ParamValue::U16(48879));
+        let proto = field_iter.next().unwrap();
+        param_assert_eq(proto, "proto", ParamValue::U8(17));
 
 
     }

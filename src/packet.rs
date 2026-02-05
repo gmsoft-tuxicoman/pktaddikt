@@ -2,8 +2,8 @@ use crate::proto::Protocols;
 use crate::param::Param;
 use crate::conntrack::{ConntrackRef, ConntrackWeakRef};
 use std::sync::Arc;
-use std::ops::Range;
-use tracing::{warn, trace};
+use tracing::trace;
+use rangemap::RangeSet;
 
 
 // Time in microsecond
@@ -168,9 +168,8 @@ impl<'a> PktData for PktDataSimple<'a> {
 // A packet created by multiple fragments
 pub struct PktDataMultipart {
     status: PktDataMultipartStatus, // Status of the multipart
-    read_offset: usize, // Current read offset
     data: Vec<u8>, // Concatenated data
-    ranges: Vec<Range<usize>> // Info tracking about data
+    ranges: RangeSet<usize> // Info tracking about data
 }
 
 #[derive(PartialEq, Debug)]
@@ -192,9 +191,8 @@ impl<'b> PktDataMultipart {
     pub fn new(capacity: usize) -> Self {
         PktDataMultipart {
             status: PktDataMultipartStatus::Incomplete,
-            read_offset: 0,
             data: Vec::with_capacity(capacity),
-            ranges: Vec::with_capacity(2)
+            ranges: RangeSet::<usize>::new()
         }
     }
 
@@ -208,32 +206,14 @@ impl<'b> PktDataMultipart {
             return
         }
 
+        let range = offset..offset+data.len();
 
-        // Find out where to add the packet
-        let mut found: Option<usize> = None;
-        let range = Range::<usize> {
-            start: offset,
-            end: offset + data.len()
-        };
-
-        for (index, value) in self.ranges.iter().enumerate() {
-            if value.end <= range.start { // We reached the packet after this one
-                found = Some(index);
-                break;
-            }
-            if value.start == range.start { // We found the same packet
-                if value.end != range.end {
-                    // FIXME should I use the biggest packet ?
-                    // This scenario isn't supposed to happen, at least for IP
-                    warn!("Size mismatch ({} -> {}) for multipart {:p}. Discarding part", range.start, range.end, self);
-                }
-                trace!("Discarded duplicate part {} -> {} for multipart {:p}", range.start, range.end, self);
-
-                // Nothing to do
-                return
-
-            }
+        // Find out if we already have this range
+        if self.ranges.iter().any(|r| r.start <= range.start && r.end >= range.end) {
+            trace!("Dupe part {} -> {} in multipart {:p}. Discarding", range.start, range.end, self);
         }
+
+        // Add the range in the tracking
 
         // Copy the data into the buffer
 
@@ -247,15 +227,14 @@ impl<'b> PktDataMultipart {
             }
             self.data[range.start..range.end].copy_from_slice(data);
         }
-        trace!("Part {} -> {} added into multipart {:p}", range.start, range.end, self);
 
-        // Insert the range in the array
-        if let Some(index) = found {
-            self.ranges.insert(index + 1, range);
-        } else {
-            if offset == 0 {
-               self.ranges.insert(0, range);
-            }
+        trace!("Part {} -> {} added into multipart {:p}", range.start, range.end, self);
+        self.ranges.insert(range);
+
+        if self.status == PktDataMultipartStatus::Complete {
+            // We received the last part already but some others are coming and the packet wasn't
+            // processed yet
+            self.process();
         }
 
     }
@@ -277,14 +256,12 @@ impl<'b> PktDataMultipart {
 
         // Check for gaps by checking that we have the same ammount of data than the last offset of
         // the last part
-        let mut length :usize = 0;
-        for part in &self.ranges {
-            length += part.end - part.start;
+        let end = self.ranges.last().unwrap().end;
+
+        if self.ranges.gaps(&(0..end)).next().is_some() {
+            // There are some gaps, process later
         }
 
-        if length != self.ranges.last().unwrap().end {
-            // Not complete
-            return
-        }
+
     }
 }

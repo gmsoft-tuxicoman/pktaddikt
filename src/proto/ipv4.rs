@@ -7,7 +7,6 @@ use crate::packet::{PktTime, Packet, PktDataMultipart};
 use std::sync::OnceLock;
 use std::net::Ipv4Addr;
 use std::collections::HashMap;
-use std::any::Any;
 
 const IP_DONT_FRAG: u16 = 0x4000;
 const IP_MORE_FRAG: u16 = 0x2000;

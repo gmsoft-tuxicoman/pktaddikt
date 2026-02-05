@@ -40,7 +40,7 @@ impl Proto {
     pub fn process_packet<'a>(pkt: &mut Packet) {
 
 
-        let mut next_proto = Protocols::Ethernet;
+        let mut next_proto = pkt.datalink;
         pkt.stack_push(next_proto, None);
 
         let mut ret = ProtoParseResult::None;

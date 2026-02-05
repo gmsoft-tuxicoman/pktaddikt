@@ -167,17 +167,12 @@ impl<'a> PktData for PktDataSimple<'a> {
 
 // A packet created by multiple fragments
 pub struct PktDataMultipart {
-    status: PktDataMultipartStatus, // Status of the multipart
     data: Vec<u8>, // Concatenated data
-    ranges: RangeSet<usize> // Info tracking about data
+    ranges: RangeSet<usize>, // Info tracking about data
+    tot_len: Option<usize> // Total expected length of the reassembled data
+
 }
 
-#[derive(PartialEq, Debug)]
-enum PktDataMultipartStatus {
-    Incomplete,
-    Complete,
-    Processed
-}
 
 impl PktData for PktDataMultipart {
 
@@ -190,21 +185,15 @@ impl<'b> PktDataMultipart {
 
     pub fn new(capacity: usize) -> Self {
         PktDataMultipart {
-            status: PktDataMultipartStatus::Incomplete,
             data: Vec::with_capacity(capacity),
-            ranges: RangeSet::<usize>::new()
+            ranges: RangeSet::<usize>::new(),
+            tot_len: None
         }
     }
 
     pub fn add(&mut self, offset: usize, data: &'b [u8]) {
         // This implementation only works for contiguous packets
         // Packets nested or not having proper boundaries will be dropped
-
-        if self.status == PktDataMultipartStatus::Processed {
-            // Already been processed, discard extra part
-            trace!("Multipart {:p} has already been processed. Discarding data", self);
-            return
-        }
 
         let range = offset..offset+data.len();
 
@@ -231,37 +220,21 @@ impl<'b> PktDataMultipart {
         trace!("Part {} -> {} added into multipart {:p}", range.start, range.end, self);
         self.ranges.insert(range);
 
-        if self.status == PktDataMultipartStatus::Complete {
-            // We received the last part already but some others are coming and the packet wasn't
-            // processed yet
-            self.process();
-        }
-
     }
 
 
-    pub fn set_complete(&mut self) {
+    pub fn set_expected_len(&mut self, tot_len: usize) {
 
-        // Check if the packet has already been marked as complete
-        if self.status != PktDataMultipartStatus::Incomplete {
-            trace!("Multipart {:p} cannot be marked as completed as it's already {:?}", self, self.status);
-            return
-        }
-        self.status = PktDataMultipartStatus::Complete;
-        trace!("Multipart {:p} marked complete", self);
-        self.process();
+        self.tot_len = Some(tot_len);
     }
 
-    fn process(&mut self) {
+    pub fn is_complete(&self) -> bool {
+        let ret = match self.tot_len {
+            Some(tot_len) => self.ranges.gaps(&(0..tot_len)).next().is_none(),
+            None => false
+        };
 
-        // Check for gaps by checking that we have the same ammount of data than the last offset of
-        // the last part
-        let end = self.ranges.last().unwrap().end;
-
-        if self.ranges.gaps(&(0..end)).next().is_some() {
-            // There are some gaps, process later
-        }
-
-
+        trace!("Multipart {:p} is complete : {:#}", self, ret);
+        ret
     }
 }

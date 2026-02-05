@@ -1,8 +1,7 @@
-use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
+use crate::proto::{Proto, ProtoProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::{PktTime, Packet, PktDataMultipart};
-
 
 use std::sync::OnceLock;
 use std::net::Ipv4Addr;
@@ -47,7 +46,7 @@ impl ProtoProcessor for ProtoIpv4 {
 
         let tot_len :u16 = (hdr[2] as u16) << 8 | hdr[3] as u16;
         let hdr_len = (hdr[0] & 0xf) as u16 * 4;
-        let id = (hdr[3] as u16) << 8 | (hdr[4] as u16);
+        let id = (hdr[4] as u16) << 8 | (hdr[5] as u16);
         let src = Ipv4Addr::new(hdr[12], hdr[13], hdr[14], hdr[15]);
         let dst = Ipv4Addr::new(hdr[16], hdr[17], hdr[18], hdr[19]);
         let proto = hdr[9];
@@ -101,8 +100,6 @@ impl ProtoProcessor for ProtoIpv4 {
         };
 
 
-
-
         // Check if the packet is fragmented and needs more handling
 
         // Full packet (offset is 0 and no more packets)
@@ -127,9 +124,25 @@ impl ProtoProcessor for ProtoIpv4 {
                     .downcast_mut::<ConntrackIpv4>()
                     .unwrap();
 
-        let frags = cd.fragments.entry(id).or_insert(Ipv4Frags {ts: pkt.ts, data: PktDataMultipart::new(1500) });
+        let frags_entry = cd.fragments.entry(id);
+
+        let frags = frags_entry.or_insert(Ipv4Frags {ts: pkt.ts, data: PktDataMultipart::new(1500) });
+
         frags.data.add(offset, pkt.remaining_data());
 
+        if (frag_off & IP_MORE_FRAG) == 0 {
+            // Last fragment
+            frags.data.set_expected_len(offset + data_len);
+        }
+
+        if frags.data.is_complete() {
+            // Process the reassembled packet
+            let mut frags = cd.fragments.remove(&id).unwrap();
+            let mut pkt = Packet::new(frags.ts, next_proto, &mut frags.data);
+
+            Proto::process_packet(&mut pkt);
+
+        }
 
         ProtoParseResult::Stop
 

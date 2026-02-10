@@ -7,7 +7,7 @@ use rangemap::RangeSet;
 
 
 // Time in microsecond
-pub type PktTime = i64;
+pub type PktTime = u64;
 
 
 

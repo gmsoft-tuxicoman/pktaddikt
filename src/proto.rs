@@ -6,8 +6,8 @@ use crate::proto::ethernet::ProtoEthernet;
 use crate::proto::ipv4::ProtoIpv4;
 use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
-
 use crate::packet::Packet;
+use crate::timer::TimerManager;
 
 
 // List of implemented protocols
@@ -39,6 +39,7 @@ impl Proto {
 
     pub fn process_packet<'a>(pkt: &mut Packet) {
 
+        TimerManager::update_time(pkt.ts);
 
         let mut next_proto = pkt.datalink;
         pkt.stack_push(next_proto, None);

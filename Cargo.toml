@@ -11,6 +11,7 @@ getopts = "0.2"
 tracing = "0.1"
 rangemap = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+slab = "0.4"
 
 [dev-dependencies]
 tracing-test = "0.1"

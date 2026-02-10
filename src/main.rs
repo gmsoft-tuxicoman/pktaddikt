@@ -12,6 +12,7 @@ pub mod proto;
 pub mod conntrack;
 pub mod param;
 pub mod packet;
+pub mod timer;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
@@ -63,7 +64,7 @@ fn main() {
 
     while let Ok(pcap_pkt) = cap.next_packet() {
 
-        let ts: PktTime = (pcap_pkt.header.ts.tv_sec * 1000000) + pcap_pkt.header.ts.tv_usec;
+        let ts: PktTime = (pcap_pkt.header.ts.tv_sec as u64 * 1000000) + pcap_pkt.header.ts.tv_usec as u64;
         let mut pkt_data = PktDataSimple::new(pcap_pkt.data);
 
         let mut pkt = Packet::new(ts, Protocols::Ethernet, &mut pkt_data);

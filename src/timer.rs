@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, LazyLock, TryLockError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::trace;
+use std::time::Duration;
 use slab::Slab;
 
 
@@ -43,13 +44,13 @@ impl TimerManager {
     }
 
     // Queue a new timer
-    pub fn queue_new<F>(duration: PktTime, now: PktTime, action: F) -> TimerId
+    pub fn queue_new<F>(duration: Duration, now: PktTime, action: F) -> TimerId
     where
         F: FnOnce() + Send + 'static
     {
         // Aquire lock
         let mut manager = TIMER_MANAGER.lock().unwrap();
-        manager.queue_new_locked(duration, now, action)
+        manager.queue_new_locked(duration.as_micros() as u64, now, action)
     }
 
     fn queue_new_locked<F>(&mut self, duration: PktTime, now: PktTime, action: F) -> TimerId
@@ -75,19 +76,19 @@ impl TimerManager {
     }
 
 
-    pub fn requeue(tid: TimerId, duration: PktTime, now: PktTime) {
+    pub fn requeue(tid: TimerId, duration: Duration, now: PktTime) -> TimerId {
         // Aquire lock
         let mut manager = TIMER_MANAGER.lock().unwrap();
-        manager.requeue_locked(tid, duration, now)
+        manager.requeue_locked(tid, duration.as_micros() as u64, now)
     }
 
 
-    fn requeue_locked(&mut self, tid: TimerId, duration: PktTime, now: PktTime) {
+    fn requeue_locked(&mut self, tid: TimerId, duration: PktTime, now: PktTime) -> TimerId {
 
         self.dequeue_locked(tid);
         self.queue_locked(tid, duration, now);
-
         trace!("Timer {} requeued with duration {}", tid, duration);
+        tid
     }
 
     pub fn destroy(tid: TimerId) {

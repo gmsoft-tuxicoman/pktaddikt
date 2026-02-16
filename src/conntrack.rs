@@ -145,7 +145,16 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
                         debug!("Parent did not match");
                         continue;
                     }
+                } else {
+                    // We need a conntrack with a parent
+                    continue;
                 }
+            } else {
+                if ct_entry.parent.is_some() {
+                    // We need a conntrack without parent
+                    continue;
+                }
+
             };
 
             if ct_entry.key.fwd_eq(&key) {
@@ -184,15 +193,111 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
     }
 
     fn remove(&self, ct_index: usize, id: ConntrackId) {
-        let mut ct_list = self.entries[ct_index].lock().unwrap();
 
-        let pos = match ct_list.iter().position(|ct| ct.id == id) {
-            Some(p) => p,
-            None => return
-        };
+        let ct_entry;
+        {
+            let mut ct_list = self.entries[ct_index].lock().unwrap();
 
-        ct_list.remove(pos);
+            let pos = match ct_list.iter().position(|ct| ct.id == id) {
+                Some(p) => p,
+                None => return
+            };
+
+            ct_entry = ct_list.remove(pos);
+        }
+
+        for child in &ct_entry.ce.lock().unwrap().children {
+            // Don't call the cb while locked
+            let remove_cb = child.lock().unwrap().remove_cb.clone();
+            remove_cb();
+        }
+
 
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use std::sync::OnceLock;
+    use tracing_test::traced_test;
+
+
+    type ConntrackKeyTest = ConntrackKeyBidir<u32>;
+
+    fn ct_len<K :ConntrackKey>(ct :&ConntrackTable<K>) -> usize {
+        let mut count = 0;
+
+        for entry in &ct.entries {
+            count = count + entry.lock().unwrap().len();
+        }
+        count
+    }
+
+    static CT_TEST_SIZE :usize = 16;
+
+    #[test]
+    #[traced_test]
+    fn add_remove() {
+        static CT_TEST: OnceLock<ConntrackTable<ConntrackKeyTest>> = OnceLock::new();
+
+        let ct_key = ConntrackKeyTest{ a: 1, b: 2};
+        let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
+        let ce = ct.get(ct_key, None);
+        assert_eq!(ct_len(&ct), 1);
+
+        // Cannot call remove_cb while locked
+        let remove_cb = ce.lock().unwrap().remove_cb.clone();
+
+        remove_cb();
+
+        assert_eq!(ct_len(&ct), 0);
+    }
+
+
+    #[test]
+    #[traced_test]
+    fn add_child_remove_parent() {
+        static CT_TEST: OnceLock<ConntrackTable<ConntrackKeyTest>> = OnceLock::new();
+
+        // Use the same ct_key for parent and child to make sure it creates different conntracks
+        let ct_key = ConntrackKeyTest{ a: 1, b: 2};
+
+        let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
+
+        let parent = ct.get(ct_key, None);
+        ct.get(ct_key, Some(Arc::downgrade(&parent)));
+        assert_eq!(ct_len(&ct), 2);
+
+        // Cannot call remove_cb while locked
+        let remove_cb = parent.lock().unwrap().remove_cb.clone();
+
+        remove_cb();
+        assert_eq!(ct_len(&ct), 0);
+
+    }
+
+    #[test]
+    #[traced_test]
+    fn match_fwd_rev() {
+        static CT_TEST: OnceLock<ConntrackTable<ConntrackKeyTest>> = OnceLock::new();
+
+        let ct_key_fwd = ConntrackKeyTest{ a: 1, b: 2};
+        let ct_key_rev = ConntrackKeyTest{ a: 2, b: 1};
+
+        let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
+
+        let ce_fwd = ct.get(ct_key_fwd, None);
+        assert_eq!(ct_len(&ct), 1);
+        let ce_rev = ct.get(ct_key_rev, None);
+        assert_eq!(ct_len(&ct), 1);
+
+        assert_eq!(Arc::as_ptr(&ce_fwd), Arc::as_ptr(&ce_rev));
+
+    }
+
+
 }
 

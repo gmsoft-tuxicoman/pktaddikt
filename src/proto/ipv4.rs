@@ -6,11 +6,14 @@ use crate::packet::{Packet, PktDataMultipart};
 use std::sync::OnceLock;
 use std::net::Ipv4Addr;
 use std::collections::HashMap;
+use std::time::Duration;
 use tracing::trace;
 
 const IP_DONT_FRAG: u16 = 0x4000;
 const IP_MORE_FRAG: u16 = 0x2000;
 const IP_OFFSET_MASK: u16 = 0x1FFF;
+
+const IP_TIMEOUT :u64 = 7200;
 
 pub struct ProtoIpv4 {}
 
@@ -105,12 +108,14 @@ impl ProtoProcessor for ProtoIpv4 {
 
         // Full packet (offset is 0 and no more packets)
         if (frag_off & IP_MORE_FRAG) == 0 && (frag_off & IP_OFFSET_MASK) == 0 {
+            ce.lock().unwrap().set_timeout(Duration::from_secs(IP_TIMEOUT), pkt.ts);
             pkt.stack_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
 
         // Packet cannot be fragmented
         if (frag_off & IP_DONT_FRAG) != 0 {
+            ce.lock().unwrap().set_timeout(Duration::from_secs(IP_TIMEOUT), pkt.ts);
             pkt.stack_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
@@ -119,9 +124,10 @@ impl ProtoProcessor for ProtoIpv4 {
 
         let offset = ((frag_off & IP_OFFSET_MASK) << 3) as usize;
 
-        let mut ce_mut = ce.lock().unwrap();
+        let mut ce_locked = ce.lock().unwrap();
+        ce_locked.set_timeout(Duration::from_secs(IP_TIMEOUT), pkt.ts);
 
-        let cd = ce_mut.get_or_insert(Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
+        let cd = ce_locked.get_or_insert(Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
                     .downcast_mut::<ConntrackIpv4>()
                     .unwrap();
 

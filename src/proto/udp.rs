@@ -4,17 +4,15 @@ use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::packet::Packet;
 
 use std::sync::OnceLock;
+use std::time::Duration;
 
 
 type ConntrackKeyUdp = ConntrackKeyBidir<u16>;
 
+static UDP_TIMEOUT :u64 = 120;
 
 static CT_UDP_SIZE :usize = 32768;
 static CT_UDP: OnceLock<ConntrackTable<ConntrackKeyUdp>> = OnceLock::new();
-
-fn ct_udp() -> &'static ConntrackTable<ConntrackKeyUdp> {
-    CT_UDP.get_or_init(|| ConntrackTable::new(CT_UDP_SIZE))
-}
 
 pub struct ProtoUdp {}
 
@@ -53,9 +51,16 @@ impl ProtoProcessor for ProtoUdp {
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        let ce = ct_udp().get(ct_key, info.parent_ce());
+        let ce = CT_UDP.get_or_init(|| ConntrackTable::new(CT_UDP_SIZE)).get(ct_key, info.parent_ce());
+
+        {
+            // Locked code of the conntrack
+            let mut ce_locked = ce.lock().unwrap();
+            ce_locked.set_timeout(Duration::from_secs(UDP_TIMEOUT), pkt.ts);
+        }
 
         pkt.stack_push(Protocols::None, Some(ce));
+
 
         ProtoParseResult::Ok
 

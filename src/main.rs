@@ -74,6 +74,8 @@ fn main() {
         Proto::process_packet(&mut pkt);
     }
 
+    Proto::purge_all();
+
 }
 
 

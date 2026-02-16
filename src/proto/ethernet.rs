@@ -38,6 +38,8 @@ impl ProtoProcessor for ProtoEthernet {
         ProtoParseResult::Ok
 
     }
+
+    fn purge() {}
 }
 
 

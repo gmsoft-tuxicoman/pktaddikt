@@ -1,6 +1,6 @@
 use std::sync::{Arc, Weak, Mutex};
 use std::any::Any;
-use tracing::debug;
+use tracing::{debug, trace};
 use std::time::Duration;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -100,6 +100,7 @@ impl Conntrack {
 impl Drop for Conntrack {
 
     fn drop(&mut self) {
+        trace!("Conntrack {:p} dropped", self);
         if let Some(timer) = self.timer {
             TimerManager::destroy(timer);
         }
@@ -214,6 +215,14 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
 
 
     }
+
+    pub fn purge(&self) {
+
+        for ct_list in &self.entries {
+            ct_list.lock().unwrap().clear();
+        }
+
+    }
 }
 
 
@@ -296,6 +305,24 @@ mod tests {
 
         assert_eq!(Arc::as_ptr(&ce_fwd), Arc::as_ptr(&ce_rev));
 
+    }
+
+    #[test]
+    #[traced_test]
+    fn purge() {
+
+        static CT_TEST: OnceLock<ConntrackTable<ConntrackKeyTest>> = OnceLock::new();
+        let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
+        let ct_key1 = ConntrackKeyTest{ a: 1, b: 2};
+        let ct_key2 = ConntrackKeyTest{ a: 2, b: 3};
+        let ct_key3 = ConntrackKeyTest{ a: 3, b: 4};
+
+        ct.get(ct_key1, None);
+        ct.get(ct_key2, None);
+        ct.get(ct_key3, None);
+        assert_eq!(ct_len(&ct), 3);
+        ct.purge();
+        assert_eq!(ct_len(&ct), 0);
     }
 
 

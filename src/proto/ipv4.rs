@@ -155,6 +155,11 @@ impl ProtoProcessor for ProtoIpv4 {
 
     }
 
+    fn purge() {
+       if let Some(ct) = CT_IPV4.get() {
+           ct.purge();
+        }
+    }
 }
 
 

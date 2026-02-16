@@ -66,4 +66,10 @@ impl ProtoProcessor for ProtoUdp {
 
     }
 
+    fn purge() {
+        if let Some(ct) = CT_UDP.get() {
+           ct.purge();
+        }
+    }
+
 }

@@ -30,6 +30,7 @@ pub enum ProtoParseResult {
 
 pub trait ProtoProcessor {
     fn process(pkt: &mut Packet) -> ProtoParseResult;
+    fn purge();
 }
 
 
@@ -77,5 +78,12 @@ impl Proto {
         }
 
         println!("[{:?}]", ret );
+    }
+
+    pub fn purge_all() {
+        ProtoIpv4::purge();
+        ProtoIpv6::purge();
+        ProtoUdp::purge();
+
     }
 }

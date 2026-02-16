@@ -13,7 +13,7 @@ static TIMER_NOW: AtomicU64 = AtomicU64::new(0);
 
 
 pub type TimerId = usize;
-pub type TimerCb = Arc<dyn Fn() + Send + Sync + 'static>;
+pub type TimerCb = Arc<dyn Fn() + Send + Sync>;
 
 pub struct TimerManager {
     timers: Slab<Timer>,
@@ -142,8 +142,8 @@ impl TimerManager {
         timer.expiry = duration + now;
 
         // Timer must be dequeued and not pointing anywhere
-        assert_eq!(timer.next, None);
-        assert_eq!(timer.prev, None);
+        debug_assert_eq!(timer.next, None);
+        debug_assert_eq!(timer.prev, None);
 
         let queue = self.queues.entry(duration).or_insert(TimerQueue{ head: None, tail: None});
 

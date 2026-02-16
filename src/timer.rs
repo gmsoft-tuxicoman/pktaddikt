@@ -257,7 +257,9 @@ mod tests {
 
         let mut manager = TimerManager::new();
 
-        let timer1 = manager.queue_new_locked(1, 1, || { println!("Timer1")});
+        let cb = Arc::new(|| { println!("Timer1")});
+
+        let timer1 = manager.queue_new_locked(1, 1, cb);
         assert_eq!(manager.timers.len(), 1);
         manager.destroy_locked(timer1);
         assert_eq!(manager.timers.len(), 0);
@@ -267,8 +269,10 @@ mod tests {
     fn timer_insert2_remove_front() {
         let mut manager = TimerManager::new();
 
-        let timer1 = manager.queue_new_locked(1,1, || { println!("Timer1")});
-        let timer2 = manager.queue_new_locked(1,1, || { println!("Timer2")});
+        let cb1 = Arc::new(|| { println!("Timer1")});
+        let cb2 = Arc::new(|| { println!("Timer2")});
+        let timer1 = manager.queue_new_locked(1,1, cb1);
+        let timer2 = manager.queue_new_locked(1,1, cb2);
         assert_eq!(manager.timers.len(), 2);
         manager.destroy_locked(timer1);
         assert_eq!(manager.timers.len(), 1);
@@ -286,8 +290,10 @@ mod tests {
     fn timer_insert2_remove_back() {
         let mut manager = TimerManager::new();
 
-        let timer1 = manager.queue_new_locked(1,1, || { println!("Timer1")});
-        let timer2 = manager.queue_new_locked(1,1, || { println!("Timer2")});
+        let cb1 = Arc::new(|| { println!("Timer1")});
+        let cb2 = Arc::new(|| { println!("Timer2")});
+        let timer1 = manager.queue_new_locked(1,1, cb1);
+        let timer2 = manager.queue_new_locked(1,1, cb2);
         assert_eq!(manager.timers.len(), 2);
         manager.destroy_locked(timer2);
         assert_eq!(manager.timers.len(), 1);
@@ -305,9 +311,12 @@ mod tests {
     fn timer_insert3_remove_middle() {
         let mut manager = TimerManager::new();
 
-        let timer1 = manager.queue_new_locked(1,1, || { println!("Timer1")});
-        let timer2 = manager.queue_new_locked(1,1, || { println!("Timer2")});
-        let timer3 = manager.queue_new_locked(1,1, || { println!("Timer3")});
+        let cb1 = Arc::new(|| { println!("Timer1")});
+        let cb2 = Arc::new(|| { println!("Timer2")});
+        let cb3 = Arc::new(|| { println!("Timer3")});
+        let timer1 = manager.queue_new_locked(1,1, cb1);
+        let timer2 = manager.queue_new_locked(1,1, cb2);
+        let timer3 = manager.queue_new_locked(1,1, cb3);
         assert_eq!(manager.timers.len(), 3);
         manager.destroy_locked(timer2);
         assert_eq!(manager.timers.len(), 2);
@@ -332,9 +341,12 @@ mod tests {
     fn timer_insert3_collect2_same_queue() {
 
         let mut manager = TimerManager::new();
-        manager.queue_new_locked(1, 1, || { println!("Timer1")});
-        manager.queue_new_locked(1, 2, || { println!("Timer2")});
-        manager.queue_new_locked(1, 3, || { println!("Timer3")});
+        let cb1 = Arc::new(|| { println!("Timer1")});
+        let cb2 = Arc::new(|| { println!("Timer2")});
+        let cb3 = Arc::new(|| { println!("Timer3")});
+        manager.queue_new_locked(1,1, cb1);
+        manager.queue_new_locked(1,2, cb2);
+        manager.queue_new_locked(1,3, cb3);
 
         let actions = manager.collect_timers_locked(3).unwrap();
 
@@ -347,9 +359,12 @@ mod tests {
     fn timer_insert3_collect2_different_queue() {
 
         let mut manager = TimerManager::new();
-        manager.queue_new_locked(1, 1, || { println!("Timer1")});
-        manager.queue_new_locked(2, 1, || { println!("Timer2")});
-        manager.queue_new_locked(3, 1, || { println!("Timer3")});
+        let cb1 = Arc::new(|| { println!("Timer1")});
+        let cb2 = Arc::new(|| { println!("Timer2")});
+        let cb3 = Arc::new(|| { println!("Timer3")});
+        manager.queue_new_locked(1,1, cb1);
+        manager.queue_new_locked(2,1, cb2);
+        manager.queue_new_locked(3,1, cb3);
 
         let actions = manager.collect_timers_locked(3).unwrap();
 

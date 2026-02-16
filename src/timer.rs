@@ -1,7 +1,7 @@
 
 use crate::packet::PktTime;
 use std::collections::BTreeMap;
-use std::sync::{Mutex, LazyLock, TryLockError};
+use std::sync::{Arc, Mutex, LazyLock, TryLockError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::trace;
 use std::time::Duration;
@@ -13,6 +13,7 @@ static TIMER_NOW: AtomicU64 = AtomicU64::new(0);
 
 
 pub type TimerId = usize;
+pub type TimerCb = Arc<dyn Fn() + Send + Sync + 'static>;
 
 pub struct TimerManager {
     timers: Slab<Timer>,
@@ -23,7 +24,7 @@ pub struct TimerManager {
 struct Timer {
     duration: PktTime, // Initial duration of the timer
     expiry: PktTime, // When the timer expires
-    action: Option<Box<dyn FnOnce() + Send + 'static>>,
+    action: Option<TimerCb>,
     next: Option<TimerId>,
     prev: Option<TimerId>
 }
@@ -44,22 +45,16 @@ impl TimerManager {
     }
 
     // Queue a new timer
-    pub fn queue_new<F>(duration: Duration, now: PktTime, action: F) -> TimerId
-    where
-        F: FnOnce() + Send + 'static
-    {
+    pub fn queue_new(duration: Duration, now: PktTime, action: TimerCb) -> TimerId {
         // Aquire lock
         let mut manager = TIMER_MANAGER.lock().unwrap();
         manager.queue_new_locked(duration.as_micros() as u64, now, action)
     }
 
-    fn queue_new_locked<F>(&mut self, duration: PktTime, now: PktTime, action: F) -> TimerId
-    where
-        F: FnOnce() + Send + 'static
-    {
+    fn queue_new_locked(&mut self, duration: PktTime, now: PktTime, action: TimerCb) -> TimerId {
 
         let timer = Timer {
-                action: Some(Box::new(action)),
+                action: Some(action),
                 duration: 0,
                 expiry: 0,
                 next: None,
@@ -196,10 +191,10 @@ impl TimerManager {
     }
 
 
-    fn collect_timers_locked(&mut self, now: PktTime) -> Option<Vec<Box<dyn FnOnce() + Send>>> {
+    fn collect_timers_locked(&mut self, now: PktTime) -> Option<Vec<TimerCb>> {
 
-        // Create a linked list with all the timers that need to be processed
-        let mut ret: Option<Vec<Box<dyn FnOnce() + Send>>> = None;
+        // Create a list with all the timers that need to be processed
+        let mut ret: Option<Vec<TimerCb>> = None;
 
         // Check all the queues
         for queue in self.queues.values_mut() {

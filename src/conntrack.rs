@@ -1,7 +1,12 @@
 use std::sync::{Arc, Weak, Mutex};
 use std::any::Any;
 use tracing::debug;
+use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+
+use crate::timer::{TimerManager, TimerId, TimerCb};
+use crate::packet::PktTime;
 
 pub type ConntrackRef = Arc<Mutex<Conntrack>>;
 pub type ConntrackWeakRef = Weak<Mutex<Conntrack>>;
@@ -37,9 +42,13 @@ impl<T> ConntrackKey for ConntrackKeyBidir<T>
 
 pub type ConntrackData = Box<dyn Any + Send + Sync>;
 
+type ConntrackId = u64;
+
 pub struct Conntrack {
     data: Option<ConntrackData>,
-    children: Vec<ConntrackRef>
+    children: Vec<ConntrackRef>,
+    timer: Option<TimerId>,
+    remove_cb: TimerCb,
 }
 
 type ConntrackList<K> = Vec<ConntrackEntry<K>>;
@@ -48,46 +57,58 @@ struct ConntrackEntry<K: ConntrackKey> {
     key: K,
     parent: Option<ConntrackWeakRef>,
     ce: ConntrackRef,
+    id: ConntrackId,
 }
 
 pub struct ConntrackTable<K: ConntrackKey> {
-    entries: Vec<Mutex<ConntrackList<K>>>
+    entries: Vec<Mutex<ConntrackList<K>>>,
+    next_id: AtomicU64,
 }
 
 
 impl Conntrack {
 
-    pub fn new() -> ConntrackRef {
+    pub fn new<F>(remove_cb: F) -> ConntrackRef
+    where
+        F: Fn() + Send + Sync + 'static
+    {
         Arc::new(Mutex::new(
-            Conntrack {
-                data: None,
-                children: Vec::new()
-            }
-        ))
+        Conntrack {
+            data: None,
+            children: Vec::new(),
+            timer: None,
+            remove_cb: Arc::new(remove_cb)
+        }))
 
     }
 
     pub fn get_or_insert(&mut self, value: ConntrackData) -> &mut ConntrackData {
-        if self.data.is_none() {
-            self.data = Some(value)
-        }
-        self.data.as_mut().unwrap()
+        self.data.get_or_insert(value)
     }
 
-/*    pub fn get_or_init<F>(&mut self, init: F) -> &mut ConntrackData
-    where
-        F: FnOnce() -> ConntrackRef,
-    {
-        if self.data.is_none() {
-            self.data = Some(Box::new(init()));
+    pub fn set_timeout(&mut self, duration: Duration, now: PktTime) {
+
+        self.timer = match self.timer {
+            None => Some(TimerManager::queue_new(duration, now, self.remove_cb.clone())),
+            Some(tid) => Some(TimerManager::requeue(tid, duration, now))
         }
-        self.data.as_mut().unwrap()
+
     }
-*/
+
+}
+
+impl Drop for Conntrack {
+
+    fn drop(&mut self) {
+        if let Some(timer) = self.timer {
+            TimerManager::destroy(timer);
+        }
+    }
+
 }
 
 
-impl<K: ConntrackKey> ConntrackTable<K> {
+impl<K: ConntrackKey + Send> ConntrackTable<K> {
 
     pub fn new(size: usize) -> Self {
 
@@ -97,12 +118,11 @@ impl<K: ConntrackKey> ConntrackTable<K> {
             entries.push(Mutex::new(ConntrackList::new()));
         }
 
-        Self { entries }
+        Self { entries, next_id: AtomicU64::new(1) }
     }
 
     //#[tracing::instrument(skip(self))]
-    pub fn get(&self, key: K, parent: Option<ConntrackWeakRef>) -> ConntrackRef {
-
+    pub fn get(&'static self, key: K, parent: Option<ConntrackWeakRef>) -> ConntrackRef {
 
 
         // Let's see if we can find it from the parent first
@@ -142,12 +162,14 @@ impl<K: ConntrackKey> ConntrackTable<K> {
         }
 
         // Not found, create and add to the ConntrackList
- 
-        let ce = Conntrack::new();
+
+        let next_id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let ce = Conntrack::new(move || self.remove(ct_index, next_id));
         let ct_entry = ConntrackEntry {
             key: key,
             parent: parent.clone(),
-            ce: ce.clone()
+            ce: ce.clone(),
+            id: next_id
         };
         debug!("Created new conntrack {:p}", Arc::as_ptr(&ct_entry.ce));
         ct_list.push(ct_entry);
@@ -159,6 +181,18 @@ impl<K: ConntrackKey> ConntrackTable<K> {
         }
 
         ce
+    }
+
+    fn remove(&self, ct_index: usize, id: ConntrackId) {
+        let mut ct_list = self.entries[ct_index].lock().unwrap();
+
+        let pos = match ct_list.iter().position(|ct| ct.id == id) {
+            Some(p) => p,
+            None => return
+        };
+
+        ct_list.remove(pos);
+
     }
 }
 

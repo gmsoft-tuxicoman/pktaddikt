@@ -10,6 +10,7 @@ use crate::packet::PktTime;
 
 pub type ConntrackRef = Arc<Mutex<Conntrack>>;
 pub type ConntrackWeakRef = Weak<Mutex<Conntrack>>;
+pub type ConntrackTimerCb = Arc<dyn Fn(ConntrackRef) + Send + Sync>;
 
 pub trait ConntrackKey {
     fn key(&self) -> u64;
@@ -65,6 +66,9 @@ pub struct ConntrackTable<K: ConntrackKey> {
     next_id: AtomicU64,
 }
 
+pub struct ConntrackTimer {
+    timer: TimerId,
+}
 
 impl Conntrack {
 
@@ -244,6 +248,41 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
 }
 
 
+impl ConntrackTimer {
+
+    pub fn new(ce: &ConntrackRef, duration: Duration, now: PktTime, action: ConntrackTimerCb) -> Self {
+
+
+        let ce_weak = Arc::downgrade(ce);
+        ConntrackTimer {
+            timer: TimerManager::queue_new(duration, now, Arc::new(move || ConntrackTimer::process(ce_weak.clone(), action.clone())))
+        }
+
+    }
+
+    pub fn requeue(&self, duration: Duration, now: PktTime) {
+        TimerManager::requeue(self.timer, duration, now);
+    }
+
+    fn process(ce_weak: ConntrackWeakRef, action: ConntrackTimerCb) {
+
+        let ce = Weak::upgrade(&ce_weak);
+        if ce.is_none() {
+            return
+        }
+        action(ce.unwrap());
+    }
+}
+
+impl Drop for ConntrackTimer {
+
+    fn drop(&mut self) {
+        TimerManager::destroy(self.timer);
+    }
+
+}
+
+
 #[cfg(test)]
 mod tests {
 
@@ -254,7 +293,7 @@ mod tests {
 
     type ConntrackKeyTest = ConntrackKeyBidir<u32>;
 
-    fn ct_len<K :ConntrackKey>(ct :&ConntrackTable<K>) -> usize {
+    fn ct_len<K: ConntrackKey>(ct: &ConntrackTable<K>) -> usize {
         let mut count = 0;
 
         for entry in &ct.entries {

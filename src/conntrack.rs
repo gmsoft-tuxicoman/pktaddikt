@@ -47,7 +47,6 @@ type ConntrackId = u64;
 pub struct Conntrack {
     data: Option<ConntrackData>,
     children: Vec<ConntrackRef>,
-    timer: Option<TimerId>,
     remove_cb: TimerCb,
 }
 
@@ -58,6 +57,7 @@ struct ConntrackEntry<K: ConntrackKey> {
     parent: Option<ConntrackWeakRef>,
     ce: ConntrackRef,
     id: ConntrackId,
+    timer: Option<TimerId>,
 }
 
 pub struct ConntrackTable<K: ConntrackKey> {
@@ -68,16 +68,13 @@ pub struct ConntrackTable<K: ConntrackKey> {
 
 impl Conntrack {
 
-    pub fn new<F>(remove_cb: F) -> ConntrackRef
-    where
-        F: Fn() + Send + Sync + 'static
+    pub fn new(remove_cb: TimerCb) -> ConntrackRef
     {
         Arc::new(Mutex::new(
         Conntrack {
             data: None,
             children: Vec::new(),
-            timer: None,
-            remove_cb: Arc::new(remove_cb)
+            remove_cb: remove_cb
         }))
 
     }
@@ -86,21 +83,12 @@ impl Conntrack {
         self.data.get_or_insert(value)
     }
 
-    pub fn set_timeout(&mut self, duration: Duration, now: PktTime) {
-
-        self.timer = match self.timer {
-            None => Some(TimerManager::queue_new(duration, now, self.remove_cb.clone())),
-            Some(tid) => Some(TimerManager::requeue(tid, duration, now))
-        }
-
-    }
-
 }
 
-impl Drop for Conntrack {
+impl<K: ConntrackKey> Drop for ConntrackEntry<K> {
 
     fn drop(&mut self) {
-        trace!("Conntrack {:p} dropped", self);
+        trace!("Conntrack {:p} dropped", Arc::as_ptr(&self.ce));
         if let Some(timer) = self.timer {
             TimerManager::destroy(timer);
         }
@@ -123,10 +111,10 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
     }
 
     //#[tracing::instrument(skip(self))]
-    pub fn get(&'static self, key: K, parent: Option<ConntrackWeakRef>) -> ConntrackRef {
+    pub fn get(&'static self, key: K, parent: Option<ConntrackWeakRef>, timeout: Option<(Duration, PktTime)>) -> ConntrackRef {
 
-
-        // Let's see if we can find it from the parent first
+        // You need either a parent or a timeout
+        assert!(parent.is_some() || timeout.is_some());
 
         // Calculate the key and try to find it in the array
         let hash_key = key.key();
@@ -136,7 +124,9 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
 
         let mut ct_list = self.entries[ct_index].lock().unwrap();
 
-        for ct_entry in ct_list.iter() { // Try to find the exact conntrack in the ConntrackList
+        let mut found: Option<&mut ConntrackEntry<K>> = None;
+
+        for ct_entry in ct_list.iter_mut() { // Try to find the exact conntrack in the ConntrackList
 
             if let Some(ref parent_weak) = parent { // If we were provided a parent
                 if let Some(ct_parent_weak) = &ct_entry.parent { // Check the parent of the conntrack entry
@@ -161,25 +151,53 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
             if ct_entry.key.fwd_eq(&key) {
                 // Conntrack found, forward direction
                 debug!("Conntrack found in forward direction");
-                return ct_entry.ce.clone();
+                found = Some(ct_entry);
+                break;
             } else if ct_entry.key.rev_eq(&key) {
                 // Conntrack found, reverse direction
                 debug!("Conntrack found in reverse direction");
-                return ct_entry.ce.clone();
+                found = Some(ct_entry);
+                break;
             };
 
+
+        }
+
+        if let Some(entry) = found {
+            entry.timer = match entry.timer {
+                Some(tid) => match timeout {
+                    // There was a timer, we have a timeout => requeue
+                    Some((duration, now)) => Some(TimerManager::requeue(tid, duration, now)),
+                    // There was a timer, no timeout => destroy
+                    None => { TimerManager::destroy(tid); None },
+                },
+                None => match timeout {
+                    // There was no timer, now we do
+                    Some((duration, now)) => Some(TimerManager::queue_new(duration, now, entry.ce.lock().unwrap().remove_cb.clone())),
+                    // There was no timer, still none
+                    None => None
+                }
+
+            };
+
+            return entry.ce.clone();
 
         }
 
         // Not found, create and add to the ConntrackList
 
         let next_id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let ce = Conntrack::new(move || self.remove(ct_index, next_id));
+        let remove_cb = Arc::new(move || self.remove(ct_index, next_id));
+        let ce = Conntrack::new(remove_cb.clone());
         let ct_entry = ConntrackEntry {
             key: key,
             parent: parent.clone(),
             ce: ce.clone(),
-            id: next_id
+            id: next_id,
+            timer: match timeout {
+                Some((duration, now)) => Some(TimerManager::queue_new(duration, now, remove_cb.clone())),
+                None => None
+            }
         };
         debug!("Created new conntrack {:p}", Arc::as_ptr(&ct_entry.ce));
         ct_list.push(ct_entry);
@@ -254,7 +272,7 @@ mod tests {
 
         let ct_key = ConntrackKeyTest{ a: 1, b: 2};
         let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
-        let ce = ct.get(ct_key, None);
+        let ce = ct.get(ct_key, None, Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 1);
 
         // Cannot call remove_cb while locked
@@ -276,8 +294,8 @@ mod tests {
 
         let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
 
-        let parent = ct.get(ct_key, None);
-        ct.get(ct_key, Some(Arc::downgrade(&parent)));
+        let parent = ct.get(ct_key, None, Some((Duration::from_secs(1), 1)));
+        ct.get(ct_key, Some(Arc::downgrade(&parent)), Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 2);
 
         // Cannot call remove_cb while locked
@@ -298,9 +316,9 @@ mod tests {
 
         let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
 
-        let ce_fwd = ct.get(ct_key_fwd, None);
+        let ce_fwd = ct.get(ct_key_fwd, None, Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 1);
-        let ce_rev = ct.get(ct_key_rev, None);
+        let ce_rev = ct.get(ct_key_rev, None, Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 1);
 
         assert_eq!(Arc::as_ptr(&ce_fwd), Arc::as_ptr(&ce_rev));
@@ -317,9 +335,9 @@ mod tests {
         let ct_key2 = ConntrackKeyTest{ a: 2, b: 3};
         let ct_key3 = ConntrackKeyTest{ a: 3, b: 4};
 
-        ct.get(ct_key1, None);
-        ct.get(ct_key2, None);
-        ct.get(ct_key3, None);
+        ct.get(ct_key1, None, Some((Duration::from_secs(1), 1)));
+        ct.get(ct_key2, None, Some((Duration::from_secs(1), 1)));
+        ct.get(ct_key3, None, Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 3);
         ct.purge();
         assert_eq!(ct_len(&ct), 0);

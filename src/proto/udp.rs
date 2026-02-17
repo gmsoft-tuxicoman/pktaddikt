@@ -51,13 +51,7 @@ impl ProtoProcessor for ProtoUdp {
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        let ce = CT_UDP.get_or_init(|| ConntrackTable::new(CT_UDP_SIZE)).get(ct_key, info.parent_ce());
-
-        {
-            // Locked code of the conntrack
-            let mut ce_locked = ce.lock().unwrap();
-            ce_locked.set_timeout(Duration::from_secs(UDP_TIMEOUT), pkt.ts);
-        }
+        let ce = CT_UDP.get_or_init(|| ConntrackTable::new(CT_UDP_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(UDP_TIMEOUT), pkt.ts)));
 
         pkt.stack_push(Protocols::None, Some(ce));
 

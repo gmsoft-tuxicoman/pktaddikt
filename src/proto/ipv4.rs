@@ -96,7 +96,7 @@ impl ProtoProcessor for ProtoIpv4 {
 
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let ce = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce());
+        let ce = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(IP_TIMEOUT), pkt.ts)));
 
         let next_proto = match proto {
             17 => Protocols::Udp,
@@ -108,14 +108,12 @@ impl ProtoProcessor for ProtoIpv4 {
 
         // Full packet (offset is 0 and no more packets)
         if (frag_off & IP_MORE_FRAG) == 0 && (frag_off & IP_OFFSET_MASK) == 0 {
-            ce.lock().unwrap().set_timeout(Duration::from_secs(IP_TIMEOUT), pkt.ts);
             pkt.stack_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
 
         // Packet cannot be fragmented
         if (frag_off & IP_DONT_FRAG) != 0 {
-            ce.lock().unwrap().set_timeout(Duration::from_secs(IP_TIMEOUT), pkt.ts);
             pkt.stack_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
@@ -125,7 +123,6 @@ impl ProtoProcessor for ProtoIpv4 {
         let offset = ((frag_off & IP_OFFSET_MASK) << 3) as usize;
 
         let mut ce_locked = ce.lock().unwrap();
-        ce_locked.set_timeout(Duration::from_secs(IP_TIMEOUT), pkt.ts);
 
         let cd = ce_locked.get_or_insert(Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
                     .downcast_mut::<ConntrackIpv4>()

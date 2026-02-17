@@ -94,13 +94,7 @@ impl ProtoProcessor for ProtoIpv6 {
         let b = dst.to_bits();
 
         let ct_key = ConntrackKeyIpv6 { a: ((a >> 8) as u64) ^ (a as u64) , b: ((b >> 8) as u64) ^ (b as u64) };
-        let ce = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce());
-
-        {
-            // Lcoked code of the conntrac
-            let mut ce_locked = ce.lock().unwrap();
-            ce_locked.set_timeout(Duration::from_secs(IPV6_TIMEOUT), pkt.ts);
-        }
+        let ce = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(IPV6_TIMEOUT), pkt.ts)));
 
         let next_proto = match nhdr_type {
             17 => Protocols::Udp,

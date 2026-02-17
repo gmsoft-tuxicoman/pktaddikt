@@ -212,7 +212,7 @@ impl TimerManager {
                 let actions = ret.get_or_insert_with(Vec::new);
                 actions.push(timer.action.take().unwrap());
 
-
+                trace!("Processing timer {}", tid);
                 // Dequeue the timer
                 if let Some(next) = next_tid {
                     // Timer is not the tail

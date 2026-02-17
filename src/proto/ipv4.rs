@@ -1,31 +1,49 @@
 use crate::proto::{Proto, ProtoProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
-use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
+use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackTimer, ConntrackRef};
 use crate::packet::{Packet, PktDataMultipart};
 
-use std::sync::OnceLock;
+use std::sync::{OnceLock, Arc};
 use std::net::Ipv4Addr;
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::trace;
+use tracing::{debug, trace};
 
 const IP_DONT_FRAG: u16 = 0x4000;
 const IP_MORE_FRAG: u16 = 0x2000;
 const IP_OFFSET_MASK: u16 = 0x1FFF;
 
-const IP_TIMEOUT :u64 = 7200;
+const IP_TIMEOUT: u64 = 7200;
+const IPV4_FRAG_TIMEOUT: u64 = 30;
 
 pub struct ProtoIpv4 {}
 
 type ConntrackKeyIpv4 = ConntrackKeyBidir<u32>;
 
+struct Ipv4Fragment {
+    pkt: Option<PktDataMultipart>,
+    timer: ConntrackTimer
+}
 
 struct ConntrackIpv4 {
-    fragments: HashMap<u16, PktDataMultipart>
+    fragments: HashMap<u16, Ipv4Fragment>
 }
 
 static CT_IPV4_SIZE :usize = 65535;
 static CT_IPV4: OnceLock<ConntrackTable<ConntrackKeyIpv4>> = OnceLock::new();
+
+impl ProtoIpv4 {
+
+    fn frag_cleanup(ce: ConntrackRef, frag_id: u16) {
+        let mut ce_locked = ce.lock().unwrap();
+
+        let cd = ce_locked.get_or_insert(Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
+                    .downcast_mut::<ConntrackIpv4>()
+                    .unwrap();
+        debug!("Fragment cleaned up with conntrack {:p} and id {}", Arc::as_ptr(&ce), frag_id);
+        cd.fragments.remove(&frag_id);
+    }
+}
 
 impl ProtoProcessor for ProtoIpv4 {
 
@@ -118,6 +136,11 @@ impl ProtoProcessor for ProtoIpv4 {
             return ProtoParseResult::Ok;
         }
 
+        if ((frag_off & IP_MORE_FRAG) != 0) && ((data_len % 8) != 0) {
+            // Fragment parts must be multiple of 8 bytes
+            return ProtoParseResult::Invalid;
+        }
+
         pkt.stack_push(next_proto, Some(ce.clone()));
 
         let offset = ((frag_off & IP_OFFSET_MASK) << 3) as usize;
@@ -130,22 +153,40 @@ impl ProtoProcessor for ProtoIpv4 {
 
         let frags_entry = cd.fragments.entry(id);
 
-        let frags = frags_entry.or_insert(PktDataMultipart::new(1500));
+        let frags = frags_entry
+            .and_modify(|v| {
+                debug!("Fragment data with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
+                ConntrackTimer::requeue(&v.timer, Duration::from_secs(IPV4_FRAG_TIMEOUT), pkt.ts);
+            })
+            .or_insert_with( || {
+                    debug!("Fragment created with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
+                    Ipv4Fragment {
+                        pkt: Some(PktDataMultipart::new(1500)),
+                        timer: ConntrackTimer::new(&ce, Duration::from_secs(IPV4_FRAG_TIMEOUT), pkt.ts, Arc::new(move |x| ProtoIpv4::frag_cleanup(x, id))),
+                    }
+                }
+            );
 
-        frags.add(offset, pkt.remaining_data());
+        if frags.pkt.is_none() {
+            // The fragment has been processed
+            return ProtoParseResult::Stop;
+        }
+
+        let frags_pkt = frags.pkt.as_mut().unwrap();
+        frags_pkt.add(offset, pkt.remaining_data());
 
         if (frag_off & IP_MORE_FRAG) == 0 {
             // Last fragment
-            frags.set_expected_len(offset + data_len);
+            frags_pkt.set_expected_len(offset + data_len);
         }
 
-        if frags.is_complete() {
+        if frags_pkt.is_complete() {
             // Process the reassembled packet
-            let mut frags = cd.fragments.remove(&id).unwrap();
-            let mut pkt = Packet::new(pkt.ts, next_proto, &mut frags);
+            let mut reassembled_pkt = Packet::new(pkt.ts, next_proto, frags_pkt);
 
-            Proto::process_packet(&mut pkt);
+            Proto::process_packet(&mut reassembled_pkt);
 
+            frags.pkt = None;
         }
 
         ProtoParseResult::Stop
@@ -261,6 +302,33 @@ mod tests {
         let remaining = pkt.remaining_len();
         println!("remaining: {}", remaining);
         assert_eq!(pkt.remaining_len(), 1);
+
+    }
+
+    #[test]
+    #[traced_test]
+    fn ipv4_frag() {
+        // Frag 1 UDP header (MORE FRAG set)
+        let data1 = vec![ 0x45, 0x00, 0x00, 0x1c, 0x05, 0x39, 0x20, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x11, 0xff, 0xff ];
+        // Frag 2 continued data with 0xb data
+        let data2 = vec![ 0x45, 0x00, 0x00, 0x1c, 0x05, 0x39, 0x20, 0x01, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b ];
+        // Frag 3 final data with 0xc data
+        let data3 = vec![ 0x45, 0x00, 0x00, 0x15, 0x05, 0x39, 0x00, 0x02, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0c ];
+
+        let ret1 = ipv4_parse_test(&data1);
+        assert_eq!(ret1, ProtoParseResult::Stop);
+        let ret2 = ipv4_parse_test(&data2);
+        assert_eq!(ret2, ProtoParseResult::Stop);
+        let ret3 = ipv4_parse_test(&data3);
+        assert_eq!(ret3, ProtoParseResult::Stop);
+    }
+
+    #[test]
+    fn ipv4_frag_not_8byte_multiple() {
+        // Frag 2 continued data with 0xb data
+        let data = vec![ 0x45, 0x00, 0x00, 0x1b, 0x05, 0x39, 0x20, 0x01, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b ];
+        let ret = ipv4_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
 
     }
 }

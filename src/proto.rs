@@ -9,6 +9,8 @@ use crate::proto::udp::ProtoUdp;
 use crate::packet::Packet;
 use crate::timer::TimerManager;
 
+use std::time::Instant;
+
 
 // List of implemented protocols
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -40,6 +42,8 @@ impl Proto {
 
     pub fn process_packet<'a>(pkt: &mut Packet) {
 
+        let start = Instant::now();
+
         TimerManager::update_time(pkt.ts);
 
         let mut next_proto = pkt.datalink;
@@ -65,6 +69,8 @@ impl Proto {
 
         }
 
+        let processing_time = start.elapsed();
+
         print!("{}.{} ", pkt.ts / 1000000, pkt.ts % 1000000);
         for s in pkt.iter_stack() {
             if s.proto == Protocols::None {
@@ -77,7 +83,7 @@ impl Proto {
             print!("}}; ");
         }
 
-        println!("[{:?}]", ret );
+        println!("[{:?} {}ns]", ret, processing_time.as_nanos());
     }
 
     pub fn purge_all() {

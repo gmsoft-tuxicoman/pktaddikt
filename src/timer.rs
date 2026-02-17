@@ -8,7 +8,7 @@ use std::time::Duration;
 use slab::Slab;
 
 
-static TIMER_MANAGER: LazyLock<Mutex<TimerManager>> = LazyLock::new(|| { println!("Initialized"); Mutex::new(TimerManager::new())});
+static TIMER_MANAGER: LazyLock<Mutex<TimerManager>> = LazyLock::new(|| { Mutex::new(TimerManager::new())});
 static TIMER_NOW: AtomicU64 = AtomicU64::new(0);
 
 

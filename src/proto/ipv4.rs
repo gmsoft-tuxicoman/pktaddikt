@@ -117,7 +117,10 @@ impl ProtoProcessor for ProtoIpv4 {
         let ce = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(IP_TIMEOUT), pkt.ts)));
 
         let next_proto = match proto {
+            4 => Protocols::Ipv4,
+            6 => Protocols::Tcp,
             17 => Protocols::Udp,
+            41 => Protocols::Ipv6,
             _ => Protocols::None
         };
 

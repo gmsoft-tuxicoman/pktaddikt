@@ -97,7 +97,10 @@ impl ProtoProcessor for ProtoIpv6 {
         let ce = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(IPV6_TIMEOUT), pkt.ts)));
 
         let next_proto = match nhdr_type {
+            4 => Protocols::Ipv4,
+            6 => Protocols::Tcp,
             17 => Protocols::Udp,
+            41 => Protocols::Ipv6,
             _ => Protocols::None
 
         };

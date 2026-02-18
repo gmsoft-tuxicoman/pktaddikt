@@ -2,10 +2,12 @@ pub mod ethernet;
 pub mod ipv4;
 pub mod ipv6;
 pub mod udp;
+pub mod tcp;
 use crate::proto::ethernet::ProtoEthernet;
 use crate::proto::ipv4::ProtoIpv4;
 use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
+use crate::proto::tcp::ProtoTcp;
 use crate::packet::Packet;
 use crate::timer::TimerManager;
 
@@ -19,7 +21,8 @@ pub enum Protocols {
     Ethernet,
     Ipv4,
     Ipv6,
-    Udp
+    Udp,
+    Tcp
 }
 
 #[derive(PartialEq, Debug)]
@@ -58,7 +61,8 @@ impl Proto {
                 Protocols::Ethernet => ProtoEthernet::process(pkt),
                 Protocols::Ipv4 => ProtoIpv4::process(pkt),
                 Protocols::Ipv6 => ProtoIpv6::process(pkt),
-                Protocols::Udp => ProtoUdp::process(pkt)
+                Protocols::Udp => ProtoUdp::process(pkt),
+                Protocols::Tcp => ProtoTcp::process(pkt)
             };
 
             if ret != ProtoParseResult::Ok {
@@ -87,9 +91,11 @@ impl Proto {
     }
 
     pub fn purge_all() {
+        ProtoEthernet::purge();
         ProtoIpv4::purge();
         ProtoIpv6::purge();
         ProtoUdp::purge();
+        ProtoTcp::purge();
 
     }
 }

@@ -5,6 +5,7 @@ use crate::packet::Packet;
 
 use std::sync::OnceLock;
 use std::time::Duration;
+use tracing::trace;
 
 
 type ConntrackKeyTcp = ConntrackKeyBidir<u16>;
@@ -29,6 +30,7 @@ impl ProtoProcessor for ProtoTcp {
 
         let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than TCP header
+            trace!("Payload length smaller than TCP header in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
@@ -37,9 +39,9 @@ impl ProtoProcessor for ProtoTcp {
         let sport: u16 = (hdr[0] as u16) << 8 | (hdr[1] as u16);
         let dport: u16 = (hdr[2] as u16) << 8 | (hdr[3] as u16);
         let seq: u32 = (hdr[4] as u32) << 24 | (hdr[5] as u32) << 16 | (hdr[6] as u32) << 8 | (hdr[7] as u32);
-        let seq_ack: u32 = (hdr[8] as u32) << 24 | (hdr[9] as u32) << 16 | (hdr[10] as u32) << 8 | (hdr[11] as u32);
-        let window: u16 = (hdr[16] as u16) << 8 | (hdr[17] as u16);
-        let flags: u8 = hdr[14];
+        let ack: u32 = (hdr[8] as u32) << 24 | (hdr[9] as u32) << 16 | (hdr[10] as u32) << 8 | (hdr[11] as u32);
+        let window: u16 = (hdr[14] as u16) << 8 | (hdr[15] as u16);
+        let flags: u8 = hdr[13];
 
         let hdr_len = ((hdr[12] & 0xf0) >> 2) as usize;
 
@@ -81,7 +83,7 @@ impl ProtoProcessor for ProtoTcp {
         info.field_push(Param { name: "sport", value: Some(ParamValue::U16(sport)) });
         info.field_push(Param { name: "dport", value: Some(ParamValue::U16(dport)) });
         info.field_push(Param { name: "seq", value: Some(ParamValue::U32(seq)) });
-        info.field_push(Param { name: "seq_ack", value: Some(ParamValue::U32(seq_ack)) });
+        info.field_push(Param { name: "ack", value: Some(ParamValue::U32(ack)) });
         info.field_push(Param { name: "win", value: Some(ParamValue::U16(window)) });
 
 
@@ -99,6 +101,60 @@ impl ProtoProcessor for ProtoTcp {
         if let Some(ct) = CT_TCP.get() {
            ct.purge();
         }
+    }
+
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::packet::PktDataSimple;
+    use crate::param::tests::param_assert_eq;
+    use tracing_test::traced_test;
+
+    fn tcp_parse_test(data: &[u8]) -> ProtoParseResult {
+        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
+        pkt.stack_push(Protocols::Tcp, None);
+
+        ProtoTcp::process(&mut pkt)
+
+    }
+
+    #[test]
+    fn tcp_parse_basic() {
+        let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
+        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
+        pkt.stack_push(Protocols::Tcp, None);
+
+        let ret = ProtoTcp::process(&mut pkt);
+        assert_eq!(ret, ProtoParseResult::Ok);
+
+        let info = pkt.iter_stack().next().unwrap();
+        let mut field_iter = info.iter_fields();
+
+        let sport = field_iter.next().unwrap();
+        param_assert_eq(sport, "sport", ParamValue::U16(1));
+        let dport = field_iter.next().unwrap();
+        param_assert_eq(dport, "dport", ParamValue::U16(2));
+        let seq = field_iter.next().unwrap();
+        param_assert_eq(seq, "seq", ParamValue::U32(2863311530));
+        let ack = field_iter.next().unwrap();
+        param_assert_eq(ack, "ack", ParamValue::U32(3149642683));
+        let win = field_iter.next().unwrap();
+        param_assert_eq(win, "win", ParamValue::U16(16));
+    }
+
+    #[test]
+    #[traced_test]
+    fn tcp_packet_too_short() {
+        let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00 ];
+        let ret = tcp_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("Payload length smaller than TCP header"));
     }
 
 }

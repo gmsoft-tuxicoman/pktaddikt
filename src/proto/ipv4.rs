@@ -209,14 +209,14 @@ impl ProtoProcessor for ProtoIpv4 {
 mod tests {
 
     use super::*;
-    use crate::packet::PktDataSimple;
+    use crate::packet::PktDataBorrowed;
     use crate::param::tests::param_assert_eq;
     use crate::proto::ProtoTest;
     use crate::packet::PktTime;
     use tracing_test::traced_test;
 
     fn ipv4_parse_test(data: &[u8], ts: PktTime) -> ProtoParseResult {
-        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(ts, Protocols::Ipv4, &mut pkt_data);
         pkt.stack_push(Protocols::Ipv4, None);
 
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn ipv4_parse_basic() {
         let data = vec![ 0x45, 0x00, 0x00, 0x16, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40, 0xde, 0xad ];
-        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Ipv4, &mut pkt_data);
         pkt.stack_push(Protocols::Ipv4, None);
 
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn ipv4_pkt_shrink() {
         let data = vec![ 0x45, 0x00, 0x00, 0x15, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0xff, 0xff ];
-        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Ipv4, &mut pkt_data);
         pkt.stack_push(Protocols::Ipv4, None);
 

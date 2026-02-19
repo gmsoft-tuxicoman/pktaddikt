@@ -1,9 +1,10 @@
+#![allow(unused)]
+
 use crate::proto::{ProtoProcessor, ProtoParseResult};
 use crate::packet::{Packet, PktTime};
 use std::cell::RefCell;
 
 pub struct ProtoTest {}
-
 
 struct ProtoTestExpect {
 
@@ -13,7 +14,6 @@ struct ProtoTestExpect {
 
 thread_local! {
     static TEST_EXPECT: RefCell<Vec<ProtoTestExpect>> = RefCell::new(Vec::new());
-
 }
 
 #[cfg(not(test))]

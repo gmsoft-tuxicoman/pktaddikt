@@ -1,8 +1,10 @@
+pub mod test;
 pub mod ethernet;
 pub mod ipv4;
 pub mod ipv6;
 pub mod udp;
 pub mod tcp;
+use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::ProtoEthernet;
 use crate::proto::ipv4::ProtoIpv4;
 use crate::proto::ipv6::ProtoIpv6;
@@ -18,6 +20,7 @@ use std::time::Instant;
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Protocols {
     None,
+    Test,
     Ethernet,
     Ipv4,
     Ipv6,
@@ -58,6 +61,7 @@ impl Proto {
 
             ret = match next_proto {
                 Protocols::None => break,
+                Protocols::Test => ProtoTest::process(pkt),
                 Protocols::Ethernet => ProtoEthernet::process(pkt),
                 Protocols::Ipv4 => ProtoIpv4::process(pkt),
                 Protocols::Ipv6 => ProtoIpv6::process(pkt),
@@ -91,6 +95,7 @@ impl Proto {
     }
 
     pub fn purge_all() {
+        ProtoTest::purge();
         ProtoEthernet::purge();
         ProtoIpv4::purge();
         ProtoIpv6::purge();

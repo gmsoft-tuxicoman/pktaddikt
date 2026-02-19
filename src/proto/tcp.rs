@@ -47,11 +47,13 @@ impl ProtoProcessor for ProtoTcp {
 
         if hdr_len < 20 {
             // Header length too small
+            trace!("Header length too small in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
         if hdr_len > plen {
             // Header length bigger than payload size
+            trace!("Header length bigger than payload size in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
@@ -65,15 +67,14 @@ impl ProtoProcessor for ProtoTcp {
         let mut data_len = plen - hdr_len;
         if ((flags & TCP_TH_SYN) != 0) && data_len > 0 {
             // No payload allowed in SYN packets
+            trace!("SYN segment contains data in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
         if ((flags & TCP_TH_RST) != 0) && data_len > 0 {
             // RFC 1122 4.2.2.12 : RST may contain the data that caused the packet to be sent,
             // discard it
-            if pkt.skip_bytes(data_len) == Err(()) {
-                return ProtoParseResult::Invalid;
-            }
+            pkt.shrink_remaining(0);
             data_len = 0;
         }
 
@@ -90,7 +91,13 @@ impl ProtoProcessor for ProtoTcp {
         let ct_key = ConntrackKeyTcp { a: sport, b: dport };
         let ce = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(TCP_TIMEOUT), pkt.ts)));
 
-        pkt.stack_push(Protocols::None, Some(ce));
+        // WIP, needs to be improved
+        let next_proto = match dport {
+            0 => Protocols::Test,
+            _ => Protocols::None
+        };
+
+        pkt.stack_push(next_proto, Some(ce));
 
 
         ProtoParseResult::Ok
@@ -112,6 +119,7 @@ mod tests {
     use super::*;
     use crate::packet::PktDataSimple;
     use crate::param::tests::param_assert_eq;
+    use crate::proto::ProtoTest;
     use tracing_test::traced_test;
 
     fn tcp_parse_test(data: &[u8]) -> ProtoParseResult {
@@ -155,6 +163,54 @@ mod tests {
         let ret = tcp_parse_test(&data);
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Payload length smaller than TCP header"));
+    }
+
+    #[test]
+    #[traced_test]
+    fn tcp_header_too_small() {
+        let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x40, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
+        let ret = tcp_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("Header length too small"));
+    }
+
+    #[test]
+    #[traced_test]
+    fn tcp_header_too_big() {
+        let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x70, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
+        let ret = tcp_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("Header length bigger than payload size"));
+    }
+
+    #[test]
+    #[traced_test]
+    fn tcp_skip_options() {
+        let data = vec![ 0x00, 0x01, 0x00, 0x00, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x70, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xdd ];
+
+        let expected_data = vec![ 0xdd ];
+        ProtoTest::add_expectation(&expected_data, 0);
+
+        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
+        pkt.stack_push(Protocols::Tcp, None);
+
+        let ret = ProtoTcp::process(&mut pkt);
+        assert_eq!(ret, ProtoParseResult::Ok);
+        assert_eq!(pkt.stack_last().proto, Protocols::Test);
+
+        ProtoTest::process(&mut pkt);
+        ProtoTest::assert_empty();
+
+    }
+
+    #[test]
+    #[traced_test]
+    fn tcp_syn_with_pload() {
+        let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x02, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
+        let ret = tcp_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("SYN segment contains data"));
     }
 
 }

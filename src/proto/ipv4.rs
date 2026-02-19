@@ -330,6 +330,8 @@ mod tests {
         assert_eq!(ret2, ProtoParseResult::Stop);
         let ret3 = ipv4_parse_test(&data3, 2);
         assert_eq!(ret3, ProtoParseResult::Stop);
+
+        ProtoTest::assert_empty();
     }
 
     #[test]

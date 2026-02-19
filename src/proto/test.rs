@@ -62,4 +62,10 @@ impl ProtoTest {
            });
         });
     }
+
+    pub fn assert_empty() {
+        TEST_EXPECT.with(|expect| {
+            assert_eq!(expect.borrow().len(), 0, "Some packets are still expected");
+        });
+    }
 }

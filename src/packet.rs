@@ -124,7 +124,7 @@ impl<'a> Packet<'a> {
 
     pub fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
 
-        trace!("Reading {} bytes from pkt {:p}i (off: {}, len: {})", size, self, self.read_offset, self.length);
+        trace!("Reading {} bytes from pkt {:p} (off: {}, len: {})", size, self, self.read_offset, self.length);
         let data = self.data.data();
         assert!(data.len() >= self.length);
         if self.read_offset + size > self.length {
@@ -141,34 +141,66 @@ impl<'a> Packet<'a> {
 pub trait PktData {
 
     fn data(&self) -> &[u8];
+    fn copy_or_clone(&self) -> PktDataOwned;
 }
 
 // A packet with a reference to some data
-pub struct PktDataSimple<'a> {
+pub struct PktDataBorrowed<'a> {
     data: &'a[u8]
 }
 
-impl<'a> PktDataSimple<'a> {
+impl<'a> PktDataBorrowed<'a> {
 
     pub fn new(data: &'a[u8]) -> Self {
-        PktDataSimple {
+        PktDataBorrowed {
            data: data
         }
     }
 }
 
-impl<'a> PktData for PktDataSimple<'a> {
+impl<'a> PktData for PktDataBorrowed<'a> {
 
     fn data(&self) -> &'a [u8] {
         &self.data
     }
 
+    fn copy_or_clone(&self) -> PktDataOwned {
+        PktDataOwned::new(self.data)
+    }
+
 }
 
 
+// A packet with owned data
+pub struct PktDataOwned {
+    data: Arc<Vec<u8>>
+}
+
+impl PktDataOwned {
+    pub fn new(data: &[u8]) -> Self{
+        PktDataOwned {
+            data: Arc::new(data.to_vec())
+        }
+    }
+}
+
+
+impl PktData for PktDataOwned {
+
+    fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    fn copy_or_clone(&self) -> PktDataOwned {
+        PktDataOwned {
+            data: self.data.clone()
+        }
+    }
+}
+
 // A packet created by multiple fragments
 pub struct PktDataMultipart {
-    data: Vec<u8>, // Concatenated data
+    data: Arc<Vec<u8>>, // Concatenated data
     ranges: RangeSet<usize>, // Info tracking about data
     tot_len: Option<usize> // Total expected length of the reassembled data
 
@@ -180,13 +212,20 @@ impl PktData for PktDataMultipart {
     fn data(&self) -> &[u8] {
         &self.data
     }
+
+    fn copy_or_clone(&self) -> PktDataOwned {
+        PktDataOwned {
+            data: self.data.clone()
+        }
+    }
+
 }
 
 impl<'b> PktDataMultipart {
 
     pub fn new(capacity: usize) -> Self {
         PktDataMultipart {
-            data: Vec::with_capacity(capacity),
+            data: Arc::new(Vec::with_capacity(capacity)),
             ranges: RangeSet::<usize>::new(),
             tot_len: None
         }
@@ -207,15 +246,17 @@ impl<'b> PktDataMultipart {
 
         // Copy the data into the buffer
 
-        if self.data.len() == range.start {
+        let data_mut = Arc::get_mut(&mut self.data).expect("PktDataMultipart was cloned before it was complete");
+
+        if data_mut.len() == range.start {
             // Most common case, we can simply append the data
-            self.data.extend_from_slice(data);
+            data_mut.extend_from_slice(data);
         } else {
             // Resize if needed then copy
-            if self.data.len() < range.end {
-                self.data.resize(range.end, 0)
+            if data_mut.len() < range.end {
+                data_mut.resize(range.end, 0)
             }
-            self.data[range.start..range.end].copy_from_slice(data);
+            data_mut[range.start..range.end].copy_from_slice(data);
         }
 
         trace!("Part {} -> {} added into multipart {:p}", range.start, range.end, self);

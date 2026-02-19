@@ -48,12 +48,12 @@ mod tests {
 
     use super::*;
     use crate::param::tests::param_assert_eq;
-    use crate::packet::PktDataSimple;
+    use crate::packet::PktDataBorrowed;
 
     #[test]
     fn ethernet_parse_basic() {
         let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE, 0xEF, 0x01, 0x02, 0x03];
-        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Ethernet, &mut pkt_data);
         pkt.stack_push(Protocols::Ethernet, None);
 
@@ -77,7 +77,7 @@ mod tests {
     #[test]
     fn ethernet_too_short() {
         let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE];
-        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Ethernet, &mut pkt_data);
         pkt.stack_push(Protocols::Ethernet, None);
 

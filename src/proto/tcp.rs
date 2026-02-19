@@ -117,13 +117,13 @@ impl ProtoProcessor for ProtoTcp {
 mod tests {
 
     use super::*;
-    use crate::packet::PktDataSimple;
+    use crate::packet::PktDataBorrowed;
     use crate::param::tests::param_assert_eq;
     use crate::proto::ProtoTest;
     use tracing_test::traced_test;
 
     fn tcp_parse_test(data: &[u8]) -> ProtoParseResult {
-        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
         pkt.stack_push(Protocols::Tcp, None);
 
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn tcp_parse_basic() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
         pkt.stack_push(Protocols::Tcp, None);
 
@@ -191,7 +191,7 @@ mod tests {
         let expected_data = vec![ 0xdd ];
         ProtoTest::add_expectation(&expected_data, 0);
 
-        let mut pkt_data = PktDataSimple::new(&data);
+        let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
         pkt.stack_push(Protocols::Tcp, None);
 

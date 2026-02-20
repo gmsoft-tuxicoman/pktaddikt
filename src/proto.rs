@@ -52,14 +52,11 @@ impl Proto {
 
         TimerManager::update_time(pkt.ts);
 
-        let mut next_proto = pkt.datalink;
-        pkt.stack_push(next_proto, None);
-
         let mut ret = ProtoParseResult::None;
 
         loop {
 
-            ret = match next_proto {
+            ret = match pkt.stack_last().proto {
                 Protocols::None => break,
                 Protocols::Test => ProtoTest::process(pkt),
                 Protocols::Ethernet => ProtoEthernet::process(pkt),
@@ -73,7 +70,6 @@ impl Proto {
                 break;
             }
 
-            next_proto = pkt.stack_last().proto;
 
         }
 

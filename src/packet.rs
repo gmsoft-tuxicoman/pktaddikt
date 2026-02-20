@@ -39,7 +39,6 @@ impl<'a> PktInfo<'a> {
 // Packet for all your packet needs
 pub struct Packet<'a> {
     pub ts: PktTime,
-    pub datalink: Protocols,
     stack: Vec<PktInfo<'a>>,
     read_offset: usize,
     length: usize,
@@ -51,25 +50,25 @@ impl<'a> Packet<'a> {
 
     pub fn new(ts: PktTime, datalink: Protocols, data: &'a mut impl PktData) -> Self {
 
-        Packet {
+        let mut pkt = Packet {
             ts: ts,
-            datalink: datalink,
             stack: Vec::with_capacity(7),
             read_offset: 0,
             length: data.data().len(),
             data: data
-        }
+        };
+        pkt.stack_push(datalink, None);
+        pkt
 
     }
 
-    pub fn stack_push<'b>(&'b mut self, proto: Protocols, parent_ce: Option<ConntrackRef>) -> &'b PktInfo<'b> {
+    pub fn stack_push<'b>(&'b mut self, proto: Protocols, parent_ce: Option<ConntrackRef>) {
         let info = PktInfo {
             proto: proto,
             fields: Vec::with_capacity(5),
             parent_ce: parent_ce,
         };
         self.stack.push(info);
-        self.stack.last().unwrap()
     }
 
     pub fn stack_last<'b>(&'b self) -> &'b PktInfo<'b> {

@@ -2,6 +2,7 @@ use crate::proto::Protocols;
 use crate::param::Param;
 use crate::conntrack::{ConntrackRef, ConntrackWeakRef};
 use std::sync::Arc;
+use std::ops::Range;
 use tracing::trace;
 use rangemap::RangeSet;
 
@@ -40,8 +41,7 @@ impl<'a> PktInfo<'a> {
 pub struct Packet<'a> {
     pub ts: PktTime,
     stack: Vec<PktInfo<'a>>,
-    read_offset: usize,
-    length: usize,
+    data_range: Range<usize>,
     pub data: &'a mut dyn PktData,
 }
 
@@ -53,8 +53,7 @@ impl<'a> Packet<'a> {
         let mut pkt = Packet {
             ts: ts,
             stack: Vec::with_capacity(7),
-            read_offset: 0,
-            length: data.data().len(),
+            data_range: 0 .. data.data().len(),
             data: data
         };
         pkt.stack_push(datalink, None);
@@ -94,43 +93,43 @@ impl<'a> Packet<'a> {
     }
 
     pub fn remaining_len(&self) -> usize {
-        self.length - self.read_offset
+        self.data_range.end - self.data_range.start
     }
 
     pub fn remaining_data(&mut self) -> &[u8] {
         let data = self.data.data();
-        let ret = &data[self.read_offset..self.length];
-        self.read_offset = self.length;
+        let ret = &data[self.data_range.start..self.data_range.end];
+        self.data_range.start = self.data_range.end;
         ret
     }
 
     pub fn skip_bytes(&mut self, size: usize) -> Result<(),()> {
         trace!("Skipping {} bytes from pkt {:p}", size, self);
-        if self.length - self.read_offset < size {
-            self.read_offset = self.length;
+        if self.remaining_len() < size {
+            self.data_range.start = self.data_range.end;
             return Err(());
         }
-        self.read_offset += size;
+        self.data_range.start += size;
         return Ok(());
     }
 
     pub fn shrink_remaining(&mut self, new_size: usize) {
-        let new_length = new_size + self.read_offset;
-        trace!("Shrinking data to {} (was {})", new_length, self.length);
-        assert!(self.length >= new_length, "Trying to shrink a packet with a bigger or equal length!");
-        self.length = new_length;
+        let new_end = new_size + self.data_range.start;
+        trace!("Shrinking data to {} (was {})", new_size, self.data_range.end - self.data_range.start);
+        assert!(self.data_range.end >= new_end, "Trying to shrink a packet with a bigger or equal length!");
+        self.data_range.end = new_end;
     }
 
     pub fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
 
-        trace!("Reading {} bytes from pkt {:p} (off: {}, len: {})", size, self, self.read_offset, self.length);
+        trace!("Reading {} bytes from pkt {:p} (off: {}, len: {})", size, self, self.data_range.start, self.data_range.end - self.data_range.end);
         let data = self.data.data();
-        assert!(data.len() >= self.length);
-        if self.read_offset + size > self.length {
+        debug_assert!(data.len() >= self.data_range.end - self.data_range.start);
+        if self.data_range.start + size > self.data_range.end {
             return None;
         }
-        let bytes = &data[self.read_offset..(self.read_offset + size)];
-        self.read_offset += size;
+        let bytes = &data[self.data_range.start ..(self.data_range.start + size)];
+        self.data_range.start += size;
         Some(bytes)
 
     }

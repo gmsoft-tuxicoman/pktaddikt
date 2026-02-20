@@ -55,7 +55,6 @@ mod tests {
         let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE, 0xEF, 0x01, 0x02, 0x03];
         let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Ethernet, &mut pkt_data);
-        pkt.stack_push(Protocols::Ethernet, None);
 
         let ret = ProtoEthernet::process(&mut pkt);
         assert_eq!(ret, ProtoParseResult::Ok);
@@ -79,7 +78,6 @@ mod tests {
         let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE];
         let mut pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(0, Protocols::Ethernet, &mut pkt_data);
-        pkt.stack_push(Protocols::Ethernet, None);
 
         let ret = ProtoEthernet::process(&mut pkt);
         assert_eq!(ret, ProtoParseResult::Invalid);

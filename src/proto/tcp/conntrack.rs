@@ -223,3 +223,32 @@ impl Drop for ConntrackTcp {
     }
 
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use tracing_test::traced_test;
+
+
+    fn queue_pkt(ct: &mut ConntrackTcp, dir: ConntrackDirection, seq: u32, ack: u32, flags: u8, data: &[u8]) {
+
+        let mut pkt_data = PktDataOwned::new(&data);
+        let mut pkt = Packet::new(0, Protocols::Test, &mut pkt_data);
+        ct.process_packet(dir, seq, ack, flags, &mut pkt);
+
+    }
+
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_basic() {
+        let mut ct = ConntrackTcp::new(Protocols::Test);
+        // Normal 3 way handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
+
+    }
+
+}

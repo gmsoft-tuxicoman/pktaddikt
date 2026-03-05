@@ -1,5 +1,6 @@
-use crate::packet::{PktData, PktDataOwned};
+use crate::packet::{PktDataOwned, PktTime};
 use crate::proto::Protocols;
+use crate::proto::test::ProtoTest;
 use crate::param::Param;
 use crate::conntrack::ConntrackDirection;
 
@@ -32,31 +33,28 @@ impl<T> PktStreamChannels<T> {
     }
 }
 
-struct PktStreamMsgOpen<'a> {
-    stream_id: usize,
-    proto: Protocols,
-    parent_proto: Protocols,
-    metadata: Vec<Param<'a>>
-}
 
-struct PktStreamMsgData {
+struct PktStreamMsg {
     stream_id: usize,
     dir: ConntrackDirection,
     data: PktDataOwned,
     data_range: Range<usize>,
+    ts: PktTime,
 }
     
-struct PktStreamMsgClose {
-    stream_id: usize,
+pub trait ProtoStreamProcessor {
+    fn new<'a>(parent_proto: Protocols, metadata: &Vec<Param<'a>>) -> Self;
+    fn process(&self,  dir: ConntrackDirection, pkt: PktDataOwned, range: Range<usize>, ts: PktTime);
+
 }
 
-enum PktStreamMsg<'a> {
-    Open(PktStreamMsgOpen<'a>),
-    Data(PktStreamMsgData),
-    Close(PktStreamMsgClose),
+pub enum PktStreamProto {
+    Test(ProtoTest)
 }
 
-pub struct PktStream {}
+pub struct PktStream {
+    processor: PktStreamProto
+}
 
 impl PktStream {
 
@@ -69,68 +67,61 @@ impl PktStream {
 
     pub fn open(proto: Protocols, parent_proto: Protocols) -> usize {
         // Open is synchronous for now
-        let stream_id = STREAMS.write().unwrap().insert(PktStream{});
-        let msg = PktStreamMsgOpen {
-            stream_id: stream_id,
-            proto: proto,
-            parent_proto: parent_proto,
-            metadata: Vec::new(),
-        };
-        PktStream::recv(PktStreamMsg::Open(msg));
+        let stream_id = STREAMS.write().unwrap().insert(PktStream{
+            processor: match proto {
+                #[cfg(test)]
+                Protocols::Test => PktStreamProto::Test(ProtoTest::new(parent_proto, &Vec::new())),
+                _ => panic!("Stream protocol not implemented")
+            }
+        });
         stream_id
     }
 
     #[cfg(not(test))]
-    pub fn send_data_async(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>) {
+    pub fn send_data_async(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>, ts: PktTime) {
         // Send data async
-        let msg = PktStreamMsgData {
+        let msg = PktStreamMsg {
             stream_id: stream_id,
             dir: dir,
             data: data,
             data_range: data_range,
+            ts: ts
         };
-        STREAM_CHANNELS.tx.send(PktStreamMsg::Data(msg)).unwrap();
+        STREAM_CHANNELS.tx.send(msg).unwrap();
 
     }
 
     #[cfg(test)]
     // Send data synchronously when testing
-    pub fn send_data_async(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>) {
-        PktStream::send_data(stream_id, dir, data, data_range)
+    pub fn send_data_async(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>, ts: PktTime) {
+        PktStream::send_data(stream_id, dir, data, data_range, ts)
     }
 
-    pub fn send_data(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>){
+    pub fn send_data(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>, ts: PktTime){
         // Send data synchronously
-        let msg = PktStreamMsgData {
+        let msg = PktStreamMsg      {
             stream_id: stream_id,
             dir: dir,
             data: data,
             data_range: data_range,
+            ts: ts,
         };
-        PktStream::recv(PktStreamMsg::Data(msg));
+        PktStream::recv(msg);
 
     }
 
     pub fn close(stream_id: usize) {
         // Close is synchronous for now
-        let msg = PktStreamMsgClose {
-            stream_id: stream_id,
-        };
-        PktStream::recv(PktStreamMsg::Close(msg));
-        let stream_id = STREAMS.write().unwrap().remove(stream_id);
+        STREAMS.write().unwrap().remove(stream_id);
     }
 
     fn recv(msg: PktStreamMsg) {
-        match msg {
-            PktStreamMsg::Open(open_msg) => {
-                trace!("New stream with id {} proto {:?} and parent_proto {:?}", open_msg.stream_id, open_msg.proto, open_msg.parent_proto);
-            }
-            PktStreamMsg::Data(data_msg) => {
-                trace!("New data for stream {} : {} bytes, {:?}", data_msg.stream_id, data_msg.data_range.len(), data_msg.dir);
-            }
-            PktStreamMsg::Close(close_msg) => {
-                trace!("Stream {} closed", close_msg.stream_id);
-            }
+        trace!("New data for stream {} : {} bytes, {:?}", msg.stream_id, msg.data_range.len(), msg.dir);
+        let stream = STREAMS.read().unwrap();
+        match &stream[msg.stream_id].processor {
+            #[cfg(test)]
+            PktStreamProto::Test(p) => p.process(msg.dir, msg.data, msg.data_range, msg.ts),
+            _ => panic!("Stream protocol not implemented")
         }
     }
 

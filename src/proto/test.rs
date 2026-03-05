@@ -1,8 +1,12 @@
 #![allow(unused)]
 
-use crate::proto::{ProtoPktProcessor, ProtoParseResult};
-use crate::packet::{Packet, PktTime};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
+use crate::stream::ProtoStreamProcessor;
+use crate::packet::{Packet, PktData, PktDataOwned, PktTime};
+use crate::param::Param;
+use crate::conntrack::ConntrackDirection;
 use std::cell::RefCell;
+use std::ops::Range;
 
 pub struct ProtoTest {}
 
@@ -47,6 +51,27 @@ impl ProtoPktProcessor for ProtoTest {
     
 
     fn purge() {}
+
+}
+
+#[cfg(test)]
+impl ProtoStreamProcessor for ProtoTest {
+
+    fn new<'a>(parent_proto: Protocols, metadata: &Vec<Param<'a>>) -> Self {
+        ProtoTest{}
+    }
+
+
+    fn process(&self,  dir: ConntrackDirection, pkt: PktDataOwned, range: Range<usize>, ts: PktTime) {
+        println!("Data: {}", range.len());
+
+        let expect_pkt = TEST_EXPECT.with(|expect| {
+            expect.borrow_mut().remove(0)
+        });
+
+        assert_eq!(expect_pkt.data, pkt.data()[range]);
+        assert_eq!(expect_pkt.ts, ts);
+    }
 
 }
 

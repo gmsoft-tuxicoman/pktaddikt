@@ -68,7 +68,7 @@ impl PktStream {
     }
 
     pub fn open(proto: Protocols, parent_proto: Protocols) -> usize {
-        // Open is syncronous for now
+        // Open is synchronous for now
         let stream_id = STREAMS.write().unwrap().insert(PktStream{});
         let msg = PktStreamMsgOpen {
             stream_id: stream_id,
@@ -80,6 +80,7 @@ impl PktStream {
         stream_id
     }
 
+    #[cfg(not(test))]
     pub fn send_data_async(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>) {
         // Send data async
         let msg = PktStreamMsgData {
@@ -92,8 +93,14 @@ impl PktStream {
 
     }
 
+    #[cfg(test)]
+    // Send data synchronously when testing
+    pub fn send_data_async(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>) {
+        PktStream::send_data(stream_id, dir, data, data_range)
+    }
+
     pub fn send_data(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>){
-        // Send data syncronously
+        // Send data synchronously
         let msg = PktStreamMsgData {
             stream_id: stream_id,
             dir: dir,
@@ -105,7 +112,7 @@ impl PktStream {
     }
 
     pub fn close(stream_id: usize) {
-        // Close is syncronous for now
+        // Close is synchronous for now
         let msg = PktStreamMsgClose {
             stream_id: stream_id,
         };

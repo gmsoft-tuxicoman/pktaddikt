@@ -3,17 +3,17 @@ use crate::proto::Protocols;
 use crate::param::Param;
 use crate::conntrack::ConntrackDirection;
 
-use std::sync::{OnceLock, RwLock};
+use std::sync::{LazyLock, RwLock};
 use slab::Slab;
 use std::ops::Range;
 use crossbeam_channel::unbounded;
 use tracing::trace;
 
 
-static STREAM_CHANNELS: OnceLock<PktStreamChannels<PktStreamMsg>> = OnceLock::new();
+static STREAM_CHANNELS: LazyLock<PktStreamChannels<PktStreamMsg>> = LazyLock::new(|| PktStreamChannels::new());
 
 // FIXME, if nothing is stored in PktStream, maybe an atomic increasing ID would be enough
-static STREAMS: OnceLock<RwLock<Slab<PktStream>>> = OnceLock::new();
+static STREAMS: LazyLock<RwLock<Slab<PktStream>>> = LazyLock::new(|| RwLock::new(Slab::new()));
 
 pub struct PktStreamChannels<T> {
     tx: crossbeam_channel::Sender<T>,
@@ -62,16 +62,14 @@ impl PktStream {
 
 
     pub fn init() {   
-        let chans = STREAM_CHANNELS.get_or_init(|| PktStreamChannels::new());
-        STREAMS.get_or_init(|| RwLock::new(Slab::new()));
 
-        std::thread::spawn(|| PktStream::recv_thread(chans.rx.clone()));
+        std::thread::spawn(|| PktStream::recv_thread(STREAM_CHANNELS.rx.clone()));
         
     }
 
     pub fn open(proto: Protocols, parent_proto: Protocols) -> usize {
         // Open is syncronous for now
-        let stream_id = STREAMS.get().unwrap().write().unwrap().insert(PktStream{});
+        let stream_id = STREAMS.write().unwrap().insert(PktStream{});
         let msg = PktStreamMsgOpen {
             stream_id: stream_id,
             proto: proto,
@@ -84,14 +82,13 @@ impl PktStream {
 
     pub fn send_data_async(stream_id: usize, dir: ConntrackDirection, data: PktDataOwned, data_range: Range<usize>) {
         // Send data async
-        let chans = STREAM_CHANNELS.get().unwrap();
         let msg = PktStreamMsgData {
             stream_id: stream_id,
             dir: dir,
             data: data,
             data_range: data_range,
         };
-        chans.tx.send(PktStreamMsg::Data(msg)).unwrap();
+        STREAM_CHANNELS.tx.send(PktStreamMsg::Data(msg)).unwrap();
 
     }
 
@@ -113,7 +110,7 @@ impl PktStream {
             stream_id: stream_id,
         };
         PktStream::recv(PktStreamMsg::Close(msg));
-        let stream_id = STREAMS.get().unwrap().write().unwrap().remove(stream_id);
+        let stream_id = STREAMS.write().unwrap().remove(stream_id);
     }
 
     fn recv(msg: PktStreamMsg) {

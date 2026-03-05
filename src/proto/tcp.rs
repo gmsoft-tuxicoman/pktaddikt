@@ -129,8 +129,6 @@ impl ProtoProcessor for ProtoTcp {
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(Protocols::Test)) as ConntrackData)
                     .downcast_mut::<ConntrackTcp>().unwrap();
 
-        println!("ce {:p}, cd {:p}", &ce, &cd);
-
         cd.process_packet(dir, seq, ack, flags, pkt);
 
 

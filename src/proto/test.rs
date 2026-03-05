@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::proto::{ProtoProcessor, ProtoParseResult};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult};
 use crate::packet::{Packet, PktTime};
 use std::cell::RefCell;
 
@@ -17,7 +17,7 @@ thread_local! {
 }
 
 #[cfg(not(test))]
-impl ProtoProcessor for ProtoTest {
+impl ProtoPktProcessor for ProtoTest {
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {
         return ProtoParseResult::Invalid;
@@ -28,7 +28,7 @@ impl ProtoProcessor for ProtoTest {
 }
 
 #[cfg(test)]
-impl ProtoProcessor for ProtoTest {
+impl ProtoPktProcessor for ProtoTest {
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {
 
@@ -69,3 +69,4 @@ impl ProtoTest {
         });
     }
 }
+

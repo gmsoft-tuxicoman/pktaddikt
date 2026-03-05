@@ -1,10 +1,10 @@
-use crate::proto::{ProtoProcessor, Protocols, ProtoParseResult};
+use crate::proto::{ProtoPktProcessor, Protocols, ProtoParseResult};
 use crate::param::{Param, ParamValue};
 use crate::packet::Packet;
 
 pub struct ProtoEthernet {}
 
-impl ProtoProcessor for ProtoEthernet {
+impl ProtoPktProcessor for ProtoEthernet {
 
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {

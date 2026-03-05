@@ -12,6 +12,7 @@ tracing = "0.1"
 rangemap = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 slab = "0.4"
+crossbeam-channel = "0.5"
 
 [dev-dependencies]
 tracing-test = "0.1"

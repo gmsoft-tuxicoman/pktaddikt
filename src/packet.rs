@@ -133,6 +133,11 @@ impl<'a> Packet<'a> {
         Some(bytes)
 
     }
+
+    pub fn clone_data(&self) -> (PktDataOwned, Range<usize>) {
+
+        (self.data.copy_or_clone(), self.data_range.clone())
+    }
 }
 
 // Data of a packet

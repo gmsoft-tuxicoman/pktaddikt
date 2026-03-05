@@ -1,7 +1,11 @@
+mod seq;
+mod conntrack;
+
 use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
-use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
+use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::Packet;
+use crate::proto::tcp::conntrack::ConntrackTcp;
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -23,6 +27,25 @@ const TCP_TH_ACK: u8 = 0x10;
 
 pub struct ProtoTcp {}
 
+enum TcpState {
+    New,
+    SynSent,
+    SynRecv,
+    Established,
+    HalfClosed,
+    Closed
+}
+
+
+impl ProtoTcp {
+    fn next_proto(port: u16) -> Protocols {
+        match port {
+            0 => Protocols::Test,
+            _ => Protocols::None
+        }
+    }
+
+}
 
 impl ProtoProcessor for ProtoTcp {
 
@@ -89,18 +112,29 @@ impl ProtoProcessor for ProtoTcp {
 
 
         let ct_key = ConntrackKeyTcp { a: sport, b: dport };
-        let ce = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(TCP_TIMEOUT), pkt.ts)));
+        let (ce, dir) = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(TCP_TIMEOUT), pkt.ts)));
 
         // WIP, needs to be improved
-        let next_proto = match dport {
-            0 => Protocols::Test,
-            _ => Protocols::None
+        let next_proto = match ProtoTcp::next_proto(dport) {
+            Protocols::None => ProtoTcp::next_proto(sport),
+            proto => proto
         };
 
-        pkt.stack_push(next_proto, Some(ce));
+        pkt.stack_push(next_proto, Some(ce.clone()));
+
+        // FIXME later when we have layer 5+ protocols, don't bother processing packets with
+        // unknown protocol
+
+        let mut ce_locked = ce.lock().unwrap();
+        let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(Protocols::Test)) as ConntrackData)
+                    .downcast_mut::<ConntrackTcp>().unwrap();
+
+        println!("ce {:p}, cd {:p}", &ce, &cd);
+
+        cd.process_packet(dir, seq, ack, flags, pkt);
 
 
-        ProtoParseResult::Ok
+        ProtoParseResult::Stop
 
     }
 
@@ -110,8 +144,8 @@ impl ProtoProcessor for ProtoTcp {
         }
     }
 
-}
 
+}
 
 #[cfg(test)]
 mod tests {
@@ -137,7 +171,7 @@ mod tests {
         let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
 
         let ret = ProtoTcp::process(&mut pkt);
-        assert_eq!(ret, ProtoParseResult::Ok);
+        assert_eq!(ret, ProtoParseResult::Stop);
 
         let info = pkt.iter_stack().next().unwrap();
         let mut field_iter = info.iter_fields();
@@ -193,7 +227,7 @@ mod tests {
         let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
 
         let ret = ProtoTcp::process(&mut pkt);
-        assert_eq!(ret, ProtoParseResult::Ok);
+        assert_eq!(ret, ProtoParseResult::Stop);
         assert_eq!(pkt.stack_last().proto, Protocols::Test);
 
         ProtoTest::process(&mut pkt);

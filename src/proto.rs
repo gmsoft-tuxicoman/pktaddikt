@@ -36,7 +36,7 @@ pub enum ProtoParseResult {
     None
 }
 
-pub trait ProtoProcessor {
+pub trait ProtoPktProcessor {
     fn process(pkt: &mut Packet) -> ProtoParseResult;
     fn purge();
 }

@@ -1,4 +1,4 @@
-use crate::proto::{Proto, ProtoProcessor, ProtoParseResult, Protocols};
+use crate::proto::{Proto, ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackTimer, ConntrackRef};
 use crate::packet::{Packet, PktDataMultipart};
@@ -45,7 +45,7 @@ impl ProtoIpv4 {
     }
 }
 
-impl ProtoProcessor for ProtoIpv4 {
+impl ProtoPktProcessor for ProtoIpv4 {
 
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {

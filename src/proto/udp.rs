@@ -1,4 +1,4 @@
-use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::packet::Packet;
@@ -17,7 +17,7 @@ static CT_UDP: OnceLock<ConntrackTable<ConntrackKeyUdp>> = OnceLock::new();
 pub struct ProtoUdp {}
 
 
-impl ProtoProcessor for ProtoUdp {
+impl ProtoPktProcessor for ProtoUdp {
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {
 

@@ -1,4 +1,4 @@
-use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::packet::Packet;
@@ -19,7 +19,7 @@ static CT_IPV6: OnceLock<ConntrackTable<ConntrackKeyIpv6>> = OnceLock::new();
 
 const IPV6_TIMEOUT :u64 = 7200;
 
-impl ProtoProcessor for ProtoIpv6 {
+impl ProtoPktProcessor for ProtoIpv6 {
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {
 

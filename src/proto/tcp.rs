@@ -1,7 +1,7 @@
 mod seq;
 mod conntrack;
 
-use crate::proto::{ProtoProcessor, ProtoParseResult, Protocols};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::Packet;
@@ -47,7 +47,7 @@ impl ProtoTcp {
 
 }
 
-impl ProtoProcessor for ProtoTcp {
+impl ProtoPktProcessor for ProtoTcp {
 
     fn process(pkt: &mut Packet) -> ProtoParseResult {
 

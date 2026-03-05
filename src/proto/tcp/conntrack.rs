@@ -129,12 +129,13 @@ impl ConntrackTcp {
 
                 match self.get_queue(op_dir).start_seq {
                     Some(start_seq) => if start_seq != ack {
-                        debug!("Most definitely a reused TCP connection {:p} in direction {:?}: old seq {:?}, new seq {:?}", &self, dir, start_seq, ack);
+                        debug!("Most definitely a reused TCP connection {:p} in direction {:?}: old seq {:?}, new seq {:?}", &self, op_dir, start_seq, ack);
                     },
                     None => {
-                        let queue = self.get_queue_mut(dir);
+                        let queue = self.get_queue_mut(op_dir);
                         queue.start_seq = Some(ack);
-                        trace!("TCP connection {:p}: start seq {:?} from SYN+ACK in direction {:?}", &self, seq, dir);
+                        queue.cur_seq = Some(seq); // Reverse direction is confirmed
+                        trace!("TCP connection {:p}: start seq {:?} from SYN+ACK in direction {:?}", &self, seq, op_dir);
                     }
                 }
             }
@@ -241,7 +242,6 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
     fn conntrack_tcp_basic() {
 
         ProtoTest::add_expectation(&[ 0 ], 0);
@@ -255,6 +255,36 @@ mod tests {
 
         ProtoTest::assert_empty();
 
+    }
+
+    #[test]
+    fn conntrack_tcp_missed_syn() {
+
+        ProtoTest::add_expectation(&[ 0 ], 0);
+
+        let mut ct = ConntrackTcp::new(Protocols::Test);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
+
+        ProtoTest::assert_empty();
+
+    }
+
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_out_of_order_one_direction() {
+
+        ProtoTest::add_expectation(&[ 0 ], 0);
+        ProtoTest::add_expectation(&[ 1 ], 0);
+
+        let mut ct = ConntrackTcp::new(Protocols::Test);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 2, 1, 0, &[ 1 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
+
+        ProtoTest::assert_empty();
     }
 
 }

@@ -37,7 +37,7 @@ impl ProtoIpv4 {
     fn frag_cleanup(ce: ConntrackRef, frag_id: u16) {
         let mut ce_locked = ce.lock().unwrap();
 
-        let cd = ce_locked.get_or_insert(Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
+        let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
                     .downcast_mut::<ConntrackIpv4>()
                     .unwrap();
         debug!("Fragment cleaned up with conntrack {:p} and id {}", Arc::as_ptr(&ce), frag_id);
@@ -114,7 +114,7 @@ impl ProtoProcessor for ProtoIpv4 {
 
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let ce = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(IP_TIMEOUT), pkt.ts)));
+        let (ce, _) = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(IP_TIMEOUT), pkt.ts)));
 
         let next_proto = match proto {
             4 => Protocols::Ipv4,
@@ -151,7 +151,7 @@ impl ProtoProcessor for ProtoIpv4 {
 
         let mut ce_locked = ce.lock().unwrap();
 
-        let cd = ce_locked.get_or_insert(Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
+        let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
                     .downcast_mut::<ConntrackIpv4>()
                     .unwrap();
 

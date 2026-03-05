@@ -5,6 +5,7 @@ use std::env;
 
 use crate::packet::{Packet, PktTime, PktDataBorrowed};
 use crate::proto::{Proto, Protocols};
+use crate::stream::PktStream;
 
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
@@ -13,6 +14,7 @@ pub mod conntrack;
 pub mod param;
 pub mod packet;
 pub mod timer;
+pub mod stream;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
@@ -46,6 +48,10 @@ fn main() {
 
     tracing::subscriber::set_global_default(subscriber)
             .expect("Failed to set global subscriber");
+
+
+    // Do the init
+    PktStream::init();
 
 
     let filename = match matches.opt_str("r") {

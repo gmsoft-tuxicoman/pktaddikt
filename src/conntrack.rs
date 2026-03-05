@@ -12,6 +12,22 @@ pub type ConntrackRef = Arc<Mutex<Conntrack>>;
 pub type ConntrackWeakRef = Weak<Mutex<Conntrack>>;
 pub type ConntrackTimerCb = Arc<dyn Fn(ConntrackRef) + Send + Sync>;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ConntrackDirection {
+    Forward,
+    Reverse
+}
+
+impl ConntrackDirection {
+
+    pub fn opposite(&self) -> Self {
+        match self {
+            ConntrackDirection::Forward => ConntrackDirection::Reverse,
+            ConntrackDirection::Reverse => ConntrackDirection::Forward
+        }
+    }
+}
+
 pub trait ConntrackKey {
     fn key(&self) -> u64;
     fn fwd_eq(&self, other: &Self) -> bool;
@@ -83,8 +99,11 @@ impl Conntrack {
 
     }
 
-    pub fn get_or_insert(&mut self, value: ConntrackData) -> &mut ConntrackData {
-        self.data.get_or_insert(value)
+    pub fn get_or_insert_with<F>(&mut self, f: F) -> &mut ConntrackData
+    where
+        F: FnOnce() -> ConntrackData,
+    {
+        self.data.get_or_insert_with(f)
     }
 
 }
@@ -115,7 +134,7 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
     }
 
     //#[tracing::instrument(skip(self))]
-    pub fn get(&'static self, key: K, parent: Option<ConntrackWeakRef>, timeout: Option<(Duration, PktTime)>) -> ConntrackRef {
+    pub fn get(&'static self, key: K, parent: Option<ConntrackWeakRef>, timeout: Option<(Duration, PktTime)>) -> (ConntrackRef, ConntrackDirection) {
 
         // You need either a parent or a timeout
         assert!(parent.is_some() || timeout.is_some());
@@ -129,6 +148,8 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
         let mut ct_list = self.entries[ct_index].lock().unwrap();
 
         let mut found: Option<&mut ConntrackEntry<K>> = None;
+
+        let mut direction = ConntrackDirection::Forward;
 
         for ct_entry in ct_list.iter_mut() { // Try to find the exact conntrack in the ConntrackList
 
@@ -161,6 +182,7 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
                 // Conntrack found, reverse direction
                 debug!("Conntrack found in reverse direction");
                 found = Some(ct_entry);
+                direction = ConntrackDirection::Reverse;
                 break;
             };
 
@@ -184,7 +206,7 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
 
             };
 
-            return entry.ce.clone();
+            return (entry.ce.clone(), direction);
 
         }
 
@@ -212,7 +234,7 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
             }
         }
 
-        ce
+        (ce, ConntrackDirection::Forward)
     }
 
     fn remove(&self, ct_index: usize, id: ConntrackId) {
@@ -311,7 +333,7 @@ mod tests {
 
         let ct_key = ConntrackKeyTest{ a: 1, b: 2};
         let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
-        let ce = ct.get(ct_key, None, Some((Duration::from_secs(1), 1)));
+        let (ce, _) = ct.get(ct_key, None, Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 1);
 
         // Cannot call remove_cb while locked
@@ -333,7 +355,7 @@ mod tests {
 
         let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
 
-        let parent = ct.get(ct_key, None, Some((Duration::from_secs(1), 1)));
+        let (parent, _) = ct.get(ct_key, None, Some((Duration::from_secs(1), 1)));
         ct.get(ct_key, Some(Arc::downgrade(&parent)), Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 2);
 
@@ -355,9 +377,9 @@ mod tests {
 
         let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
 
-        let ce_fwd = ct.get(ct_key_fwd, None, Some((Duration::from_secs(1), 1)));
+        let (ce_fwd, _) = ct.get(ct_key_fwd, None, Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 1);
-        let ce_rev = ct.get(ct_key_rev, None, Some((Duration::from_secs(1), 1)));
+        let (ce_rev, _) = ct.get(ct_key_rev, None, Some((Duration::from_secs(1), 1)));
         assert_eq!(ct_len(&ct), 1);
 
         assert_eq!(Arc::as_ptr(&ce_fwd), Arc::as_ptr(&ce_rev));

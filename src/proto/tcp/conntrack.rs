@@ -78,7 +78,7 @@ impl ConntrackTcp {
         let queue = self.get_queue_mut(dir);
         *queue.cur_seq.as_mut().unwrap() += pkt.data_range.len() as u32;
         debug!("Sending packet with ts {}, seq {:?} and ack {:?}", pkt.ts, pkt.seq, pkt.ack);
-        PktStream::send_data_async(self.stream_id, dir, pkt.data, pkt.data_range);
+        PktStream::send_data_async(self.stream_id, dir, pkt.data, pkt.data_range, pkt.ts);
     }
 
     fn queue_packet(&mut self, dir: ConntrackDirection, seq: TcpSeq, ack: TcpSeq, flags: u8, pkt: &mut Packet) {
@@ -228,6 +228,7 @@ impl Drop for ConntrackTcp {
 mod tests {
 
     use super::*;
+    use crate::proto::ProtoTest;
     use tracing_test::traced_test;
 
 
@@ -242,12 +243,17 @@ mod tests {
     #[test]
     #[traced_test]
     fn conntrack_tcp_basic() {
+
+        ProtoTest::add_expectation(&[ 0 ], 0);
+
         let mut ct = ConntrackTcp::new(Protocols::Test);
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
+
+        ProtoTest::assert_empty();
 
     }
 

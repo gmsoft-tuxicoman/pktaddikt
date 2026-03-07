@@ -32,7 +32,6 @@ pub struct ConntrackTcp {
 
     forward: ConntrackTcpQueue,
     reverse: ConntrackTcpQueue,
-    buff_size: usize, // Current amount of data in both forward and reverse queues
     stream_id: usize
 }
 
@@ -51,7 +50,6 @@ impl ConntrackTcp {
                 cur_seq: None,
                 pkts: BTreeMap::new()
             },
-            buff_size: 0,
             stream_id: PktStream::open(proto, Protocols::Tcp)
         };
         ct
@@ -83,10 +81,10 @@ impl ConntrackTcp {
 
     fn queue_packet(&mut self, dir: ConntrackDirection, seq: TcpSeq, ack: TcpSeq, flags: u8, pkt: &mut Packet) {
 
+        let queue = self.get_queue_mut(dir);
         let (data, data_range) = pkt.clone_data();
-        self.buff_size += data.data().len();
-        // FIXME what if there is already a packet at that position ????
-        self.get_queue_mut(dir).pkts.insert(seq, TcpPacket {
+        let new_size = data_range.len();
+        let old_pkt_opt = queue.pkts.insert(seq, TcpPacket {
             seq: seq,
             ack: ack,
             ts: pkt.ts,
@@ -94,6 +92,14 @@ impl ConntrackTcp {
             data: data,
             data_range: data_range
         });
+
+        if let Some(old_pkt) = old_pkt_opt {
+            if old_pkt.data_range.len() > new_size {
+                // Another packet with the same sequence but bigger was already present
+                // Put it back in the queue
+                queue.pkts.insert(seq, old_pkt);
+            }
+        }
     }
 
     pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, pkt: &mut Packet) {
@@ -203,6 +209,7 @@ impl ConntrackTcp {
             // The host processed some data in the reverse direction which we haven't processed yet
             trace!("TCP connection {:p}: reverse missing: cur_ack {:?}, pkt_ack {:?}", &self, cur_ack, ack);
             self.queue_packet(dir, seq, ack, flags, pkt);
+            return;
         }
 
         // Packet is ready to be sent !
@@ -221,17 +228,29 @@ impl ConntrackTcp {
 
     fn process_more_packets(&mut self) {
 
-        for dir in [ ConntrackDirection::Forward, ConntrackDirection::Reverse ] {
-            let queue = match dir {
-                ConntrackDirection::Forward => &mut self.forward,
-                ConntrackDirection::Reverse => &mut self.reverse,
+
+        let mut tries = 2; // Try once in each direction
+        let mut next_dir = ConntrackDirection::Forward;
+        while tries > 0 {
+
+            tries -= 1;
+            let dir = next_dir;
+            next_dir = next_dir.opposite();
+
+
+            let (queue, queue_op) = match dir {
+                ConntrackDirection::Forward => (&mut self.forward, &mut self.reverse),
+                ConntrackDirection::Reverse => (&mut self.reverse, &mut self.forward),
             };
             while let Some(mut entry) = queue.pkts.first_entry() {
                 let cur_seq = queue.cur_seq.unwrap();
+                let cur_ack = queue_op.cur_seq.unwrap();
                 let pkt = entry.get_mut();
 
-                if pkt.seq + (pkt.data_range.len() as u32) <= cur_seq {
+                let end_seq = pkt.seq + (pkt.data_range.len() as u32);
+                if end_seq <= cur_seq {
                     // Duplicate
+                    //trace!("TCP connection {:p}: gap: cur_seq {:?}, pkt_seq {:?}", &self, cur_seq, pkt.seq);
                     entry.remove();
                     continue;
                 }
@@ -246,6 +265,13 @@ impl ConntrackTcp {
 
                 if pkt.seq != cur_seq {
                     // Not the expected sequence
+                    //trace!("TCP connection {:p}: gap: cur_seq {:?}, pkt_seq {:?}", &self, cur_seq, pkt.seq);
+                    break;
+                }
+
+                if cur_ack < pkt.ack {
+                    // The host processed some data in the reverse direction which we haven't processed yet
+                    //trace!("TCP connection {:p}: reverse missing: cur_ack {:?}, pkt_ack {:?}", &self, cur_ack, pkt.ack);
                     break;
                 }
 
@@ -256,6 +282,7 @@ impl ConntrackTcp {
                 debug!("Sending additional packet with ts {}, seq {:?} and ack {:?}", pkt.ts, pkt.seq, pkt.ack);
                 PktStream::send_data_async(self.stream_id, dir, pkt.data, pkt.data_range, pkt.ts);
 
+                tries = 2; // We unblocked some packets, let's keep trying in both directions
             }
 
         }
@@ -340,8 +367,8 @@ mod tests {
         ProtoTest::add_expectation(&[ 1 ], 0);
         ProtoTest::add_expectation(&[ 2 ], 0);
         ProtoTest::add_expectation(&[ 3 ], 0);
-        ProtoTest::add_expectation(&[ 4 ], 0);
-        ProtoTest::add_expectation(&[ 5 ], 0);
+        ProtoTest::add_expectation(&[ 4, 5 ], 0); // Bigger dupe has precedence
+        ProtoTest::add_expectation(&[ 6 ], 0);
 
         let mut ct = ConntrackTcp::new(Protocols::Test);
         // Normal 3 way handshake
@@ -354,7 +381,9 @@ mod tests {
 
         queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 1, 0, &[ 4 ]); // Out of oder
         queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 1, 0, &[ 4 ]); // Dupe
-        queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 1, 0, &[ 4, 5 ]); // Needs trimming
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 1, 0, &[ 4, 5 ]); // Should replace the smalle dupes
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 1, 0, &[ 4 ]); // Dupe
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 5, 1, 0, &[ 5, 6 ]); // Needs trimming
         queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 1, 0, &[ 3 ]); //  Missing packet
 
 
@@ -362,4 +391,39 @@ mod tests {
 
     }
 
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_reverse_missing() {
+
+        ProtoTest::add_expectation(&[ 1 ], 0);
+        ProtoTest::add_expectation(&[ 11 ], 0);
+        ProtoTest::add_expectation(&[ 2 ], 0);
+        ProtoTest::add_expectation(&[ 3 ], 0);
+        ProtoTest::add_expectation(&[ 4 ], 0);
+        ProtoTest::add_expectation(&[ 5 ], 0);
+        ProtoTest::add_expectation(&[ 12 ], 0);
+        ProtoTest::add_expectation(&[ 6 ], 0);
+        ProtoTest::add_expectation(&[ 7 ], 0);
+
+        let mut ct = ConntrackTcp::new(Protocols::Test);
+        // Normal 3 way handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
+
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, 0, &[ 1 ]); // First data packet
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 2, 12, 0, &[ 2 ]); // Needs to wait for packet with seq 11 in reverse dir
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 11, 1, 0, &[ 11 ]); // The awaited packet
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 12, 0, &[ 3 ]); // Some more data
+
+
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 5, 12, 0, &[ 5 ]); // Create a gap to queue packets
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 6, 13, 0, &[ 6 ]); // Needs to wait for seq 13
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 5, 0, &[ 12 ]); // Our awaited ack
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 7, 13, 0, &[ 7 ]); // One more queued packet
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 12, 0, &[ 4 ]); // Our awaited packet !
+
+        ProtoTest::assert_empty();
+
+    }
 }

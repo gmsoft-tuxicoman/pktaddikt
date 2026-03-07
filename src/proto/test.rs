@@ -63,7 +63,7 @@ impl ProtoStreamProcessor for ProtoTest {
 
 
     fn process(&self,  dir: ConntrackDirection, pkt: PktDataOwned, range: Range<usize>, ts: PktTime) {
-        println!("Data: {}", range.len());
+        println!("Data: {:x?}, (len: {})", pkt.data(), range.len());
 
         let expect_pkt = TEST_EXPECT.with(|expect| {
             expect.borrow_mut().remove(0)

@@ -85,6 +85,7 @@ impl ConntrackTcp {
 
         let (data, data_range) = pkt.clone_data();
         self.buff_size += data.data().len();
+        // FIXME what if there is already a packet at that position ????
         self.get_queue_mut(dir).pkts.insert(seq, TcpPacket {
             seq: seq,
             ack: ack,
@@ -169,13 +170,13 @@ impl ConntrackTcp {
 
 
         let cur_seq = self.get_queue(dir).cur_seq.unwrap();
-        let end_seq = cur_seq + pkt.remaining_len() as u32;
+        let end_seq = seq + pkt.remaining_len() as u32;
         let cur_ack = self.get_queue(op_dir).cur_seq.unwrap();
 
 
         // Let's see if we can process it
 
-        if end_seq < cur_seq {
+        if end_seq <= cur_seq {
             // Old dupe packet, the whole payload is before the sequence we expected
             return;
         }
@@ -214,7 +215,53 @@ impl ConntrackTcp {
             data: data,
             data_range: data_range
         });
+
+        self.process_more_packets();
     }
+
+    fn process_more_packets(&mut self) {
+
+        for dir in [ ConntrackDirection::Forward, ConntrackDirection::Reverse ] {
+            let queue = match dir {
+                ConntrackDirection::Forward => &mut self.forward,
+                ConntrackDirection::Reverse => &mut self.reverse,
+            };
+            while let Some(mut entry) = queue.pkts.first_entry() {
+                let cur_seq = queue.cur_seq.unwrap();
+                let pkt = entry.get_mut();
+
+                if pkt.seq + (pkt.data_range.len() as u32) <= cur_seq {
+                    // Duplicate
+                    entry.remove();
+                    continue;
+                }
+
+                if pkt.seq < cur_seq {
+                    // Trim data
+                    let dupe: usize = (cur_seq - pkt.seq).into();
+                    pkt.data_range.start += dupe;
+                    pkt.seq += dupe as u32;
+
+                }
+
+                if pkt.seq != cur_seq {
+                    // Not the expected sequence
+                    break;
+                }
+
+                // Remove this packet from the list
+                let pkt = entry.remove();
+
+                *queue.cur_seq.as_mut().unwrap() += pkt.data_range.len() as u32;
+                debug!("Sending additional packet with ts {}, seq {:?} and ack {:?}", pkt.ts, pkt.seq, pkt.ack);
+                PktStream::send_data_async(self.stream_id, dir, pkt.data, pkt.data_range, pkt.ts);
+
+            }
+
+        }
+
+    }
+
 }
 
 impl Drop for ConntrackTcp {
@@ -271,7 +318,6 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
     fn conntrack_tcp_out_of_order_one_direction() {
 
         ProtoTest::add_expectation(&[ 0 ], 0);
@@ -285,6 +331,35 @@ mod tests {
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
 
         ProtoTest::assert_empty();
+    }
+
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_complex() {
+
+        ProtoTest::add_expectation(&[ 1 ], 0);
+        ProtoTest::add_expectation(&[ 2 ], 0);
+        ProtoTest::add_expectation(&[ 3 ], 0);
+        ProtoTest::add_expectation(&[ 4 ], 0);
+        ProtoTest::add_expectation(&[ 5 ], 0);
+
+        let mut ct = ConntrackTcp::new(Protocols::Test);
+        // Normal 3 way handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 1 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 1 ]); // Dupe
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 1, 2 ]); // Needs trimming
+
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 1, 0, &[ 4 ]); // Out of oder
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 1, 0, &[ 4 ]); // Dupe
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 1, 0, &[ 4, 5 ]); // Needs trimming
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 1, 0, &[ 3 ]); //  Missing packet
+
+
+        ProtoTest::assert_empty();
+
     }
 
 }

@@ -201,6 +201,39 @@ impl PktData for PktDataOwned {
     }
 }
 
+// A packet filled with 0
+pub static PKT_ZERO_MAX_LEN :usize = 4096;
+static PKT_ZERO: [u8; PKT_ZERO_MAX_LEN] = [0; PKT_ZERO_MAX_LEN];
+pub struct PktDataZero {
+    len: usize,
+}
+
+impl PktDataZero {
+
+    pub fn new(len: usize) -> Self {
+        assert!(len <= PKT_ZERO_MAX_LEN, "PktDataZero supports packets up to {} bytes only", PKT_ZERO_MAX_LEN);
+        PktDataZero {
+            len: len
+        }
+    }
+
+    pub fn max_len() -> usize {
+        PKT_ZERO_MAX_LEN
+    }
+}
+
+impl PktData for PktDataZero {
+
+    fn data(&self) -> &[u8] {
+        &PKT_ZERO[..self.len]
+    }
+
+    fn copy_or_clone(&self) -> PktDataOwned {
+        PktDataOwned::new(self.data())
+    }
+
+}
+
 // A packet created by multiple fragments
 pub struct PktDataMultipart {
     data: Arc<Vec<u8>>, // Concatenated data

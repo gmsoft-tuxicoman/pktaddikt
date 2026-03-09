@@ -2,7 +2,7 @@
 use crate::conntrack::ConntrackDirection;
 use crate::proto::tcp::{TCP_TH_SYN, TCP_TH_ACK};
 use crate::proto::tcp::seq::TcpSeq;
-use crate::packet::{Packet, PktData, PktTime, PktDataOwned};
+use crate::packet::{Packet, PktData, PktTime, PktDataOwned, PktDataZero};
 use crate::stream::PktStream;
 use crate::proto::Protocols;
 
@@ -289,6 +289,80 @@ impl ConntrackTcp {
 
     }
 
+    fn force_dequeue(&mut self) {
+
+        if self.forward.pkts.len() == 0 && self.reverse.pkts.len() == 0 {
+            // Nothing to do
+            return;
+        }
+
+        // Find out which direction has a gap
+        let mut gap_fwd: usize = 0;
+        let mut gap_rev: usize = 0;
+        let mut ts_fwd: Option<PktTime> = None;
+        let mut ts_rev: Option<PktTime> = None;
+
+        let mut dir = ConntrackDirection::Forward;
+
+        // Check if we have a gap in the forward direction
+        if let Some(entry) = self.forward.pkts.first_entry() {
+            if let Some(cur_seq) = self.forward.cur_seq {
+                let pkt = entry.get();
+                ts_fwd = Some(pkt.ts);
+                gap_fwd = usize::from(pkt.seq - cur_seq)
+            }
+        }
+
+        // Check if we have a gap in the reverse direction
+        if let Some(entry) = self.reverse.pkts.first_entry() {
+            if let Some(cur_seq) = self.reverse.cur_seq {
+                let pkt = entry.get();
+                ts_rev = Some(pkt.ts);
+                gap_rev = usize::from(pkt.seq - cur_seq);
+                if gap_rev > 0 {
+                    dir = ConntrackDirection::Reverse;
+                }
+            }
+        }
+
+        // We have gap in both, use the first packet we received
+        if gap_fwd > 0 && gap_rev > 0 {
+            dir = match ts_fwd < ts_rev {
+                true => ConntrackDirection::Forward,
+                false => ConntrackDirection::Reverse,
+            }
+        }
+
+        let (mut gap, ts) = match dir {
+            ConntrackDirection::Forward => (gap_fwd, ts_fwd.unwrap()),
+            ConntrackDirection::Reverse => (gap_rev, ts_rev.unwrap())
+        };
+
+        while gap > 0 {
+            let filler_len = match gap > PktDataZero::max_len() {
+                true => PktDataZero::max_len(),
+                false => gap,
+
+            };
+
+            let data = PktDataZero::new(filler_len);
+
+            self.send_packet(dir, TcpPacket{
+                seq: TcpSeq(0),
+                ack: TcpSeq(0),
+                ts: ts,
+                flags: 0,
+                data: data.copy_or_clone(),
+                data_range: 0..filler_len
+            });
+
+            gap -= filler_len;
+        }
+
+        // Gap was filled. process some more
+        self.process_more_packets();
+    }
+
 }
 
 impl Drop for ConntrackTcp {
@@ -426,4 +500,29 @@ mod tests {
         ProtoTest::assert_empty();
 
     }
+
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_gap() {
+
+        ProtoTest::add_expectation(&[ 1 ], 0);
+        ProtoTest::add_expectation(&[ 0 ], 0); // Gap filled for missing packet
+        ProtoTest::add_expectation(&[ 3 ], 0);
+
+        let mut ct = ConntrackTcp::new(Protocols::Test);
+        // Normal 3 way handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, TCP_TH_ACK, &[]);
+
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 1 ]); // First data packet
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 1, 0, &[ 3 ]); // Data packet with a missing byte
+
+        // Fill the gap
+        ct.force_dequeue();
+
+        ProtoTest::assert_empty();
+    }
+
 }
+

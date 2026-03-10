@@ -357,6 +357,12 @@ impl ConntrackTcp {
 impl Drop for ConntrackTcp {
 
     fn drop(&mut self) {
+
+        // Make sure all the packets get processed
+        while self.forward.pkts.len() > 0 || self.reverse.pkts.len() > 0 {
+            self.force_dequeue();
+        }
+
         PktStream::close(self.stream_id);
     }
 

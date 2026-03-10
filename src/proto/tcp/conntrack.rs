@@ -144,7 +144,7 @@ impl ConntrackTcp {
             // Check if we have the ACK right after the SYN in case we have a uni directional
             // capture
             if self.get_queue(op_dir).start_seq.is_none() && (flags & TCP_TH_ACK) != 0 && self.get_queue(dir).start_seq == Some(seq) {
-                let op_queue = self.get_queue_mut(op_dir).start_seq = Some(ack);
+                self.get_queue_mut(op_dir).start_seq = Some(ack);
                 trace!("TCP connection {:p}: start seq {:?} from ACK after SYN", &self, seq);
             }
         }

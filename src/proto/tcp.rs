@@ -66,6 +66,13 @@ impl ProtoPktProcessor for ProtoTcp {
         let window: u16 = (hdr[14] as u16) << 8 | (hdr[15] as u16);
         let flags: u8 = hdr[13];
 
+        // Check if flags are somewhat valid
+        let f_syn_fin_rst = flags & (TCP_TH_SYN | TCP_TH_FIN | TCP_TH_RST);
+        if f_syn_fin_rst.count_ones() > 1 {
+            trace!("More than one SYN/FIN/RST at the same time in packet {:p}", pkt);
+            return ProtoParseResult::Invalid;
+        }
+
         let hdr_len = ((hdr[12] & 0xf0) >> 2) as usize;
 
         if hdr_len < 20 {
@@ -242,6 +249,15 @@ mod tests {
         let ret = tcp_parse_test(&data);
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("SYN segment contains data"));
+    }
+
+    #[test]
+    #[traced_test]
+    fn tcp_packet_invalid_flags() {
+        let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x07, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
+        let ret = tcp_parse_test(&data);
+        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert!(logs_contain("More than one SYN/FIN/RST at the same time"));
     }
 
 }

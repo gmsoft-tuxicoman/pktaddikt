@@ -1,7 +1,7 @@
 use crate::proto::{Proto, ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackTimer, ConntrackRef};
-use crate::packet::{Packet, PktDataMultipart, PktInfoStack};
+use crate::packet::{Packet, PktDataType, PktDataMultipart, PktInfoStack};
 
 use std::sync::{OnceLock, Arc};
 use std::net::Ipv4Addr;
@@ -165,7 +165,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
             .or_insert_with( || {
                     debug!("Fragment created with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
                     Ipv4Fragment {
-                        pkt: Some(PktDataMultipart::new(1500)),
+                        pkt: Some(PktDataMultipart::new_raw(1500)),
                         timer: ConntrackTimer::new(&ce, Duration::from_secs(IPV4_FRAG_TIMEOUT), pkt.ts, Arc::new(move |x| ProtoIpv4::frag_cleanup(x, id))),
                     }
                 }
@@ -186,11 +186,10 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         if frags_pkt.is_complete() {
             // Process the reassembled packet
-            let mut reassembled_pkt = Packet::new(pkt.ts, frags_pkt);
+            let mut reassembled_pkt = Packet::new(pkt.ts, PktDataType::Multipart(frags.pkt.take().unwrap()));
 
             Proto::process_packet(&mut reassembled_pkt, infos);
 
-            frags.pkt = None;
         }
 
         ProtoParseResult::Stop
@@ -216,8 +215,8 @@ mod tests {
     use tracing_test::traced_test;
 
     fn ipv4_parse_test(data: &[u8], ts: PktTime) -> ProtoParseResult {
-        let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(ts, &mut pkt_data);
+        let pkt_data = PktDataBorrowed::new(&data);
+        let mut pkt = Packet::new(ts, pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
         ProtoIpv4::process(&mut pkt, &mut infos)
@@ -226,8 +225,8 @@ mod tests {
     #[test]
     fn ipv4_parse_basic() {
         let data = vec![ 0x45, 0x00, 0x00, 0x16, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40, 0xde, 0xad ];
-        let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, &mut pkt_data);
+        let pkt_data = PktDataBorrowed::new(&data);
+        let mut pkt = Packet::new(0, pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
         let ret = ProtoIpv4::process(&mut pkt, &mut infos);
@@ -298,8 +297,8 @@ mod tests {
     #[test]
     fn ipv4_pkt_shrink() {
         let data = vec![ 0x45, 0x00, 0x00, 0x15, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0xff, 0xff ];
-        let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, &mut pkt_data);
+        let pkt_data = PktDataBorrowed::new(&data);
+        let mut pkt = Packet::new(0, pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
         let ret = ProtoIpv4::process(&mut pkt, &mut infos);

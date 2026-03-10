@@ -94,18 +94,16 @@ impl ProtoPktProcessor for ProtoTcp {
             }
         }
 
-        let mut data_len = plen - hdr_len;
-        if ((flags & TCP_TH_SYN) != 0) && data_len > 0 {
+        if ((flags & TCP_TH_SYN) != 0) && pkt.remaining_len() > 0 {
             // No payload allowed in SYN packets
             trace!("SYN segment contains data in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
-        if ((flags & TCP_TH_RST) != 0) && data_len > 0 {
+        if ((flags & TCP_TH_RST) != 0) && pkt.remaining_len() > 0 {
             // RFC 1122 4.2.2.12 : RST may contain the data that caused the packet to be sent,
             // discard it
             pkt.shrink_remaining(0);
-            data_len = 0;
         }
 
 

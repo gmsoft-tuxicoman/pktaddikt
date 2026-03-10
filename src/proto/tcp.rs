@@ -155,8 +155,8 @@ mod tests {
     use tracing_test::traced_test;
 
     fn tcp_parse_test(data: &[u8]) -> ProtoParseResult {
-        let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, &mut pkt_data);
+        let pkt_data = PktDataBorrowed::new(&data);
+        let mut pkt = Packet::new(0, pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         ProtoTcp::process(&mut pkt, &mut infos)
@@ -166,8 +166,8 @@ mod tests {
     #[test]
     fn tcp_parse_basic() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, &mut pkt_data);
+        let pkt_data = PktDataBorrowed::new(&data);
+        let mut pkt = Packet::new(0, pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::process(&mut pkt, &mut infos);
@@ -222,8 +222,8 @@ mod tests {
 
         ProtoTest::add_expectation(&[ 0xdd ] , 0);
 
-        let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, &mut pkt_data);
+        let pkt_data = PktDataBorrowed::new(&data);
+        let mut pkt = Packet::new(0, pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::process(&mut pkt, &mut infos);

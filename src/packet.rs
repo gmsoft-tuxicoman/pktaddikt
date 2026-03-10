@@ -76,20 +76,48 @@ impl<'a> PktInfo<'a> {
 pub struct Packet<'a> {
     pub ts: PktTime,
     data_range: Range<usize>,
-    pub data: &'a mut dyn PktData,
+    pub data: PktDataType<'a>,
+}
+
+pub enum PktDataType<'a> {
+    Borrowed(PktDataBorrowed<'a>),
+    Owned(PktDataOwned),
+    Zero(PktDataZero),
+    Multipart(PktDataMultipart),
+}
+
+impl<'a> PktData for PktDataType<'a> {
+
+    fn data(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(d) => d.data(),
+            Self::Owned(d) => d.data(),
+            Self::Zero(d) => d.data(),
+            Self::Multipart(d) => d.data()
+        }
+    }
+
+    fn copy_or_clone(&self) -> PktDataType<'static> {
+        match self {
+            Self::Borrowed(d) => d.copy_or_clone(),
+            Self::Owned(d) => d.copy_or_clone(),
+            Self::Zero(d) => d.copy_or_clone(),
+            Self::Multipart(d) => d.copy_or_clone()
+        }
+    }
+
 }
 
 
 impl<'a> Packet<'a> {
 
-    pub fn new(ts: PktTime, data: &'a mut impl PktData) -> Self {
+    pub fn new(ts: PktTime, data: PktDataType<'a>) -> Self {
 
-        let pkt = Packet {
+        Packet {
             ts: ts,
             data_range: 0 .. data.data().len(),
             data: data
-        };
-        pkt
+        }
 
     }
 
@@ -145,17 +173,22 @@ impl<'a> Packet<'a> {
 
     }
 
-    pub fn clone_data(&self) -> (PktDataOwned, Range<usize>) {
+    pub fn clone(&self) -> Packet<'static> {
 
-        (self.data.copy_or_clone(), self.data_range.clone())
+        Packet {
+            ts: self.ts,
+            data: self.data.copy_or_clone(),
+            data_range: self.data_range.clone(),
+        }
     }
+
 }
 
 // Data of a packet
 pub trait PktData {
 
     fn data(&self) -> &[u8];
-    fn copy_or_clone(&self) -> PktDataOwned;
+    fn copy_or_clone(&self) -> PktDataType<'static>;
 }
 
 // A packet with a reference to some data
@@ -165,10 +198,10 @@ pub struct PktDataBorrowed<'a> {
 
 impl<'a> PktDataBorrowed<'a> {
 
-    pub fn new(data: &'a[u8]) -> Self {
-        PktDataBorrowed {
+    pub fn new(data: &'a[u8]) -> PktDataType<'a> {
+        PktDataType::Borrowed(PktDataBorrowed {
            data: data
-        }
+        })
     }
 }
 
@@ -178,7 +211,7 @@ impl<'a> PktData for PktDataBorrowed<'a> {
         &self.data
     }
 
-    fn copy_or_clone(&self) -> PktDataOwned {
+    fn copy_or_clone(&self) -> PktDataType<'static> {
         PktDataOwned::new(self.data)
     }
 
@@ -191,10 +224,14 @@ pub struct PktDataOwned {
 }
 
 impl PktDataOwned {
-    pub fn new(data: &[u8]) -> Self{
+    pub fn new_raw(data: &[u8]) -> PktDataOwned {
         PktDataOwned {
             data: Arc::new(data.to_vec())
         }
+    }
+
+    pub fn new(data: &[u8]) -> PktDataType<'static> {
+        PktDataType::Owned(PktDataOwned::new_raw(data))
     }
 }
 
@@ -205,10 +242,10 @@ impl PktData for PktDataOwned {
         &self.data
     }
 
-    fn copy_or_clone(&self) -> PktDataOwned {
-        PktDataOwned {
+    fn copy_or_clone(&self) -> PktDataType<'static> {
+        PktDataType::Owned(PktDataOwned {
             data: self.data.clone()
-        }
+        })
     }
 }
 
@@ -221,11 +258,15 @@ pub struct PktDataZero {
 
 impl PktDataZero {
 
-    pub fn new(len: usize) -> Self {
+    pub fn new_raw(len: usize) -> Self {
         assert!(len <= PKT_ZERO_MAX_LEN, "PktDataZero supports packets up to {} bytes only", PKT_ZERO_MAX_LEN);
         PktDataZero {
             len: len
         }
+    }
+
+    pub fn new(len: usize) -> PktDataType<'static> {
+        PktDataType::Zero(PktDataZero::new_raw(len))
     }
 
     pub fn max_len() -> usize {
@@ -239,8 +280,10 @@ impl PktData for PktDataZero {
         &PKT_ZERO[..self.len]
     }
 
-    fn copy_or_clone(&self) -> PktDataOwned {
-        PktDataOwned::new(self.data())
+    fn copy_or_clone(&self) -> PktDataType<'static> {
+        PktDataType::Zero(PktDataZero {
+            len: self.len
+        })
     }
 
 }
@@ -260,22 +303,26 @@ impl PktData for PktDataMultipart {
         &self.data
     }
 
-    fn copy_or_clone(&self) -> PktDataOwned {
-        PktDataOwned {
+    fn copy_or_clone(&self) -> PktDataType<'static> {
+        PktDataType::Owned(PktDataOwned {
             data: self.data.clone()
-        }
+        })
     }
 
 }
 
-impl<'b> PktDataMultipart {
+impl<'a,'b> PktDataMultipart {
 
-    pub fn new(capacity: usize) -> Self {
-        PktDataMultipart {
+    pub fn new_raw(capacity: usize) -> Self {
+        Self {
             data: Arc::new(Vec::with_capacity(capacity)),
             ranges: RangeSet::<usize>::new(),
             tot_len: None
         }
+    }
+
+    pub fn new(capacity: usize) -> PktDataType<'a> {
+        PktDataType::Multipart(PktDataMultipart::new_raw(capacity))
     }
 
     pub fn add(&mut self, offset: usize, data: &'b [u8]) {

@@ -384,7 +384,7 @@ mod tests {
     fn queue_pkt(ct: &mut ConntrackTcp, dir: ConntrackDirection, seq: u32, ack: u32, flags: u8, data: &[u8]) {
 
         let mut pkt_data = PktDataOwned::new(&data);
-        let mut pkt = Packet::new(0, Protocols::Test, &mut pkt_data);
+        let mut pkt = Packet::new(0, &mut pkt_data);
         ct.process_packet(dir, seq, ack, flags, &mut pkt);
 
     }

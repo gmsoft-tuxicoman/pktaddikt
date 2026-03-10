@@ -10,13 +10,48 @@ use rangemap::RangeSet;
 // Time in microsecond
 pub type PktTime = u64;
 
-
+// Stack of packet info
+pub struct PktInfoStack<'a> {
+    infos: Vec<PktInfo<'a>>
+}
 
 // All info about a packet
 pub struct PktInfo<'a> {
     pub proto: Protocols,
     parent_ce: Option<ConntrackRef>,
     fields: Vec<Param<'a>>
+}
+
+impl<'a> PktInfoStack<'a> {
+
+    pub fn new(datalink: Protocols) -> Self {
+        let mut ret = PktInfoStack {
+            infos: Vec::with_capacity(7)
+        };
+        ret.proto_push(datalink, None);
+        ret
+    }
+
+    pub fn proto_push(&mut self, proto: Protocols, parent_ce: Option<ConntrackRef>) {
+        let info = PktInfo {
+            proto: proto,
+            fields: Vec::with_capacity(5),
+            parent_ce: parent_ce,
+        };
+        self.infos.push(info);
+    }
+
+    pub fn proto_last(&self) -> &PktInfo<'a> {
+        self.infos.last().unwrap()
+    }
+
+    pub fn proto_last_mut(&mut self) -> &mut PktInfo<'a> {
+        self.infos.last_mut().unwrap()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &PktInfo<'a>> {
+        self.infos.iter()
+    }
 }
 
 
@@ -40,7 +75,6 @@ impl<'a> PktInfo<'a> {
 // Packet for all your packet needs
 pub struct Packet<'a> {
     pub ts: PktTime,
-    stack: Vec<PktInfo<'a>>,
     data_range: Range<usize>,
     pub data: &'a mut dyn PktData,
 }
@@ -48,38 +82,15 @@ pub struct Packet<'a> {
 
 impl<'a> Packet<'a> {
 
-    pub fn new(ts: PktTime, datalink: Protocols, data: &'a mut impl PktData) -> Self {
+    pub fn new(ts: PktTime, data: &'a mut impl PktData) -> Self {
 
-        let mut pkt = Packet {
+        let pkt = Packet {
             ts: ts,
-            stack: Vec::with_capacity(7),
             data_range: 0 .. data.data().len(),
             data: data
         };
-        pkt.stack_push(datalink, None);
         pkt
 
-    }
-
-    pub fn stack_push<'b>(&'b mut self, proto: Protocols, parent_ce: Option<ConntrackRef>) {
-        let info = PktInfo {
-            proto: proto,
-            fields: Vec::with_capacity(5),
-            parent_ce: parent_ce,
-        };
-        self.stack.push(info);
-    }
-
-    pub fn stack_last<'b>(&'b self) -> &'b PktInfo<'b> {
-        self.stack.last().unwrap()
-    }
-
-    pub fn stack_last_mut(&mut self) -> &mut PktInfo<'a> {
-        self.stack.last_mut().unwrap()
-    }
-
-    pub fn iter_stack<'b>(&'b self) -> impl Iterator<Item = &'b PktInfo<'b>> {
-        self.stack.iter()
     }
 
     pub fn read_u8(&mut self) -> Option<u8> {

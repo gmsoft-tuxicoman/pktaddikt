@@ -1,7 +1,7 @@
 use crate::proto::{Proto, ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackTimer, ConntrackRef};
-use crate::packet::{Packet, PktDataMultipart};
+use crate::packet::{Packet, PktDataMultipart, PktInfoStack};
 
 use std::sync::{OnceLock, Arc};
 use std::net::Ipv4Addr;
@@ -48,7 +48,7 @@ impl ProtoIpv4 {
 impl ProtoPktProcessor for ProtoIpv4 {
 
 
-    fn process(pkt: &mut Packet) -> ProtoParseResult {
+    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than IP header
@@ -105,7 +105,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
         let f_proto = ParamValue::U8(proto);
         let f_id = ParamValue::U16(id);
 
-        let info = pkt.stack_last_mut();
+        let info = infos.proto_last_mut();
         info.field_push(Param { name: "src", value: Some(f_src) });
         info.field_push(Param { name: "dst", value: Some(f_dst) });
         info.field_push(Param { name: "hdr_len", value: Some(f_hdr_len) });
@@ -130,13 +130,13 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         // Full packet (offset is 0 and no more packets)
         if (frag_off & IP_MORE_FRAG) == 0 && (frag_off & IP_OFFSET_MASK) == 0 {
-            pkt.stack_push(next_proto, Some(ce));
+            infos.proto_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
 
         // Packet cannot be fragmented
         if (frag_off & IP_DONT_FRAG) != 0 {
-            pkt.stack_push(next_proto, Some(ce));
+            infos.proto_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
 
@@ -145,7 +145,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
             return ProtoParseResult::Invalid;
         }
 
-        pkt.stack_push(next_proto, Some(ce.clone()));
+        infos.proto_push(next_proto, Some(ce.clone()));
 
         let offset = ((frag_off & IP_OFFSET_MASK) << 3) as usize;
 
@@ -186,9 +186,9 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         if frags_pkt.is_complete() {
             // Process the reassembled packet
-            let mut reassembled_pkt = Packet::new(pkt.ts, next_proto, frags_pkt);
+            let mut reassembled_pkt = Packet::new(pkt.ts, frags_pkt);
 
-            Proto::process_packet(&mut reassembled_pkt);
+            Proto::process_packet(&mut reassembled_pkt, infos);
 
             frags.pkt = None;
         }
@@ -217,21 +217,23 @@ mod tests {
 
     fn ipv4_parse_test(data: &[u8], ts: PktTime) -> ProtoParseResult {
         let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(ts, Protocols::Ipv4, &mut pkt_data);
+        let mut pkt = Packet::new(ts, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
-        ProtoIpv4::process(&mut pkt)
+        ProtoIpv4::process(&mut pkt, &mut infos)
     }
 
     #[test]
     fn ipv4_parse_basic() {
         let data = vec![ 0x45, 0x00, 0x00, 0x16, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40, 0xde, 0xad ];
         let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, Protocols::Ipv4, &mut pkt_data);
+        let mut pkt = Packet::new(0, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
-        let ret = ProtoIpv4::process(&mut pkt);
+        let ret = ProtoIpv4::process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Ok);
 
-        let info = pkt.iter_stack().next().unwrap();
+        let info = infos.iter().next().unwrap();
         let mut field_iter = info.iter_fields();
 
         let src = field_iter.next().unwrap();
@@ -297,9 +299,11 @@ mod tests {
     fn ipv4_pkt_shrink() {
         let data = vec![ 0x45, 0x00, 0x00, 0x15, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0xff, 0xff ];
         let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, Protocols::Ipv4, &mut pkt_data);
+        let mut pkt = Packet::new(0, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
-        let ret = ProtoIpv4::process(&mut pkt);
+        let ret = ProtoIpv4::process(&mut pkt, &mut infos);
+
         assert_eq!(ret, ProtoParseResult::Ok);
 
         let remaining = pkt.remaining_len();

@@ -3,7 +3,7 @@ use getopts::Options;
 use pcap::{Capture, Linktype};
 use std::env;
 
-use crate::packet::{Packet, PktTime, PktDataBorrowed};
+use crate::packet::{Packet, PktTime, PktDataBorrowed, PktInfoStack};
 use crate::proto::{Proto, Protocols};
 use crate::stream::PktStream;
 
@@ -73,11 +73,12 @@ fn main() {
         let ts: PktTime = (pcap_pkt.header.ts.tv_sec as u64 * 1000000) + pcap_pkt.header.ts.tv_usec as u64;
         let mut pkt_data = PktDataBorrowed::new(pcap_pkt.data);
 
-        let mut pkt = Packet::new(ts, Protocols::Ethernet, &mut pkt_data);
+        let mut pkt = Packet::new(ts, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Ethernet);
 
 
 
-        Proto::process_packet(&mut pkt);
+        Proto::process_packet(&mut pkt, &mut infos);
     }
 
     Proto::purge_all();

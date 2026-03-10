@@ -1,7 +1,7 @@
 use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
-use crate::packet::Packet;
+use crate::packet::{Packet, PktInfoStack};
 
 use std::sync::OnceLock;
 use std::net::Ipv6Addr;
@@ -21,7 +21,7 @@ const IPV6_TIMEOUT :u64 = 7200;
 
 impl ProtoPktProcessor for ProtoIpv6 {
 
-    fn process(pkt: &mut Packet) -> ProtoParseResult {
+    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
         if plen < 40 {
@@ -85,7 +85,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
             }
         }
 
-        let info = pkt.stack_last_mut();
+        let info = infos.proto_last_mut();
         info.field_push(Param { name: "src", value: Some(ParamValue::Ipv6(src)) });
         info.field_push(Param { name: "dst", value: Some(ParamValue::Ipv6(dst)) });
         info.field_push(Param { name: "hop_limit", value: Some(ParamValue::U8(hop_limit)) });
@@ -105,7 +105,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
 
         };
 
-        pkt.stack_push(next_proto, Some(ce));
+        infos.proto_push(next_proto, Some(ce));
 
         ProtoParseResult::Ok
 

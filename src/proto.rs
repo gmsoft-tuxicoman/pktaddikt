@@ -10,7 +10,7 @@ use crate::proto::ipv4::ProtoIpv4;
 use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
 use crate::proto::tcp::ProtoTcp;
-use crate::packet::Packet;
+use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 
 use std::time::Instant;
@@ -37,7 +37,7 @@ pub enum ProtoParseResult {
 }
 
 pub trait ProtoPktProcessor {
-    fn process(pkt: &mut Packet) -> ProtoParseResult;
+    fn process(pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult;
     fn purge();
 }
 
@@ -46,7 +46,7 @@ pub struct Proto;
 
 impl Proto {
 
-    pub fn process_packet<'a>(pkt: &mut Packet) {
+    pub fn process_packet<'a>(pkt: &mut Packet, infos: &mut PktInfoStack) {
 
         let start = Instant::now();
 
@@ -56,14 +56,14 @@ impl Proto {
 
         loop {
 
-            ret = match pkt.stack_last().proto {
+            ret = match infos.proto_last().proto {
                 Protocols::None => break,
-                Protocols::Test => ProtoTest::process(pkt),
-                Protocols::Ethernet => ProtoEthernet::process(pkt),
-                Protocols::Ipv4 => ProtoIpv4::process(pkt),
-                Protocols::Ipv6 => ProtoIpv6::process(pkt),
-                Protocols::Udp => ProtoUdp::process(pkt),
-                Protocols::Tcp => ProtoTcp::process(pkt)
+                Protocols::Test => ProtoTest::process(pkt, infos),
+                Protocols::Ethernet => ProtoEthernet::process(pkt, infos),
+                Protocols::Ipv4 => ProtoIpv4::process(pkt, infos),
+                Protocols::Ipv6 => ProtoIpv6::process(pkt, infos),
+                Protocols::Udp => ProtoUdp::process(pkt, infos),
+                Protocols::Tcp => ProtoTcp::process(pkt, infos)
             };
 
             if ret != ProtoParseResult::Ok {
@@ -76,12 +76,12 @@ impl Proto {
         let processing_time = start.elapsed();
 
         print!("{}.{} ", pkt.ts / 1000000, pkt.ts % 1000000);
-        for s in pkt.iter_stack() {
-            if s.proto == Protocols::None {
+        for i in infos.iter() {
+            if i.proto == Protocols::None {
                 break;
             }
-            print!("{:?} {{ ", s.proto);
-            for f in s.iter_fields() {
+            print!("{:?} {{ ", i.proto);
+            for f in i.iter_fields() {
                 print!("{}: {:?}; ", f.name, f.value.unwrap());
             }
             print!("}}; ");

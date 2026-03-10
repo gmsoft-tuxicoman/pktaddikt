@@ -2,7 +2,7 @@
 
 use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::stream::ProtoStreamProcessor;
-use crate::packet::{Packet, PktData, PktDataOwned, PktTime};
+use crate::packet::{Packet, PktData, PktDataOwned, PktTime, PktInfoStack};
 use crate::param::Param;
 use crate::conntrack::ConntrackDirection;
 use std::cell::RefCell;
@@ -23,7 +23,7 @@ thread_local! {
 #[cfg(not(test))]
 impl ProtoPktProcessor for ProtoTest {
 
-    fn process(pkt: &mut Packet) -> ProtoParseResult {
+    fn process(pkt: &mut Packet, _: &mut PktInfoStack) -> ProtoParseResult {
         return ProtoParseResult::Invalid;
     }
 
@@ -34,7 +34,7 @@ impl ProtoPktProcessor for ProtoTest {
 #[cfg(test)]
 impl ProtoPktProcessor for ProtoTest {
 
-    fn process(pkt: &mut Packet) -> ProtoParseResult {
+    fn process(pkt: &mut Packet, _: &mut PktInfoStack) -> ProtoParseResult {
 
         let test_data = pkt.remaining_data();
         println!("Remaining data: {:x?} (len {})", test_data, test_data.len());

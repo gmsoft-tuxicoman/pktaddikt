@@ -4,7 +4,7 @@ mod conntrack;
 use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
-use crate::packet::Packet;
+use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::ConntrackTcp;
 
 use std::sync::OnceLock;
@@ -49,7 +49,7 @@ impl ProtoTcp {
 
 impl ProtoPktProcessor for ProtoTcp {
 
-    fn process(pkt: &mut Packet) -> ProtoParseResult {
+    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than TCP header
@@ -103,7 +103,7 @@ impl ProtoPktProcessor for ProtoTcp {
 
 
 
-        let info = pkt.stack_last_mut();
+        let info = infos.proto_last_mut();
         info.field_push(Param { name: "sport", value: Some(ParamValue::U16(sport)) });
         info.field_push(Param { name: "dport", value: Some(ParamValue::U16(dport)) });
         info.field_push(Param { name: "seq", value: Some(ParamValue::U32(seq)) });
@@ -120,7 +120,7 @@ impl ProtoPktProcessor for ProtoTcp {
             proto => proto
         };
 
-        pkt.stack_push(next_proto, Some(ce.clone()));
+        infos.proto_push(next_proto, Some(ce.clone()));
 
         // FIXME later when we have layer 5+ protocols, don't bother processing packets with
         // unknown protocol
@@ -156,9 +156,10 @@ mod tests {
 
     fn tcp_parse_test(data: &[u8]) -> ProtoParseResult {
         let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
+        let mut pkt = Packet::new(0, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Tcp);
 
-        ProtoTcp::process(&mut pkt)
+        ProtoTcp::process(&mut pkt, &mut infos)
 
     }
 
@@ -166,12 +167,13 @@ mod tests {
     fn tcp_parse_basic() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
         let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
+        let mut pkt = Packet::new(0, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Tcp);
 
-        let ret = ProtoTcp::process(&mut pkt);
+        let ret = ProtoTcp::process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Stop);
 
-        let info = pkt.iter_stack().next().unwrap();
+        let info = infos.iter().next().unwrap();
         let mut field_iter = info.iter_fields();
 
         let sport = field_iter.next().unwrap();
@@ -221,13 +223,14 @@ mod tests {
         ProtoTest::add_expectation(&[ 0xdd ] , 0);
 
         let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, Protocols::Tcp, &mut pkt_data);
+        let mut pkt = Packet::new(0, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Tcp);
 
-        let ret = ProtoTcp::process(&mut pkt);
+        let ret = ProtoTcp::process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Stop);
-        assert_eq!(pkt.stack_last().proto, Protocols::Test);
+        assert_eq!(infos.proto_last().proto, Protocols::Test);
 
-        ProtoTest::process(&mut pkt);
+        ProtoTest::process(&mut pkt, &mut infos);
         ProtoTest::assert_empty();
 
     }

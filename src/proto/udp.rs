@@ -1,7 +1,7 @@
 use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
-use crate::packet::Packet;
+use crate::packet::{Packet, PktInfoStack};
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -19,7 +19,7 @@ pub struct ProtoUdp {}
 
 impl ProtoPktProcessor for ProtoUdp {
 
-    fn process(pkt: &mut Packet) -> ProtoParseResult {
+    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
         if plen < 9 { // length smaller than UDP header and 1 byte of data
@@ -42,7 +42,7 @@ impl ProtoPktProcessor for ProtoUdp {
             pkt.shrink_remaining(plen);
         }
 
-        let info = pkt.stack_last_mut();
+        let info = infos.proto_last_mut();
         info.field_push(Param { name: "sport", value: Some(ParamValue::U16(sport)) });
         info.field_push(Param { name: "dport", value: Some(ParamValue::U16(dport)) });
 
@@ -50,7 +50,7 @@ impl ProtoPktProcessor for ProtoUdp {
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
         let (ce, _) = CT_UDP.get_or_init(|| ConntrackTable::new(CT_UDP_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(UDP_TIMEOUT), pkt.ts)));
 
-        pkt.stack_push(Protocols::None, Some(ce));
+        infos.proto_push(Protocols::None, Some(ce));
 
 
         ProtoParseResult::Ok

@@ -1,13 +1,13 @@
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoParseResult};
 use crate::param::{Param, ParamValue};
-use crate::packet::Packet;
+use crate::packet::{Packet, PktInfoStack};
 
 pub struct ProtoEthernet {}
 
 impl ProtoPktProcessor for ProtoEthernet {
 
 
-    fn process(pkt: &mut Packet) -> ProtoParseResult {
+    fn process(pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult {
 
 
         if pkt.remaining_len() < 14 {
@@ -21,7 +21,7 @@ impl ProtoPktProcessor for ProtoEthernet {
         let eth_type = pkt.read_u16().unwrap();
         let f_eth_type = ParamValue::U16(eth_type);
 
-        let info = pkt.stack_last_mut();
+        let info = stack.proto_last_mut();
 
         info.field_push(Param { name: "src", value: Some(f_src)});
         info.field_push(Param { name: "dst", value: Some(f_dst)});
@@ -33,7 +33,7 @@ impl ProtoPktProcessor for ProtoEthernet {
             _ => Protocols::None
         };
 
-        pkt.stack_push(next_proto, None);
+        stack.proto_push(next_proto, None);
 
         ProtoParseResult::Ok
 
@@ -54,12 +54,13 @@ mod tests {
     fn ethernet_parse_basic() {
         let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE, 0xEF, 0x01, 0x02, 0x03];
         let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, Protocols::Ethernet, &mut pkt_data);
+        let mut pkt = Packet::new(0, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Ethernet);
 
-        let ret = ProtoEthernet::process(&mut pkt);
+        let ret = ProtoEthernet::process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Ok);
 
-        let info = pkt.iter_stack().next().unwrap();
+        let info = infos.iter().next().unwrap();
 
         let mut field_iter = info.iter_fields();
 
@@ -77,9 +78,10 @@ mod tests {
     fn ethernet_too_short() {
         let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE];
         let mut pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, Protocols::Ethernet, &mut pkt_data);
+        let mut pkt = Packet::new(0, &mut pkt_data);
+        let mut infos = PktInfoStack::new(Protocols::Ethernet);
 
-        let ret = ProtoEthernet::process(&mut pkt);
+        let ret = ProtoEthernet::process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Invalid);
     }
 }

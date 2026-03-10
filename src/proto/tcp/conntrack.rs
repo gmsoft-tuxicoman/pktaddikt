@@ -1,6 +1,6 @@
 
 use crate::conntrack::ConntrackDirection;
-use crate::proto::tcp::{TCP_TH_SYN, TCP_TH_ACK};
+use crate::proto::tcp::{TCP_TH_SYN, TCP_TH_ACK, TCP_TH_FIN, TCP_TH_RST};
 use crate::proto::tcp::seq::TcpSeq;
 use crate::packet::{Packet, PktTime, PktDataZero};
 use crate::stream::PktStream;
@@ -17,6 +17,16 @@ struct TcpPacket {
     data: Packet<'static>
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum TcpState {
+    New,
+    SynSent,
+    SynRecv,
+    Established,
+    HalfClosedFwd,
+    HalfClosedRev,
+    Closed
+}
 
 struct ConntrackTcpQueue {
 
@@ -29,7 +39,8 @@ pub struct ConntrackTcp {
 
     forward: ConntrackTcpQueue,
     reverse: ConntrackTcpQueue,
-    stream_id: usize
+    stream_id: usize,
+    state: TcpState
 }
 
 impl ConntrackTcp {
@@ -47,7 +58,8 @@ impl ConntrackTcp {
                 cur_seq: None,
                 pkts: BTreeMap::new()
             },
-            stream_id: PktStream::open(proto, Protocols::Tcp)
+            stream_id: PktStream::open(proto, Protocols::Tcp),
+            state: TcpState::New
         };
         ct
     }
@@ -94,6 +106,46 @@ impl ConntrackTcp {
                 queue.pkts.insert(seq, old_pkt);
             }
         }
+    }
+
+    fn update_state(&mut self, dir: ConntrackDirection, flags: u8) {
+
+        let mut new_state = TcpState::New;
+
+        if flags & TCP_TH_SYN != 0 {
+            if flags & TCP_TH_ACK != 0 {
+                new_state = TcpState::SynRecv;
+            } else {
+                new_state = TcpState::SynSent;
+            }
+        } else if flags & TCP_TH_FIN != 0 {
+            match dir {
+                ConntrackDirection::Forward => {
+                    if self.state == TcpState::HalfClosedRev {
+                        new_state = TcpState::Closed;
+                    } else {
+                        new_state = TcpState::HalfClosedFwd;
+                    }
+                },
+                ConntrackDirection::Reverse => {
+                    if self.state == TcpState::HalfClosedFwd {
+                        new_state = TcpState::Closed;
+                    } else {
+                        new_state = TcpState::HalfClosedRev;
+                    }
+
+                }
+            }
+        } else if flags & TCP_TH_RST != 0 {
+            new_state = TcpState::Closed;
+        } else {
+            new_state = TcpState::Established;
+        }
+        
+        if new_state > self.state {
+            self.state = new_state;
+        }
+
     }
 
     pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, data: &mut Packet) {

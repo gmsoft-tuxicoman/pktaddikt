@@ -27,16 +27,6 @@ const TCP_TH_ACK: u8 = 0x10;
 
 pub struct ProtoTcp {}
 
-enum TcpState {
-    New,
-    SynSent,
-    SynRecv,
-    Established,
-    HalfClosed,
-    Closed
-}
-
-
 impl ProtoTcp {
     fn next_proto(port: u16) -> Protocols {
         match port {

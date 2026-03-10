@@ -12,7 +12,6 @@ use tracing::trace;
 
 static STREAM_CHANNELS: LazyLock<PktStreamChannels<PktStreamMsg>> = LazyLock::new(|| PktStreamChannels::new());
 
-// FIXME, if nothing is stored in PktStream, maybe an atomic increasing ID would be enough
 static STREAMS: LazyLock<RwLock<Slab<PktStream>>> = LazyLock::new(|| RwLock::new(Slab::new()));
 
 pub struct PktStreamChannels<T> {

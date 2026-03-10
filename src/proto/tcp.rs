@@ -129,8 +129,9 @@ impl ProtoPktProcessor for ProtoTcp {
 
         infos.proto_push(next_proto, Some(ce.clone()));
 
-        // FIXME later when we have layer 5+ protocols, don't bother processing packets with
-        // unknown protocol
+        if next_proto == Protocols::None {
+            return ProtoParseResult::Ok;
+        }
 
         let mut ce_locked = ce.lock().unwrap();
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(Protocols::Test)) as ConntrackData)
@@ -178,7 +179,7 @@ mod tests {
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Stop);
+        assert_eq!(ret, ProtoParseResult::Ok);
 
         let info = infos.iter().next().unwrap();
         let mut field_iter = info.iter_fields();

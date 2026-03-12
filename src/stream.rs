@@ -63,14 +63,13 @@ impl PktStream {
 
     pub fn open(proto: Protocols, parent_proto: Protocols) -> usize {
         // Open is synchronous for now
-        let stream_id = STREAMS.write().unwrap().insert(PktStream{
+        STREAMS.write().unwrap().insert(PktStream{
             processor: match proto {
                 #[cfg(test)]
                 Protocols::Test => PktStreamProto::Test(ProtoTest::new(parent_proto, &Vec::new())),
                 _ => panic!("Stream protocol not implemented")
             }
-        });
-        stream_id
+        })
     }
 
     #[cfg(not(test))]

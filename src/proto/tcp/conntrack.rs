@@ -119,7 +119,7 @@ impl ConntrackTcp {
 
     fn update_state(&mut self, dir: ConntrackDirection, flags: u8) {
 
-        let mut new_state = TcpState::New;
+        let new_state;
 
         if flags & TCP_TH_SYN != 0 {
             if flags & TCP_TH_ACK != 0 {

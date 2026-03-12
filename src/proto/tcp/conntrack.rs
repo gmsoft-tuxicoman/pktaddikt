@@ -89,7 +89,7 @@ impl ConntrackTcp {
             *queue.cur_seq.as_mut().unwrap() += 1;
         }
 
-        if pkt.remaining_len() == 0 {
+        if pkt.data.remaining_len() == 0 {
             // Discard empty FIN or RST packet
             return;
         }

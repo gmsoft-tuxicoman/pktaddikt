@@ -112,10 +112,6 @@ impl ProtoPktProcessor for ProtoIpv4 {
         info.field_push(Param { name: "id", value: Some(f_id) });
         info.field_push(Param { name: "proto", value: Some(f_proto) });
 
-
-        let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let (ce, _) = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(IP_TIMEOUT), pkt.ts)));
-
         let next_proto = match proto {
             4 => Protocols::Ipv4,
             6 => Protocols::Tcp,
@@ -125,18 +121,33 @@ impl ProtoPktProcessor for ProtoIpv4 {
             _ => Protocols::None
         };
 
+        if next_proto == Protocols::None {
+            // Cut short processing if we don't know what the next proto is
+            infos.proto_push(next_proto, None);
+            return ProtoParseResult::Ok;
+        }
+
+        let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
+        let (ce, _ct_dir) = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce());
+
+
+        infos.proto_push(next_proto, Some(ce.clone()));
+        let mut ce_locked = ce.lock().unwrap();
+
+        match ce_locked.has_children() {
+            true => ce_locked.set_timeout(Duration::ZERO, pkt.ts),
+            false => ce_locked.set_timeout(Duration::from_secs(IP_TIMEOUT), pkt.ts)
+        }
 
         // Check if the packet is fragmented and needs more handling
 
         // Full packet (offset is 0 and no more packets)
         if (frag_off & IP_MORE_FRAG) == 0 && (frag_off & IP_OFFSET_MASK) == 0 {
-            infos.proto_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
 
         // Packet cannot be fragmented
         if (frag_off & IP_DONT_FRAG) != 0 {
-            infos.proto_push(next_proto, Some(ce));
             return ProtoParseResult::Ok;
         }
 
@@ -145,11 +156,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
             return ProtoParseResult::Invalid;
         }
 
-        infos.proto_push(next_proto, Some(ce.clone()));
-
         let offset = ((frag_off & IP_OFFSET_MASK) << 3) as usize;
-
-        let mut ce_locked = ce.lock().unwrap();
 
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
                     .downcast_mut::<ConntrackIpv4>()

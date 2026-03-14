@@ -5,7 +5,7 @@ use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::{Packet, PktInfoStack};
-use crate::proto::tcp::conntrack::ConntrackTcp;
+use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -14,7 +14,11 @@ use tracing::trace;
 
 type ConntrackKeyTcp = ConntrackKeyBidir<u16>;
 
-static TCP_TIMEOUT :u64 = 120;
+static TCP_TIMEOUT_SYN_RECV :u64 = 60;
+static TCP_TIMEOUT_SYN_SENT :u64 = 180;
+static TCP_TIMEOUT_ESTABLISHED: u64 = 1800;
+static TCP_TIMEOUT_HALF_CLOSED: u64 = 120;
+static TCP_TIMEOUT_CLOSED: u64 = 30;
 
 static CT_TCP_SIZE :usize = 32768;
 static CT_TCP: OnceLock<ConntrackTable<ConntrackKeyTcp>> = OnceLock::new();
@@ -106,26 +110,41 @@ impl ProtoPktProcessor for ProtoTcp {
         info.field_push(Param { name: "win", value: Some(ParamValue::U16(window)) });
 
 
-        let ct_key = ConntrackKeyTcp { a: sport, b: dport };
-        let (ce, dir) = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(TCP_TIMEOUT), pkt.ts)));
-
         // WIP, needs to be improved
         let next_proto = match ProtoTcp::next_proto(dport) {
             Protocols::None => ProtoTcp::next_proto(sport),
             proto => proto
         };
 
-        infos.proto_push(next_proto, Some(ce.clone()));
-
         if next_proto == Protocols::None {
+            infos.proto_push(next_proto, None);
             return ProtoParseResult::Ok;
         }
+
+        let ct_key = ConntrackKeyTcp { a: sport, b: dport };
+        let (ce, dir) = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce());
+
+        infos.proto_push(next_proto, Some(ce.clone()));
+
 
         let mut ce_locked = ce.lock().unwrap();
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(Protocols::Test)) as ConntrackData)
                     .downcast_mut::<ConntrackTcp>().unwrap();
 
         cd.process_packet(dir, seq, ack, flags, pkt);
+
+
+        let timeout = match cd.get_state() {
+            TcpState::New => TCP_TIMEOUT_SYN_RECV,
+            TcpState::SynRecv => TCP_TIMEOUT_SYN_RECV,
+            TcpState::SynSent => TCP_TIMEOUT_SYN_SENT,
+            TcpState::Established => TCP_TIMEOUT_ESTABLISHED,
+            TcpState::HalfClosedFwd => TCP_TIMEOUT_HALF_CLOSED,
+            TcpState::HalfClosedRev => TCP_TIMEOUT_HALF_CLOSED,
+            TcpState::Closed => TCP_TIMEOUT_CLOSED,
+        };
+
+        ce_locked.set_timeout(Duration::from_secs(timeout), pkt.ts);
 
 
         ProtoParseResult::Stop

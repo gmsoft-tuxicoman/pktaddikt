@@ -18,7 +18,7 @@ struct TcpPacket {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum TcpState {
+pub enum TcpState {
     New,
     SynSent,
     SynRecv,
@@ -155,6 +155,10 @@ impl ConntrackTcp {
             self.state = new_state;
         }
 
+    }
+
+    pub fn get_state(&self) -> TcpState {
+        self.state
     }
 
     pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, data: &mut Packet) {

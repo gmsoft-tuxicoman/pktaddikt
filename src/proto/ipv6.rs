@@ -93,9 +93,6 @@ impl ProtoPktProcessor for ProtoIpv6 {
         let a = src.to_bits();
         let b = dst.to_bits();
 
-        let ct_key = ConntrackKeyIpv6 { a: ((a >> 8) as u64) ^ (a as u64) , b: ((b >> 8) as u64) ^ (b as u64) };
-        let (ce, _) = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce(), Some((Duration::from_secs(IPV6_TIMEOUT), pkt.ts)));
-
         let next_proto = match nhdr_type {
             4 => Protocols::Ipv4,
             6 => Protocols::Tcp,
@@ -105,7 +102,23 @@ impl ProtoPktProcessor for ProtoIpv6 {
 
         };
 
-        infos.proto_push(next_proto, Some(ce));
+        if next_proto == Protocols::None {
+            // Cut short processing if we don't know what the next proto is
+            infos.proto_push(next_proto, None);
+            return ProtoParseResult::Ok;
+        }
+
+        let ct_key = ConntrackKeyIpv6 { a: ((a >> 8) as u64) ^ (a as u64) , b: ((b >> 8) as u64) ^ (b as u64) };
+        let (ce, _) = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce());
+
+        infos.proto_push(next_proto, Some(ce.clone()));
+        let mut ce_locked = ce.lock().unwrap();
+
+        match ce_locked.has_children() {
+            true => ce_locked.set_timeout(Duration::ZERO, pkt.ts),
+            false => ce_locked.set_timeout(Duration::from_secs(IPV6_TIMEOUT), pkt.ts)
+        }
+
 
         ProtoParseResult::Ok
 

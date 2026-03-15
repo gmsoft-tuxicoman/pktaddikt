@@ -9,6 +9,8 @@ use crate::proto::Protocols;
 use std::collections::BTreeMap;
 use tracing::{debug, trace};
 
+const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
+
 struct TcpPacket {
 
     seq: TcpSeq,
@@ -33,6 +35,7 @@ struct ConntrackTcpQueue {
     start_seq: Option<TcpSeq>,
     cur_seq: Option<TcpSeq>,
     pkts: BTreeMap<TcpSeq, TcpPacket>,
+    size: usize,
 }
 
 pub struct ConntrackTcp {
@@ -52,11 +55,13 @@ impl ConntrackTcp {
                 start_seq: None,
                 cur_seq: None,
                 pkts: BTreeMap::new(),
+                size: 0,
             },
             reverse: ConntrackTcpQueue {
                 start_seq: None,
                 cur_seq: None,
-                pkts: BTreeMap::new()
+                pkts: BTreeMap::new(),
+                size: 0,
             },
             stream_id: PktStream::open(proto, Protocols::Tcp),
             state: TcpState::New
@@ -113,6 +118,11 @@ impl ConntrackTcp {
                 // Another packet with the same sequence but bigger was already present
                 // Put it back in the queue
                 queue.pkts.insert(seq, old_pkt);
+            }
+        } else {
+            queue.size += new_size;
+            if queue.size > CONNTRACK_TCP_MAX_BUFFER {
+                self.force_dequeue();
             }
         }
     }
@@ -319,7 +329,7 @@ impl ConntrackTcp {
                 if end_seq <= cur_seq {
                     // Duplicate
                     //trace!("TCP connection {:p}: gap: cur_seq {:?}, pkt_seq {:?}", &self, cur_seq, pkt.seq);
-                    entry.remove();
+                    queue.size -= entry.remove().data.remaining_len();
                     continue;
                 }
 
@@ -344,7 +354,9 @@ impl ConntrackTcp {
                 }
 
                 // Remove this packet from the list
-                break Some(entry.remove());
+                let ret = entry.remove();
+                queue.size -= ret.data.remaining_len();
+                break Some(ret);
 
             };
 

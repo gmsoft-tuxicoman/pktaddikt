@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
-use crate::stream::ProtoStreamProcessor;
+use crate::stream::PktStreamProcessor;
 use crate::packet::{Packet, PktData, PktDataOwned, PktTime, PktInfoStack};
 use crate::param::Param;
 use crate::conntrack::ConntrackDirection;
@@ -54,15 +54,14 @@ impl ProtoPktProcessor for ProtoTest {
 
 }
 
-#[cfg(test)]
-impl ProtoStreamProcessor for ProtoTest {
+impl PktStreamProcessor for ProtoTest {
 
-    fn new<'a>(parent_proto: Protocols, metadata: &Vec<Param<'a>>) -> Self {
+    fn new(infos: &PktInfoStack) -> Self {
         ProtoTest{}
     }
 
 
-    fn process(&self,  dir: ConntrackDirection, mut pkt: Packet) {
+    fn process(&self, dir: ConntrackDirection, pkt: &mut Packet) {
         let data = pkt.remaining_data();
         println!("Data: {:x?}, (len: {})", data, data.len());
 

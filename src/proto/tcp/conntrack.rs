@@ -2,7 +2,7 @@
 use crate::conntrack::ConntrackDirection;
 use crate::proto::tcp::{TCP_TH_SYN, TCP_TH_ACK, TCP_TH_FIN, TCP_TH_RST};
 use crate::proto::tcp::seq::TcpSeq;
-use crate::packet::{Packet, PktTime, PktDataZero};
+use crate::packet::{Packet, PktTime, PktDataZero, PktInfoStack};
 use crate::stream::PktStream;
 use crate::proto::Protocols;
 
@@ -42,13 +42,13 @@ pub struct ConntrackTcp {
 
     forward: ConntrackTcpQueue,
     reverse: ConntrackTcpQueue,
-    stream_id: usize,
+    stream: PktStream,
     state: TcpState
 }
 
 impl ConntrackTcp {
 
-    pub fn new(proto: Protocols) -> Self {
+    pub fn new(proto: Protocols, infos: &PktInfoStack) -> Self {
 
         let ct = ConntrackTcp {
             forward: ConntrackTcpQueue {
@@ -63,7 +63,7 @@ impl ConntrackTcp {
                 pkts: BTreeMap::new(),
                 size: 0,
             },
-            stream_id: PktStream::open(proto, Protocols::Tcp),
+            stream: PktStream::new(proto, infos),
             state: TcpState::New
         };
         ct
@@ -85,21 +85,21 @@ impl ConntrackTcp {
         }
     }
 
-    fn send_packet(&mut self, dir: ConntrackDirection, pkt: TcpPacket) {
-        self.update_state(dir, pkt.flags);
+    fn send_packet(&mut self, dir: ConntrackDirection, flags: u8, data: &mut Packet) {
+        self.update_state(dir, flags);
         let queue = self.get_queue_mut(dir);
-        *queue.cur_seq.as_mut().unwrap() += pkt.data.remaining_len() as u32;
-        if pkt.flags & TCP_TH_FIN != 0 {
+        *queue.cur_seq.as_mut().unwrap() += data.remaining_len() as u32;
+        if flags & TCP_TH_FIN != 0 {
             // FIN packet increase seq by 1
             *queue.cur_seq.as_mut().unwrap() += 1;
         }
 
-        if pkt.data.remaining_len() == 0 {
+        if data.remaining_len() == 0 {
             // Discard empty FIN or RST packet
             return;
         }
-        debug!("Sending packet with ts {}, seq {:?} and ack {:?}", pkt.data.ts, pkt.seq, pkt.ack);
-        PktStream::send_data_async(self.stream_id, dir, pkt.data);
+        debug!("Sending packet with ts {}", data.ts);
+        self.stream.process_packet(dir, data);
     }
 
     fn queue_packet(&mut self, dir: ConntrackDirection, seq: TcpSeq, ack: TcpSeq, flags: u8, data: &mut Packet) {
@@ -288,12 +288,7 @@ impl ConntrackTcp {
         }
 
         // Packet is ready to be sent !
-        self.send_packet(dir, TcpPacket{
-            seq: seq,
-            ack: ack,
-            flags: flags,
-            data: data.clone(),
-        });
+        self.send_packet(dir, flags, data);
 
         // Check if this packet filled a gap
         self.process_more_packets();
@@ -361,9 +356,9 @@ impl ConntrackTcp {
             };
 
             if pkt.is_some() {
-                let pkt = pkt.unwrap();
+                let mut pkt = pkt.unwrap();
                 debug!("Sending additional packet with ts {}, seq {:?} and ack {:?}", pkt.data.ts, pkt.seq, pkt.ack);
-                self.send_packet(dir, pkt);
+                self.send_packet(dir, pkt.flags, &mut pkt.data);
                 tries = 2; // We unblocked some packets, let's keep trying in both directions
             }
         }
@@ -428,12 +423,7 @@ impl ConntrackTcp {
 
             let data = PktDataZero::new(filler_len);
 
-            self.send_packet(dir, TcpPacket{
-                seq: TcpSeq(0),
-                ack: TcpSeq(0),
-                flags: 0,
-                data: Packet::new(ts, data)
-            });
+            self.send_packet(dir, 0, &mut Packet::new(ts, data));
 
             gap -= filler_len;
         }
@@ -452,8 +442,6 @@ impl Drop for ConntrackTcp {
         while self.forward.pkts.len() > 0 || self.reverse.pkts.len() > 0 {
             self.force_dequeue();
         }
-
-        PktStream::close(self.stream_id);
     }
 
 }
@@ -480,7 +468,7 @@ mod tests {
 
         ProtoTest::add_expectation(&[ 0 ], 0);
 
-        let mut ct = ConntrackTcp::new(Protocols::Test);
+        let mut ct = ConntrackTcp::new(Protocols::Test, &PktInfoStack::new(Protocols::Tcp));
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
@@ -496,7 +484,7 @@ mod tests {
 
         ProtoTest::add_expectation(&[ 0 ], 0);
 
-        let mut ct = ConntrackTcp::new(Protocols::Test);
+        let mut ct = ConntrackTcp::new(Protocols::Test, &PktInfoStack::new(Protocols::Tcp));
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
 
@@ -510,7 +498,7 @@ mod tests {
         ProtoTest::add_expectation(&[ 0 ], 0);
         ProtoTest::add_expectation(&[ 1 ], 0);
 
-        let mut ct = ConntrackTcp::new(Protocols::Test);
+        let mut ct = ConntrackTcp::new(Protocols::Test, &PktInfoStack::new(Protocols::Tcp));
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, TCP_TH_ACK, &[]);
@@ -530,7 +518,7 @@ mod tests {
         ProtoTest::add_expectation(&[ 4, 5 ], 0); // Bigger dupe has precedence
         ProtoTest::add_expectation(&[ 6 ], 0);
 
-        let mut ct = ConntrackTcp::new(Protocols::Test);
+        let mut ct = ConntrackTcp::new(Protocols::Test, &PktInfoStack::new(Protocols::Tcp));
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
@@ -565,7 +553,7 @@ mod tests {
         ProtoTest::add_expectation(&[ 6 ], 0);
         ProtoTest::add_expectation(&[ 7 ], 0);
 
-        let mut ct = ConntrackTcp::new(Protocols::Test);
+        let mut ct = ConntrackTcp::new(Protocols::Test, &PktInfoStack::new(Protocols::Tcp));
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
@@ -595,7 +583,7 @@ mod tests {
         ProtoTest::add_expectation(&[ 0 ], 0); // Gap filled for missing packet
         ProtoTest::add_expectation(&[ 3 ], 0);
 
-        let mut ct = ConntrackTcp::new(Protocols::Test);
+        let mut ct = ConntrackTcp::new(Protocols::Test, &PktInfoStack::new(Protocols::Tcp));
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
@@ -619,7 +607,7 @@ mod tests {
         ProtoTest::add_expectation(&[ 3 ], 0);
         ProtoTest::add_expectation(&[ 11 ], 0);
 
-        let mut ct = ConntrackTcp::new(Protocols::Test);
+        let mut ct = ConntrackTcp::new(Protocols::Test, &PktInfoStack::new(Protocols::Tcp));
         assert_eq!(ct.state, TcpState::New);
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);

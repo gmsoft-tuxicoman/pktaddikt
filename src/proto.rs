@@ -57,13 +57,13 @@ impl Proto {
         loop {
 
             ret = match infos.proto_last().proto {
-                Protocols::None => break,
                 Protocols::Test => ProtoTest::process(pkt, infos),
                 Protocols::Ethernet => ProtoEthernet::process(pkt, infos),
                 Protocols::Ipv4 => ProtoIpv4::process(pkt, infos),
                 Protocols::Ipv6 => ProtoIpv6::process(pkt, infos),
                 Protocols::Udp => ProtoUdp::process(pkt, infos),
-                Protocols::Tcp => ProtoTcp::process(pkt, infos)
+                Protocols::Tcp => ProtoTcp::process(pkt, infos),
+                _ => break,
             };
 
             if ret != ProtoParseResult::Ok {

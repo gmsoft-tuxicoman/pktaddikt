@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
-use crate::stream::PktStreamProcessor;
+use crate::stream::{PktStreamProcessor, PktStreamParser, StreamParseResult};
 use crate::packet::{Packet, PktData, PktDataOwned, PktTime, PktInfoStack};
 use crate::param::Param;
 use crate::conntrack::ConntrackDirection;
@@ -61,16 +61,18 @@ impl PktStreamProcessor for ProtoTest {
     }
 
 
-    fn process(&self, dir: ConntrackDirection, pkt: &mut Packet) {
-        let data = pkt.remaining_data();
+    fn process(&self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+        let data = parser.remaining_data();
         println!("Data: {:x?}, (len: {})", data, data.len());
 
         let expect_pkt = TEST_EXPECT.with(|expect| {
             expect.borrow_mut().remove(0)
         });
 
-        assert_eq!(expect_pkt.data, data);
-        assert_eq!(expect_pkt.ts, pkt.ts);
+        assert_eq!(expect_pkt.data, data.as_ref());
+        assert_eq!(expect_pkt.ts, parser.timestamp());
+
+        return StreamParseResult::Ok;
     }
 
 }

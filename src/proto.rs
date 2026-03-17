@@ -4,6 +4,7 @@ pub mod ipv4;
 pub mod ipv6;
 pub mod udp;
 pub mod tcp;
+pub mod http;
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::ProtoEthernet;
 use crate::proto::ipv4::ProtoIpv4;
@@ -25,7 +26,8 @@ pub enum Protocols {
     Ipv4,
     Ipv6,
     Udp,
-    Tcp
+    Tcp,
+    Http,
 }
 
 #[derive(PartialEq, Debug)]

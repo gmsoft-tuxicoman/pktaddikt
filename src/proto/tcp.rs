@@ -35,6 +35,7 @@ impl ProtoTcp {
     fn next_proto(port: u16) -> Protocols {
         match port {
             0 => Protocols::Test,
+            80 => Protocols::Http,
             _ => Protocols::None
         }
     }
@@ -128,7 +129,7 @@ impl ProtoPktProcessor for ProtoTcp {
 
 
         let mut ce_locked = ce.lock().unwrap();
-        let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(Protocols::Test, infos)) as ConntrackData)
+        let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData)
                     .downcast_mut::<ConntrackTcp>().unwrap();
 
         cd.process_packet(dir, seq, ack, flags, pkt);

@@ -142,6 +142,10 @@ impl<'a> Packet<'a> {
         ret
     }
 
+    pub fn peek(&self) -> &[u8] {
+        &self.data.data()[self.data_range.start..self.data_range.end]
+    }
+
     pub fn skip_bytes(&mut self, size: usize) -> Result<(),()> {
         trace!("Skipping {} bytes from pkt {:p}", size, self);
         if self.remaining_len() < size {

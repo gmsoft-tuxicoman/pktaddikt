@@ -65,7 +65,7 @@ fn main() {
 
     while let Ok(pcap_pkt) = cap.next_packet() {
 
-        let ts: PktTime = (pcap_pkt.header.ts.tv_sec as u64 * 1000000) + pcap_pkt.header.ts.tv_usec as u64;
+        let ts = PktTime::from_timeval(pcap_pkt.header.ts.tv_sec, pcap_pkt.header.ts.tv_usec);
         let pkt_data = PktDataBorrowed::new(pcap_pkt.data);
 
         let mut pkt = Packet::new(ts, pkt_data);

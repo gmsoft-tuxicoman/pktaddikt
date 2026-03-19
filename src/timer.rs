@@ -48,15 +48,15 @@ impl TimerManager {
     pub fn queue_new(duration: Duration, now: PktTime, action: TimerCb) -> TimerId {
         // Aquire lock
         let mut manager = TIMER_MANAGER.lock().unwrap();
-        manager.queue_new_locked(duration.as_micros() as u64, now, action)
+        manager.queue_new_locked(duration.into(), now, action)
     }
 
     fn queue_new_locked(&mut self, duration: PktTime, now: PktTime, action: TimerCb) -> TimerId {
 
         let timer = Timer {
                 action: Some(action),
-                duration: 0,
-                expiry: 0,
+                duration: PktTime::from_nsec(0),
+                expiry: PktTime::from_nsec(0),
                 next: None,
                 prev: None,
         };
@@ -74,7 +74,7 @@ impl TimerManager {
     pub fn requeue(tid: TimerId, duration: Duration, now: PktTime) -> TimerId {
         // Aquire lock
         let mut manager = TIMER_MANAGER.lock().unwrap();
-        manager.requeue_locked(tid, duration.as_micros() as u64, now)
+        manager.requeue_locked(tid, duration.into(), now)
     }
 
 
@@ -160,7 +160,7 @@ impl TimerManager {
     }
 
     pub fn update_time(new_time: PktTime) {
-        TIMER_NOW.fetch_max(new_time, Ordering::Relaxed);
+        TIMER_NOW.fetch_max(new_time.into(), Ordering::Relaxed);
     }
 
 
@@ -175,7 +175,7 @@ impl TimerManager {
                 Err(TryLockError::WouldBlock) => return,
                 _ => panic!("Unexpected lock error")
             };
-            let now = TIMER_NOW.load(Ordering::Relaxed);
+            let now = PktTime::from_nsec(TIMER_NOW.load(Ordering::Relaxed));
             actions = manager.collect_timers_locked(now);
         }
 

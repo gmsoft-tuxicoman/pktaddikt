@@ -77,7 +77,7 @@ impl Proto {
 
         let processing_time = start.elapsed();
 
-        print!("{}.{} ", pkt.ts / 1000000, pkt.ts % 1000000);
+        print!("{} ", pkt.ts);
         for i in infos.iter() {
             if i.proto == Protocols::None {
                 break;

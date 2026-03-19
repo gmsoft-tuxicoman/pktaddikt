@@ -5,10 +5,50 @@ use std::sync::Arc;
 use std::ops::Range;
 use tracing::trace;
 use rangemap::RangeSet;
+use std::fmt;
+use std::time::Duration;
+use std::ops::Add;
 
 
 // Time in microsecond
-pub type PktTime = u64;
+#[derive(PartialEq,Debug,Clone,Copy,Eq,PartialOrd,Ord)]
+pub struct PktTime(u64);
+
+impl PktTime {
+    pub fn from_timeval(tv_sec: i64, tv_usec: i64) -> PktTime {
+        PktTime((tv_sec as u64 * 1000000) + tv_usec as u64)
+    }
+
+    pub fn from_nsec(nsec: u64) -> PktTime {
+        PktTime(nsec)
+    }
+}
+
+impl fmt::Display for PktTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.0 / 1000000, self.0 % 1000000)
+    }
+}
+
+impl From<Duration> for PktTime {
+    fn from(d: Duration) -> Self {
+        PktTime(d.as_nanos() as u64)
+    }
+}
+
+impl From<PktTime> for u64 {
+    fn from(d: PktTime) -> Self {
+        d.0
+    }
+}
+
+impl Add<PktTime> for PktTime {
+    type Output = PktTime;
+
+    fn add(self, rhs: PktTime) -> Self::Output {
+        PktTime(self.0 + rhs.0)
+    }
+}
 
 // Stack of packet info
 pub struct PktInfoStack<'a> {

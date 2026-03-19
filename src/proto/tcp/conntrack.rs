@@ -71,6 +71,7 @@ pub struct ConntrackTcp {
     stream: PktStream,
     state: TcpState,
     start_ts: Option<PktTime>,
+    last_ts: Option<PktTime>,
     sport: u16,
     dport: u16,
     conn_id: Option<EventId>,
@@ -102,6 +103,7 @@ impl ConntrackTcp {
             stream: PktStream::new(proto, infos),
             state: TcpState::New,
             start_ts: None,
+            last_ts: None,
             sport: infos.proto_before_last().get_field(0).value.unwrap().get_u16(),
             dport: infos.proto_before_last().get_field(1).value.unwrap().get_u16(),
             conn_id: None,
@@ -201,30 +203,35 @@ impl ConntrackTcp {
             new_state = TcpState::Established;
         }
         
+        self.last_ts = Some(ts);
+
         if new_state > self.state {
             self.state = new_state;
-
             if new_state == TcpState::Closed {
-                // Send the end event
-                let evt_data = Box::new(EventConnTcpEnd {
-                    conn_id: self.conn_id.clone().unwrap(),
-                    duration: (ts - self.start_ts.unwrap()).into(),
-                    sport: self.sport,
-                    dport: self.dport,
-                    fwd_bytes: self.forward.tot_bytes,
-                    rev_bytes: self.reverse.tot_bytes,
-                    fwd_pkts: self.forward.tot_pkts,
-                    rev_pkts: self.reverse.tot_pkts,
-                    fwd_missed_bytes: self.forward.missed_bytes,
-                    rev_missed_bytes: self.reverse.missed_bytes,
-
-                });
-                let evt = Event::new("conn.tcp.end", ts, evt_data);
-                evt.send();
+                self.send_conn_end_evt();
             }
+
         }
+    }
 
+    fn send_conn_end_evt(&self) {
+        // Send the end event
+        let last_ts = self.last_ts.unwrap();
+        let evt_data = Box::new(EventConnTcpEnd {
+            conn_id: self.conn_id.clone().unwrap(),
+            duration: (last_ts - self.start_ts.unwrap()).into(),
+            sport: self.sport,
+            dport: self.dport,
+            fwd_bytes: self.forward.tot_bytes,
+            rev_bytes: self.reverse.tot_bytes,
+            fwd_pkts: self.forward.tot_pkts,
+            rev_pkts: self.reverse.tot_pkts,
+            fwd_missed_bytes: self.forward.missed_bytes,
+            rev_missed_bytes: self.reverse.missed_bytes,
 
+        });
+        let evt = Event::new("conn.tcp.end", last_ts, evt_data);
+        evt.send();
     }
 
     pub fn get_state(&self) -> TcpState {
@@ -522,6 +529,10 @@ impl Drop for ConntrackTcp {
         // Make sure all the packets get processed
         while self.forward.pkts.len() > 0 || self.reverse.pkts.len() > 0 {
             self.force_dequeue();
+        }
+
+        if self.state != TcpState::Closed {
+            self.send_conn_end_evt();
         }
     }
 

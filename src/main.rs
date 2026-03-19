@@ -14,6 +14,7 @@ pub mod param;
 pub mod packet;
 pub mod timer;
 pub mod stream;
+pub mod event;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);

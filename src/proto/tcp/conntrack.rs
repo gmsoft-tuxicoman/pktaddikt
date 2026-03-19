@@ -5,11 +5,19 @@ use crate::proto::tcp::seq::TcpSeq;
 use crate::packet::{Packet, PktTime, PktDataZero, PktInfoStack};
 use crate::stream::PktStream;
 use crate::proto::Protocols;
+use crate::event::{Event, EventId};
 
 use std::collections::BTreeMap;
 use tracing::{debug, trace};
 
 const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
+
+#[derive(Debug)]
+struct EventConnTcpStart {
+    conn_id: EventId,
+    sport: u16,
+    dport: u16,
+}
 
 struct TcpPacket {
 
@@ -30,20 +38,26 @@ pub enum TcpState {
     Closed
 }
 
-struct ConntrackTcpQueue {
+struct ConntrackTcpDir {
 
     start_seq: Option<TcpSeq>,
     cur_seq: Option<TcpSeq>,
     pkts: BTreeMap<TcpSeq, TcpPacket>,
-    size: usize,
+    buff_size: usize,
+    tot_bytes: usize,
+    tot_pkts: usize,
 }
 
 pub struct ConntrackTcp {
 
-    forward: ConntrackTcpQueue,
-    reverse: ConntrackTcpQueue,
+    forward: ConntrackTcpDir,
+    reverse: ConntrackTcpDir,
     stream: PktStream,
-    state: TcpState
+    state: TcpState,
+    start_ts: Option<PktTime>,
+    sport: u16,
+    dport: u16,
+    conn_id: Option<EventId>,
 }
 
 impl ConntrackTcp {
@@ -51,25 +65,33 @@ impl ConntrackTcp {
     pub fn new(proto: Protocols, infos: &PktInfoStack) -> Self {
 
         let ct = ConntrackTcp {
-            forward: ConntrackTcpQueue {
+            forward: ConntrackTcpDir {
                 start_seq: None,
                 cur_seq: None,
                 pkts: BTreeMap::new(),
-                size: 0,
+                buff_size: 0,
+                tot_bytes: 0,
+                tot_pkts: 0,
             },
-            reverse: ConntrackTcpQueue {
+            reverse: ConntrackTcpDir {
                 start_seq: None,
                 cur_seq: None,
                 pkts: BTreeMap::new(),
-                size: 0,
+                buff_size: 0,
+                tot_bytes: 0,
+                tot_pkts: 0,
             },
             stream: PktStream::new(proto, infos),
-            state: TcpState::New
+            state: TcpState::New,
+            start_ts: None,
+            sport: infos.proto_before_last().get_field(0).value.unwrap().get_u16(),
+            dport: infos.proto_before_last().get_field(1).value.unwrap().get_u16(),
+            conn_id: None,
         };
         ct
     }
 
-    fn get_queue(&self, dir: ConntrackDirection) -> &ConntrackTcpQueue {
+    fn get_dir(&self, dir: ConntrackDirection) -> &ConntrackTcpDir {
         match dir {
             ConntrackDirection::Forward => &self.forward,
             ConntrackDirection::Reverse => &self.reverse,
@@ -77,7 +99,7 @@ impl ConntrackTcp {
         }
     }
 
-    fn get_queue_mut(&mut self, dir: ConntrackDirection) -> &mut ConntrackTcpQueue {
+    fn get_dir_mut(&mut self, dir: ConntrackDirection) -> &mut ConntrackTcpDir {
         match dir {
             ConntrackDirection::Forward => &mut self.forward,
             ConntrackDirection::Reverse => &mut self.reverse,
@@ -87,7 +109,7 @@ impl ConntrackTcp {
 
     fn send_packet(&mut self, dir: ConntrackDirection, flags: u8, data: &mut Packet) {
         self.update_state(dir, flags);
-        let queue = self.get_queue_mut(dir);
+        let queue = self.get_dir_mut(dir);
         *queue.cur_seq.as_mut().unwrap() += data.remaining_len() as u32;
         if flags & TCP_TH_FIN != 0 {
             // FIN packet increase seq by 1
@@ -104,7 +126,7 @@ impl ConntrackTcp {
 
     fn queue_packet(&mut self, dir: ConntrackDirection, seq: TcpSeq, ack: TcpSeq, flags: u8, data: &mut Packet) {
 
-        let queue = self.get_queue_mut(dir);
+        let queue = self.get_dir_mut(dir);
         let new_size = data.remaining_len();
         let old_pkt_opt = queue.pkts.insert(seq, TcpPacket {
             seq: seq,
@@ -120,8 +142,8 @@ impl ConntrackTcp {
                 queue.pkts.insert(seq, old_pkt);
             }
         } else {
-            queue.size += new_size;
-            if queue.size > CONNTRACK_TCP_MAX_BUFFER {
+            queue.buff_size += new_size;
+            if queue.buff_size > CONNTRACK_TCP_MAX_BUFFER {
                 self.force_dequeue();
             }
         }
@@ -177,13 +199,34 @@ impl ConntrackTcp {
         let ack = TcpSeq(ack_u32);
         let op_dir = dir.opposite();
 
+        {
+            // Update stats
+            let queue = self.get_dir_mut(dir);
+            queue.tot_pkts += 1;
+            queue.tot_bytes += data.remaining_len();
+        }
+
+        // Send the start event
+        if self.start_ts.is_none() {
+            self.start_ts = Some(data.ts);
+            self.conn_id = Some(EventId::new(data.ts, self as *const ConntrackTcp as *const u8));
+            let evt_data = Box::new(EventConnTcpStart {
+                conn_id: self.conn_id.clone().unwrap(),
+                sport: self.sport,
+                dport: self.dport,
+            });
+
+            let evt = Event::new("conn.tcp.start", data.ts, evt_data);
+            evt.send();
+        }
+
 
         // Let's handle the SYN flag first
         if (flags & TCP_TH_SYN) != 0 {
             seq += 1;
 
 
-            match self.get_queue(dir).start_seq {
+            match self.get_dir(dir).start_seq {
                 // We knew about the start seq but we have a new SYN with a different start seq
                 Some(start_seq) => if start_seq != seq {
                     debug!("Possible reused TCP connection {:p} in direction {:?}: old seq {:?}, new seq {:?}", &self, dir, start_seq, seq);
@@ -191,7 +234,7 @@ impl ConntrackTcp {
 
                 // We just learned the start sequence
                 None => {
-                    let queue = self.get_queue_mut(dir);
+                    let queue = self.get_dir_mut(dir);
                     queue.start_seq = Some(seq);
                     queue.cur_seq = Some(seq); // We can start in this direction since we have a packet
                     trace!("TCP connection {:p}: start seq {:?} in direction {:?} from SYN", &self, seq, dir);
@@ -203,12 +246,12 @@ impl ConntrackTcp {
             if (flags & TCP_TH_ACK) != 0 {
                 // We got a SYN+ACK !
 
-                match self.get_queue(op_dir).start_seq {
+                match self.get_dir(op_dir).start_seq {
                     Some(start_seq) => if start_seq != ack {
                         debug!("Most definitely a reused TCP connection {:p} in direction {:?}: old seq {:?}, new seq {:?}", &self, op_dir, start_seq, ack);
                     },
                     None => {
-                        let queue = self.get_queue_mut(op_dir);
+                        let queue = self.get_dir_mut(op_dir);
                         queue.start_seq = Some(ack);
                         queue.cur_seq = Some(seq); // Reverse direction is confirmed
                         trace!("TCP connection {:p}: start seq {:?} from SYN+ACK in direction {:?}", &self, seq, op_dir);
@@ -221,10 +264,10 @@ impl ConntrackTcp {
         } else {
             // Check if we have the ACK right after the SYN in case we have a uni directional
             // capture
-            if (flags & TCP_TH_ACK) != 0 && self.get_queue(dir).start_seq == Some(seq) {
+            if (flags & TCP_TH_ACK) != 0 && self.get_dir(dir).start_seq == Some(seq) {
                 self.update_state(dir, flags);
-                if self.get_queue(op_dir).start_seq.is_none() {
-                    self.get_queue_mut(op_dir).start_seq = Some(ack);
+                if self.get_dir(op_dir).start_seq.is_none() {
+                    self.get_dir_mut(op_dir).start_seq = Some(ack);
                     trace!("TCP connection {:p}: start seq {:?} from ACK after SYN", &self, seq);
                 }
             }
@@ -250,9 +293,9 @@ impl ConntrackTcp {
         // At this point we should know about sequences in both directions
 
 
-        let cur_seq = self.get_queue(dir).cur_seq.unwrap();
+        let cur_seq = self.get_dir(dir).cur_seq.unwrap();
         let end_seq = seq + data.remaining_len() as u32;
-        let cur_ack = self.get_queue(op_dir).cur_seq.unwrap();
+        let cur_ack = self.get_dir(op_dir).cur_seq.unwrap();
 
 
         // Let's see if we can process it
@@ -324,7 +367,7 @@ impl ConntrackTcp {
                 if end_seq <= cur_seq {
                     // Duplicate
                     //trace!("TCP connection {:p}: gap: cur_seq {:?}, pkt_seq {:?}", &self, cur_seq, pkt.seq);
-                    queue.size -= entry.remove().data.remaining_len();
+                    queue.buff_size -= entry.remove().data.remaining_len();
                     continue;
                 }
 
@@ -350,7 +393,7 @@ impl ConntrackTcp {
 
                 // Remove this packet from the list
                 let ret = entry.remove();
-                queue.size -= ret.data.remaining_len();
+                queue.buff_size -= ret.data.remaining_len();
                 break Some(ret);
 
             };

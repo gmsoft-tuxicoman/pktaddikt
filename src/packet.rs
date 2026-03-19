@@ -81,6 +81,10 @@ impl<'a> PktInfoStack<'a> {
         self.infos.push(info);
     }
 
+    pub fn proto_before_last(&self) -> &PktInfo<'a> {
+        &self.infos[self.infos.len() - 2]
+    }
+
     pub fn proto_last(&self) -> &PktInfo<'a> {
         self.infos.last().unwrap()
     }
@@ -107,6 +111,10 @@ impl<'a> PktInfo<'a> {
 
     pub fn parent_ce(&self) -> Option<ConntrackWeakRef> {
         Some(Arc::downgrade(self.parent_ce.as_ref()?))
+    }
+
+    pub fn get_field(&self, id: usize) -> &Param<'a> {
+        &self.fields[id]
     }
 
 }

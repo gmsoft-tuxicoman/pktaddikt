@@ -319,7 +319,6 @@ impl ConntrackTcp {
             return;
         }
 
-
         if self.forward.cur_seq.is_none() || self.reverse.cur_seq.is_none() {
 
             // We don't know the sequences in both direction so let's queue the packet
@@ -330,7 +329,6 @@ impl ConntrackTcp {
 
         // At this point we should know about sequences in both directions
 
-
         let cur_seq = self.get_dir(dir).cur_seq.unwrap();
         let end_seq = seq + data.remaining_len() as u32;
         let cur_ack = self.get_dir(op_dir).cur_seq.unwrap();
@@ -338,7 +336,7 @@ impl ConntrackTcp {
 
         // Let's see if we can process it
 
-        if end_seq <= cur_seq {
+        if end_seq <= cur_seq && (flags & TCP_TH_FIN) == 0 {
             // Old dupe packet, the whole payload is before the sequence we expected
             return;
         }
@@ -697,7 +695,6 @@ mod tests {
 
         ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
         ProtoTest::add_expectation(&[ 2 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 3 ], PktTime::from_nanos(0));
         ProtoTest::add_expectation(&[ 11 ], PktTime::from_nanos(0));
 
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
@@ -705,7 +702,7 @@ mod tests {
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
         assert_eq!(ct.state, TcpState::SynSent);
-        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 0, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
         assert_eq!(ct.state, TcpState::SynRecv);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
         assert_eq!(ct.state, TcpState::Established);
@@ -713,9 +710,11 @@ mod tests {
         assert_eq!(ct.state, TcpState::Established);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 2, 11, 0, &[ 2 ]);
         assert_eq!(ct.state, TcpState::Established);
-        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 11, TCP_TH_FIN, &[ 3 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 11, 2, 0, &[ 11 ]);
+        assert_eq!(ct.state, TcpState::Established);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 12, TCP_TH_FIN, &[ ]);
         assert_eq!(ct.state, TcpState::HalfClosedFwd);
-        queue_pkt(&mut ct, ConntrackDirection::Reverse, 11, 5, TCP_TH_FIN, &[ 11 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 4, TCP_TH_FIN, &[ ]);
         assert_eq!(ct.state, TcpState::Closed);
 
         ProtoTest::assert_empty();

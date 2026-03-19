@@ -7,7 +7,7 @@ use tracing::trace;
 use rangemap::RangeSet;
 use std::fmt;
 use std::time::Duration;
-use std::ops::Add;
+use std::ops::{Add, Sub};
 
 
 // Time in microsecond
@@ -19,7 +19,7 @@ impl PktTime {
         PktTime((tv_sec as u64 * 1000000) + tv_usec as u64)
     }
 
-    pub fn from_nsec(nsec: u64) -> PktTime {
+    pub fn from_nanos(nsec: u64) -> PktTime {
         PktTime(nsec)
     }
 }
@@ -36,6 +36,12 @@ impl From<Duration> for PktTime {
     }
 }
 
+impl From<PktTime> for Duration {
+    fn from(d: PktTime) -> Self {
+        Duration::from_nanos(d.0)
+    }
+}
+
 impl From<PktTime> for u64 {
     fn from(d: PktTime) -> Self {
         d.0
@@ -47,6 +53,14 @@ impl Add<PktTime> for PktTime {
 
     fn add(self, rhs: PktTime) -> Self::Output {
         PktTime(self.0 + rhs.0)
+    }
+}
+
+impl Sub<PktTime> for PktTime {
+    type Output = PktTime;
+
+    fn sub(self, rhs: PktTime) -> Self::Output {
+        PktTime(self.0 - rhs.0)
     }
 }
 

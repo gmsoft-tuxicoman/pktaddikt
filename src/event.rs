@@ -14,7 +14,6 @@ impl EventId {
     pub fn new(ts: PktTime, ptr: *const u8) -> EventId {
 
         let val: u128 = ((u64::from(ts) as u128) << 64) | ((ptr as u128));
-        println!("TS : {:x?}, PTR : {:x?}, val: {:x?}", ts, ptr, val);
         EventId {
             id: base62::encode(val)
         }

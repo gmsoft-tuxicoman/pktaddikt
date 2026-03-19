@@ -233,7 +233,7 @@ mod tests {
     fn ipv4_parse_basic() {
         let data = vec![ 0x45, 0x00, 0x00, 0x16, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40, 0xde, 0xad ];
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, pkt_data);
+        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
         let ret = ProtoIpv4::process(&mut pkt, &mut infos);
@@ -260,7 +260,7 @@ mod tests {
     #[traced_test]
     fn ipv4_packet_too_short() {
         let data = vec![ 0x45, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, 0);
+        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Payload lenght smaller than IP header"));
     }
@@ -269,7 +269,7 @@ mod tests {
     #[traced_test]
     fn ipv4_invalid_version() {
         let data = vec![ 0x55, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, 0);
+        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Invalid protocol version : 5"));
     }
@@ -278,7 +278,7 @@ mod tests {
     #[traced_test]
     fn ipv4_hlen_too_short() {
         let data = vec![ 0x44, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, 0);
+        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Header length too small"));
     }
@@ -287,7 +287,7 @@ mod tests {
     #[traced_test]
     fn ipv4_totlen_too_short() {
         let data = vec![ 0x45, 0x00, 0x00, 0x14, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, 0);
+        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Total length shorter than header size"));
     }
@@ -296,7 +296,7 @@ mod tests {
     #[traced_test]
     fn ipv4_truncated_pkt() {
         let data = vec![ 0x45, 0x00, 0x00, 0xff, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, 0);
+        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Stop);
         assert!(logs_contain("Truncated packet"));
     }
@@ -305,7 +305,7 @@ mod tests {
     fn ipv4_pkt_shrink() {
         let data = vec![ 0x45, 0x00, 0x00, 0x15, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0xff, 0xff ];
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, pkt_data);
+        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
         let ret = ProtoIpv4::process(&mut pkt, &mut infos);
@@ -329,13 +329,13 @@ mod tests {
         let data3 = vec![ 0x45, 0x00, 0x00, 0x15, 0x05, 0x39, 0x00, 0x02, 0x40, 0xff, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0c ];
 
         let expect_data = vec![ 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0c];
-        ProtoTest::add_expectation(&expect_data, 2);
+        ProtoTest::add_expectation(&expect_data, PktTime::from_nanos(2));
 
-        let ret1 = ipv4_parse_test(&data1, 0);
+        let ret1 = ipv4_parse_test(&data1, PktTime::from_nanos(0));
         assert_eq!(ret1, ProtoParseResult::Stop);
-        let ret2 = ipv4_parse_test(&data2, 1);
+        let ret2 = ipv4_parse_test(&data2, PktTime::from_nanos(1));
         assert_eq!(ret2, ProtoParseResult::Stop);
-        let ret3 = ipv4_parse_test(&data3, 2);
+        let ret3 = ipv4_parse_test(&data3, PktTime::from_nanos(2));
         assert_eq!(ret3, ProtoParseResult::Stop);
 
         ProtoTest::assert_empty();
@@ -345,7 +345,7 @@ mod tests {
     fn ipv4_frag_not_8byte_multiple() {
         // Frag 2 continued data with 0xb data
         let data = vec![ 0x45, 0x00, 0x00, 0x1b, 0x05, 0x39, 0x20, 0x01, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b ];
-        let ret = ipv4_parse_test(&data, 0);
+        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
 
     }

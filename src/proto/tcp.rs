@@ -165,14 +165,14 @@ impl ProtoPktProcessor for ProtoTcp {
 mod tests {
 
     use super::*;
-    use crate::packet::PktDataBorrowed;
+    use crate::packet::{PktTime, PktDataBorrowed};
     use crate::param::tests::param_assert_eq;
     use crate::proto::ProtoTest;
     use tracing_test::traced_test;
 
     fn tcp_parse_test(data: &[u8]) -> ProtoParseResult {
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, pkt_data);
+        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         ProtoTcp::process(&mut pkt, &mut infos)
@@ -183,7 +183,7 @@ mod tests {
     fn tcp_parse_basic() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, pkt_data);
+        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::process(&mut pkt, &mut infos);
@@ -236,10 +236,10 @@ mod tests {
     fn tcp_skip_options() {
         let data = vec![ 0x00, 0x01, 0x00, 0x00, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x70, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xdd ];
 
-        ProtoTest::add_expectation(&[ 0xdd ] , 0);
+        ProtoTest::add_expectation(&[ 0xdd ] , PktTime::from_nanos(0));
 
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(0, pkt_data);
+        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::process(&mut pkt, &mut infos);

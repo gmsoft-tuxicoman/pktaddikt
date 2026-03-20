@@ -148,13 +148,17 @@ impl ConntrackTcp {
 
     fn queue_packet(&mut self, dir: ConntrackDirection, seq: TcpSeq, ack: TcpSeq, flags: u8, data: &mut Packet) {
 
-        let queue = self.get_dir_mut(dir);
         let new_size = data.remaining_len();
+        let new_data = match self.stream {
+            Some(_) => data.clone(),
+            None => data.clone_zero(),
+        };
+        let queue = self.get_dir_mut(dir);
         let old_pkt_opt = queue.pkts.insert(seq, TcpPacket {
             seq: seq,
             ack: ack,
             flags: flags,
-            data: data.clone(),
+            data: new_data,
         });
 
         if let Some(old_pkt) = old_pkt_opt {

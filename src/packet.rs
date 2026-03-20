@@ -248,6 +248,15 @@ impl<'a> Packet<'a> {
         }
     }
 
+    /// Clone the packet metadata only. The actualy payload is replaced with PktDataZero
+    pub fn clone_zero(&self) -> Packet<'static> {
+        Packet {
+            ts: self.ts,
+            data: PktDataZero::new(self.data.data().len()),
+            data_range: self.data_range.clone(),
+        }
+    }
+
 }
 
 // Data of a packet

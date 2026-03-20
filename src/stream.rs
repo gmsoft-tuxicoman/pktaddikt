@@ -39,16 +39,16 @@ pub struct PktStreamParser<'a, 'b> {
 
 impl PktStream {
 
-    pub fn new(proto: Protocols, infos: &PktInfoStack) -> PktStream {
-        PktStream {
+    pub fn new(proto: Protocols, infos: &PktInfoStack) -> Option<PktStream> {
+        Some(PktStream {
             proto: match proto {
                 Protocols::Test => PktStreamProto::Test(ProtoTest::new(infos)),
                 Protocols::Http => PktStreamProto::Http(ProtoHttp::new(infos)),
-                _ => panic!("Unsupported protocol"),
+                _ => return None
             },
             pkt_buff_fwd: Vec::new(),
             pkt_buff_rev: Vec::new(),
-        }
+        })
     }
 
     pub fn process_packet(&mut self, dir: ConntrackDirection, pkt: &mut Packet) {

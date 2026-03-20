@@ -68,7 +68,7 @@ pub struct ConntrackTcp {
 
     forward: ConntrackTcpDir,
     reverse: ConntrackTcpDir,
-    stream: PktStream,
+    stream: Option<PktStream>,
     state: TcpState,
     start_ts: Option<PktTime>,
     last_ts: Option<PktTime>,
@@ -141,7 +141,9 @@ impl ConntrackTcp {
             return;
         }
         debug!("Sending packet with ts {}", data.ts);
-        self.stream.process_packet(dir, data);
+        if self.stream.is_some() {
+            self.stream.as_mut().unwrap().process_packet(dir, data);
+        }
     }
 
     fn queue_packet(&mut self, dir: ConntrackDirection, seq: TcpSeq, ack: TcpSeq, flags: u8, data: &mut Packet) {
@@ -468,22 +470,30 @@ impl ConntrackTcp {
 
         // Check if we have a gap in the forward direction
         if let Some(entry) = self.forward.pkts.first_entry() {
+            let pkt = entry.get();
+            ts_fwd = Some(pkt.data.ts);
             if let Some(cur_seq) = self.forward.cur_seq {
-                let pkt = entry.get();
-                ts_fwd = Some(pkt.data.ts);
                 gap_fwd = usize::from(pkt.seq - cur_seq)
+            } else {
+                // We didn't capture the start of the connections, let's start it now
+                self.forward.start_seq = Some(pkt.seq);
+                self.forward.cur_seq = Some(pkt.seq);
             }
         }
 
         // Check if we have a gap in the reverse direction
         if let Some(entry) = self.reverse.pkts.first_entry() {
+            let pkt = entry.get();
+            ts_rev = Some(pkt.data.ts);
             if let Some(cur_seq) = self.reverse.cur_seq {
-                let pkt = entry.get();
-                ts_rev = Some(pkt.data.ts);
                 gap_rev = usize::from(pkt.seq - cur_seq);
                 if gap_rev > 0 {
                     dir = ConntrackDirection::Reverse;
                 }
+            } else {
+                // We didn't capture the start of the connections, let's start it now
+                self.reverse.start_seq = Some(pkt.seq);
+                self.reverse.cur_seq = Some(pkt.seq);
             }
         }
 

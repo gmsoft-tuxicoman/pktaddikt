@@ -117,11 +117,6 @@ impl ProtoPktProcessor for ProtoTcp {
             proto => proto
         };
 
-        if next_proto == Protocols::None {
-            infos.proto_push(next_proto, None);
-            return ProtoParseResult::Ok;
-        }
-
         let ct_key = ConntrackKeyTcp { a: sport, b: dport };
         let (ce, dir) = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce());
 
@@ -187,7 +182,7 @@ mod tests {
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Ok);
+        assert_eq!(ret, ProtoParseResult::Stop);
 
         let info = infos.iter().next().unwrap();
         let mut field_iter = info.iter_fields();

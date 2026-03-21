@@ -304,7 +304,7 @@ impl ConntrackTcp {
                     None => {
                         let queue = self.get_dir_mut(op_dir);
                         queue.start_seq = Some(ack);
-                        queue.cur_seq = Some(seq); // Reverse direction is confirmed
+                        queue.cur_seq = Some(ack); // Reverse direction is confirmed
                         trace!("TCP connection {:p}: start seq {:?} from SYN+ACK in direction {:?}", &self, seq, op_dir);
                     }
                 }

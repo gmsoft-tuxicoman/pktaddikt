@@ -130,11 +130,12 @@ impl ConntrackTcp {
     fn send_packet(&mut self, dir: ConntrackDirection, flags: u8, data: &mut Packet) {
         self.update_state(dir, flags, data.ts);
         let queue = self.get_dir_mut(dir);
-        *queue.cur_seq.as_mut().unwrap() += data.remaining_len() as u32;
-        if flags & TCP_TH_FIN != 0 {
-            // FIN packet increase seq by 1
-            *queue.cur_seq.as_mut().unwrap() += 1;
+        let mut seq_advance = data.remaining_len() as u32;
+        if (flags & TCP_TH_FIN) != 0 {
+            seq_advance += 1;
         }
+
+        *queue.cur_seq.as_mut().unwrap() += seq_advance;
 
         if data.remaining_len() == 0 {
             // Discard empty FIN or RST packet
@@ -325,6 +326,7 @@ impl ConntrackTcp {
         }
 
 
+
         // Now, let's check what to do with this packet
 
         if (data.remaining_len() == 0) && (flags & (TCP_TH_FIN | TCP_TH_RST) == 0) {
@@ -332,31 +334,33 @@ impl ConntrackTcp {
             return;
         }
 
-        if self.forward.cur_seq.is_none() || self.reverse.cur_seq.is_none() {
-
-            // We don't know the sequences in both direction so let's queue the packet
-            trace!("Queuing TCP packet (start_seq not known) seq: {:?}, ack: {:?}, dir: {:?}", seq, ack, dir);
-            self.queue_packet(dir, seq, ack, flags, data);
-            return
-        }
-
         // At this point we should know about sequences in both directions
 
-        let cur_seq = self.get_dir(dir).cur_seq.unwrap();
-        let end_seq = seq + data.remaining_len() as u32;
-        let cur_ack = self.get_dir(op_dir).cur_seq.unwrap();
+        let cur_seq = match self.get_dir(dir).cur_seq {
+            Some(s) => s,
+            None => {
+                // We don't know the start sequences so let's queue the packet
+                trace!("Queuing TCP packet (start_seq not known) seq: {:?}, ack: {:?}, dir: {:?}", seq, ack, dir);
+                self.queue_packet(dir, seq, ack, flags, data);
+                return
+            }
+        };
+        let mut end_seq = seq + data.remaining_len() as u32;
 
+        if (flags & TCP_TH_FIN) != 0 {
+            end_seq += 1;
+        }
 
         // Let's see if we can process it
 
-        if end_seq <= cur_seq && (flags & TCP_TH_FIN) == 0 {
+        if end_seq <= cur_seq {
             // Old dupe packet, the whole payload is before the sequence we expected
             return;
         }
 
         if seq < cur_seq {
             // Some payload was already process
-            let dupe: usize = (cur_seq - seq).into();
+            let mut dupe: usize = (cur_seq - seq).into();
 
             // Skip the part we know about
             data.skip_bytes(dupe).unwrap();
@@ -371,6 +375,18 @@ impl ConntrackTcp {
             self.queue_packet(dir, seq, ack, flags, data);
             return
         }
+
+        // Let's check the ack now
+        let cur_ack = match self.get_dir(op_dir).cur_seq {
+            Some(a) => a,
+            None => {
+                // We don't know the ack so let's queue the packet
+                trace!("Queuing TCP packet (ack not known) seq: {:?}, ack: {:?}, dir: {:?}", seq, ack, dir);
+                self.queue_packet(dir, seq, ack, flags, data);
+                return
+            }
+        };
+
 
         if cur_ack < ack {
             // The host processed some data in the reverse direction which we haven't processed yet
@@ -515,6 +531,8 @@ impl ConntrackTcp {
         };
 
         self.get_dir_mut(dir).missed_bytes += gap;
+
+        trace!("Filling gap of {} bytes", gap);
 
         while gap > 0 {
             let filler_len = match gap > PktDataZero::max_len() {

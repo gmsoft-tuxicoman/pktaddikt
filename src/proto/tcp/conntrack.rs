@@ -78,7 +78,7 @@ pub struct ConntrackTcp {
     stream: Option<PktStream>,
     state: TcpState,
     start_ts: Option<PktTime>,
-    last_ts: Option<PktTime>,
+    last_ts: PktTime,
     conn_id: Option<EventId>,
     flow_state: ConntrackTcpFlowState,
     sport: u16,
@@ -111,7 +111,7 @@ impl ConntrackTcp {
             stream: PktStream::new(proto, infos),
             state: TcpState::New,
             start_ts: None,
-            last_ts: None,
+            last_ts: PktTime::from_nanos(0),
             conn_id: None,
             flow_state: ConntrackTcpFlowState::Probing,
             sport: infos.proto_before_last().get_field(0).value.unwrap().get_u16(),
@@ -225,8 +225,6 @@ impl ConntrackTcp {
             new_state = TcpState::Established;
         }
         
-        self.last_ts = Some(ts);
-
         if new_state > self.state {
             self.state = new_state;
             if new_state == TcpState::Closed {
@@ -238,10 +236,9 @@ impl ConntrackTcp {
 
     fn send_conn_end_evt(&self) {
         // Send the end event
-        let last_ts = self.last_ts.unwrap();
         let evt_pload = NetTcpConnectionEnd {
             conn_id: self.conn_id.clone().unwrap(),
-            duration: (last_ts - self.start_ts.unwrap()).into(),
+            duration: (self.last_ts - self.start_ts.unwrap()).into(),
             sport: self.sport,
             dport: self.dport,
             fwd_bytes: self.forward.tot_bytes,
@@ -252,7 +249,7 @@ impl ConntrackTcp {
             rev_missed_bytes: self.reverse.missed_bytes,
 
         };
-        let evt = Event::new(last_ts, EventPayload::NetTcpConnectionEnd(evt_pload));
+        let evt = Event::new(self.last_ts, EventPayload::NetTcpConnectionEnd(evt_pload));
         evt.send();
     }
 
@@ -285,6 +282,10 @@ impl ConntrackTcp {
 
             let evt = Event::new(data.ts, EventPayload::NetTcpConnectionStart(evt_pload));
             evt.send();
+        }
+
+        if self.last_ts < data.ts {
+            self.last_ts = data.ts;
         }
 
 
@@ -867,6 +868,13 @@ mod tests {
         assert_eq!(ct.state, TcpState::Closed);
 
         ProtoTest::assert_empty();
+    }
+
+    #[test]
+    fn conntrack_tcp_rst() {
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_RST, &[]);
     }
 
 }

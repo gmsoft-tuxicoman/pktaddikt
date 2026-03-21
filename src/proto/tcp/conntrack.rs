@@ -386,7 +386,7 @@ impl ConntrackTcp {
 
         if seq < cur_seq {
             // Some payload was already process
-            let mut dupe: usize = (cur_seq - seq).into();
+            let dupe: usize = (cur_seq - seq).into();
 
             // Skip the part we know about
             data.skip_bytes(dupe).unwrap();

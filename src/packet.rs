@@ -209,7 +209,7 @@ impl<'a> Packet<'a> {
     }
 
     pub fn skip_bytes(&mut self, size: usize) -> Result<(),()> {
-        trace!("Skipping {} bytes from pkt {:p}", size, self);
+        trace!("Skipping {} bytes from pkt {}", size, self.ts);
         if self.remaining_len() < size {
             self.data_range.start = self.data_range.end;
             return Err(());
@@ -227,7 +227,7 @@ impl<'a> Packet<'a> {
 
     pub fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
 
-        trace!("Reading {} bytes from pkt {:p} (off: {}, len: {})", size, self, self.data_range.start, self.data_range.end - self.data_range.end);
+        trace!("Reading {} bytes from pkt {} (off: {}, len: {})", size, self.ts, self.data_range.start, self.data_range.end - self.data_range.end);
         let data = self.data.data();
         debug_assert!(data.len() >= self.data_range.end - self.data_range.start);
         if self.data_range.start + size > self.data_range.end {

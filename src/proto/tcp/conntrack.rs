@@ -64,6 +64,13 @@ struct ConntrackTcpDir {
     missed_bytes: usize,
 }
 
+#[derive(Debug, PartialEq)]
+enum ConntrackTcpFlowState {
+    Probing,
+    Unidirectional,
+    Bidirectional,
+}
+
 pub struct ConntrackTcp {
 
     forward: ConntrackTcpDir,
@@ -72,9 +79,10 @@ pub struct ConntrackTcp {
     state: TcpState,
     start_ts: Option<PktTime>,
     last_ts: Option<PktTime>,
+    conn_id: Option<EventId>,
+    flow_state: ConntrackTcpFlowState,
     sport: u16,
     dport: u16,
-    conn_id: Option<EventId>,
 }
 
 impl ConntrackTcp {
@@ -104,9 +112,10 @@ impl ConntrackTcp {
             state: TcpState::New,
             start_ts: None,
             last_ts: None,
+            conn_id: None,
+            flow_state: ConntrackTcpFlowState::Probing,
             sport: infos.proto_before_last().get_field(0).value.unwrap().get_u16(),
             dport: infos.proto_before_last().get_field(1).value.unwrap().get_u16(),
-            conn_id: None,
         };
         ct
     }
@@ -187,22 +196,28 @@ impl ConntrackTcp {
                 new_state = TcpState::SynSent;
             }
         } else if flags & TCP_TH_FIN != 0 {
-            match dir {
-                ConntrackDirection::Forward => {
-                    if self.state == TcpState::HalfClosedRev {
-                        new_state = TcpState::Closed;
-                    } else {
-                        new_state = TcpState::HalfClosedFwd;
-                    }
-                },
-                ConntrackDirection::Reverse => {
-                    if self.state == TcpState::HalfClosedFwd {
-                        new_state = TcpState::Closed;
-                    } else {
-                        new_state = TcpState::HalfClosedRev;
-                    }
+            if self.flow_state == ConntrackTcpFlowState::Bidirectional {
+                match dir {
+                    ConntrackDirection::Forward => {
+                        if self.state == TcpState::HalfClosedRev {
+                            new_state = TcpState::Closed;
+                        } else {
+                            new_state = TcpState::HalfClosedFwd;
+                        }
+                    },
+                    ConntrackDirection::Reverse => {
+                        if self.state == TcpState::HalfClosedFwd {
+                            new_state = TcpState::Closed;
+                        } else {
+                            new_state = TcpState::HalfClosedRev;
+                        }
 
+                    }
                 }
+            } else {
+                // If we have a uni directional stream or we didn't get anyhing in the reverse
+                // direction yet, consider the stream closed
+                new_state = TcpState::Closed;
             }
         } else if flags & TCP_TH_RST != 0 {
             new_state = TcpState::Closed;
@@ -305,7 +320,6 @@ impl ConntrackTcp {
                     None => {
                         let queue = self.get_dir_mut(op_dir);
                         queue.start_seq = Some(ack);
-                        queue.cur_seq = Some(ack); // Reverse direction is confirmed
                         trace!("TCP connection {:p}: start seq {:?} from SYN+ACK in direction {:?}", &self, seq, op_dir);
                     }
                 }
@@ -313,6 +327,11 @@ impl ConntrackTcp {
 
             // SYN packets won't get queue so update the state now
             self.update_state(dir, flags, data.ts);
+
+            if self.flow_state == ConntrackTcpFlowState::Probing && self.forward.cur_seq.is_some() && self.reverse.cur_seq.is_some() {
+                // We have a bidir stream
+                self.flow_state = ConntrackTcpFlowState::Bidirectional;
+            }
         } else {
             // Check if we have the ACK right after the SYN in case we have a uni directional
             // capture
@@ -320,10 +339,11 @@ impl ConntrackTcp {
                 self.update_state(dir, flags, data.ts);
                 if self.get_dir(op_dir).start_seq.is_none() {
                     self.get_dir_mut(op_dir).start_seq = Some(ack);
-                    trace!("TCP connection {:p}: start seq {:?} from ACK after SYN", &self, seq);
+                    trace!("TCP connection {:p}: start seq {:?} from ACK after SYN", &self, ack);
                 }
             }
         }
+
 
 
 
@@ -342,6 +362,11 @@ impl ConntrackTcp {
                 // We don't know the start sequences so let's queue the packet
                 trace!("Queuing TCP packet (start_seq not known) seq: {:?}, ack: {:?}, dir: {:?}", seq, ack, dir);
                 self.queue_packet(dir, seq, ack, flags, data);
+
+                if self.flow_state != ConntrackTcpFlowState::Bidirectional && self.get_dir(op_dir).cur_seq.is_some() {
+                    // Mark stream as bidir
+                    self.flow_state = ConntrackTcpFlowState::Bidirectional;
+                }
                 return
             }
         };
@@ -376,23 +401,25 @@ impl ConntrackTcp {
             return
         }
 
-        // Let's check the ack now
-        let cur_ack = match self.get_dir(op_dir).cur_seq {
-            Some(a) => a,
-            None => {
-                // We don't know the ack so let's queue the packet
-                trace!("Queuing TCP packet (ack not known) seq: {:?}, ack: {:?}, dir: {:?}", seq, ack, dir);
+
+        if self.flow_state != ConntrackTcpFlowState::Unidirectional {
+            // Let's check the ack now
+            let cur_ack = match self.get_dir(op_dir).cur_seq {
+                Some(a) => a,
+                None => {
+                    // We don't know the ack so let's queue the packet
+                    trace!("Queuing TCP packet (ack not known) seq: {:?}, ack: {:?}, dir: {:?}", seq, ack, dir);
+                    self.queue_packet(dir, seq, ack, flags, data);
+                    return
+                }
+            };
+
+            if cur_ack < ack {
+                // The host processed some data in the reverse direction which we haven't processed yet
+                trace!("TCP connection {:p}: reverse missing: cur_ack {:?}, pkt_ack {:?}", &self, cur_ack, ack);
                 self.queue_packet(dir, seq, ack, flags, data);
-                return
+                return;
             }
-        };
-
-
-        if cur_ack < ack {
-            // The host processed some data in the reverse direction which we haven't processed yet
-            trace!("TCP connection {:p}: reverse missing: cur_ack {:?}, pkt_ack {:?}", &self, cur_ack, ack);
-            self.queue_packet(dir, seq, ack, flags, data);
-            return;
         }
 
         // Packet is ready to be sent !
@@ -425,7 +452,6 @@ impl ConntrackTcp {
                     None => break None
                 };
                 let cur_seq = queue.cur_seq.unwrap();
-                let cur_ack = queue_op.cur_seq.unwrap();
                 let pkt = entry.get_mut();
 
                 let end_seq = pkt.seq + (pkt.data.remaining_len() as u32);
@@ -450,10 +476,20 @@ impl ConntrackTcp {
                     break None;
                 }
 
-                if cur_ack < pkt.ack {
-                    // The host processed some data in the reverse direction which we haven't processed yet
-                    //trace!("TCP connection {:p}: reverse missing: cur_ack {:?}, pkt_ack {:?}", &self, cur_ack, pkt.ack);
-                    break None;
+                if self.flow_state == ConntrackTcpFlowState::Probing {
+                    self.flow_state = match queue_op.cur_seq {
+                        Some(_) => ConntrackTcpFlowState::Bidirectional,
+                        None => ConntrackTcpFlowState::Unidirectional,
+                    }
+                }
+
+                if self.flow_state != ConntrackTcpFlowState::Unidirectional {
+                    let cur_ack = queue_op.cur_seq.unwrap();
+                    if cur_ack < pkt.ack {
+                        // The host processed some data in the reverse direction which we haven't processed yet
+                        //trace!("TCP connection {:p}: reverse missing: cur_ack {:?}, pkt_ack {:?}", &self, cur_ack, pkt.ack);
+                        break None;
+                    }
                 }
 
                 // Remove this packet from the list
@@ -517,38 +553,41 @@ impl ConntrackTcp {
             }
         }
 
-        // We have gap in both, use the first packet we received
-        if gap_fwd > 0 && gap_rev > 0 {
-            dir = match ts_fwd < ts_rev {
-                true => ConntrackDirection::Forward,
-                false => ConntrackDirection::Reverse,
+        // Check if there is a gap to fill
+        if gap_fwd > 0 || gap_rev > 0 {
+
+            // We have gap in both, use the first packet we received
+            if gap_fwd > 0 && gap_rev > 0 {
+                dir = match ts_fwd < ts_rev {
+                    true => ConntrackDirection::Forward,
+                    false => ConntrackDirection::Reverse,
+                }
+            }
+
+            let (mut gap, ts) = match dir {
+                ConntrackDirection::Forward => (gap_fwd, ts_fwd.unwrap()),
+                ConntrackDirection::Reverse => (gap_rev, ts_rev.unwrap())
+            };
+
+            self.get_dir_mut(dir).missed_bytes += gap;
+
+            trace!("Filling gap of {} bytes", gap);
+
+            while gap > 0 {
+                let filler_len = match gap > PktDataZero::max_len() {
+                    true => PktDataZero::max_len(),
+                    false => gap,
+
+                };
+
+                let data = PktDataZero::new(filler_len);
+
+                self.send_packet(dir, 0, &mut Packet::new(ts, data));
+
+                gap -= filler_len;
             }
         }
 
-        let (mut gap, ts) = match dir {
-            ConntrackDirection::Forward => (gap_fwd, ts_fwd.unwrap()),
-            ConntrackDirection::Reverse => (gap_rev, ts_rev.unwrap())
-        };
-
-        self.get_dir_mut(dir).missed_bytes += gap;
-
-        trace!("Filling gap of {} bytes", gap);
-
-        while gap > 0 {
-            let filler_len = match gap > PktDataZero::max_len() {
-                true => PktDataZero::max_len(),
-                false => gap,
-
-            };
-
-            let data = PktDataZero::new(filler_len);
-
-            self.send_packet(dir, 0, &mut Packet::new(ts, data));
-
-            gap -= filler_len;
-        }
-
-        // Gap was filled. process some more
         self.process_more_packets();
     }
 
@@ -621,6 +660,7 @@ mod tests {
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
+        ct.force_dequeue(); // Force dequeuing
 
         ProtoTest::assert_empty();
 
@@ -762,5 +802,72 @@ mod tests {
 
         ProtoTest::assert_empty();
     }
+
+    #[test]
+    fn conntrack_tcp_syn_then_fin() {
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_FIN, &[]);
+
+    }
+
+    #[test]
+    fn conntrack_tcp_single_data_packet() {
+
+        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, 0, &[ 1 ]);
+        ct.force_dequeue();
+        ProtoTest::assert_empty();
+    }
+
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_uni_dir_fwd() {
+
+        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
+        ProtoTest::add_expectation(&[ 2 ], PktTime::from_nanos(0));
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        assert_eq!(ct.state, TcpState::New);
+        // Normal 3 way handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        assert_eq!(ct.state, TcpState::SynSent);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
+        assert_eq!(ct.state, TcpState::Established);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, 0, &[ 1 ]);
+        ct.force_dequeue(); // Force dequeuing the first packet early
+        assert_eq!(ct.state, TcpState::Established);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 2, 11, 0, &[ 2 ]);
+        assert_eq!(ct.state, TcpState::Established);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 12, TCP_TH_FIN, &[ ]);
+        assert_eq!(ct.state, TcpState::Closed);
+
+        ProtoTest::assert_empty();
+    }
+
+
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_uni_dir_rev() {
+
+        ProtoTest::add_expectation(&[ 11 ], PktTime::from_nanos(0));
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        assert_eq!(ct.state, TcpState::New);
+        // Normal 3 way handshake
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        assert_eq!(ct.state, TcpState::SynRecv);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 11, 2, 0, &[ 11 ]);
+        ct.force_dequeue(); // Force dequeuing the first packet early
+        assert_eq!(ct.state, TcpState::Established);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 4, TCP_TH_FIN, &[ ]);
+        assert_eq!(ct.state, TcpState::Closed);
+
+        ProtoTest::assert_empty();
+    }
+
 }
 

@@ -5,7 +5,7 @@ use crate::proto::tcp::seq::TcpSeq;
 use crate::packet::{Packet, PktTime, PktDataZero, PktInfoStack};
 use crate::stream::PktStream;
 use crate::proto::Protocols;
-use crate::event::{Event, EventId};
+use crate::event::{Event, EventId, EventPayload};
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -14,14 +14,14 @@ use tracing::{debug, trace};
 const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
 
 #[derive(Debug)]
-struct EventConnTcpStart {
+pub struct NetTcpConnectionStart {
     conn_id: EventId,
     sport: u16,
     dport: u16,
 }
 
 #[derive(Debug)]
-struct EventConnTcpEnd {
+pub struct NetTcpConnectionEnd {
     conn_id: EventId,
     duration: Duration,
     sport: u16,
@@ -223,7 +223,7 @@ impl ConntrackTcp {
     fn send_conn_end_evt(&self) {
         // Send the end event
         let last_ts = self.last_ts.unwrap();
-        let evt_data = Box::new(EventConnTcpEnd {
+        let evt_pload = NetTcpConnectionEnd {
             conn_id: self.conn_id.clone().unwrap(),
             duration: (last_ts - self.start_ts.unwrap()).into(),
             sport: self.sport,
@@ -235,8 +235,8 @@ impl ConntrackTcp {
             fwd_missed_bytes: self.forward.missed_bytes,
             rev_missed_bytes: self.reverse.missed_bytes,
 
-        });
-        let evt = Event::new("conn.tcp.end", last_ts, evt_data);
+        };
+        let evt = Event::new(last_ts, EventPayload::NetTcpConnectionEnd(evt_pload));
         evt.send();
     }
 
@@ -260,14 +260,14 @@ impl ConntrackTcp {
         // Send the start event
         if self.start_ts.is_none() {
             self.start_ts = Some(data.ts);
-            self.conn_id = Some(EventId::new(data.ts, self as *const ConntrackTcp as *const u8));
-            let evt_data = Box::new(EventConnTcpStart {
+            self.conn_id = Some(EventId::new(data.ts));
+            let evt_pload = NetTcpConnectionStart {
                 conn_id: self.conn_id.clone().unwrap(),
                 sport: self.sport,
                 dport: self.dport,
-            });
+            };
 
-            let evt = Event::new("conn.tcp.start", data.ts, evt_data);
+            let evt = Event::new(data.ts, EventPayload::NetTcpConnectionStart(evt_pload));
             evt.send();
         }
 

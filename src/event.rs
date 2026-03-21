@@ -1,9 +1,30 @@
 
 use crate::packet::PktTime;
 
-use std::any::Any;
 use std::fmt::Debug;
-extern crate base62;
+use std::sync::atomic::{AtomicU16, Ordering};
+use strum_macros::{EnumString, AsRefStr};
+
+
+static EVENT_ID_COUNTER: AtomicU16 = AtomicU16::new(0);
+
+#[repr(u32)]
+#[derive(Debug, EnumString, AsRefStr)]
+pub enum EventKind {
+
+    #[strum(serialize = "net.tcp.connection.start")]
+    NetTcpConnectionStart,
+    #[strum(serialize = "net.tcp.connection.end")]
+    NetTcpConnectionEnd,
+}
+
+#[derive(Debug)]
+pub enum EventPayload {
+
+    NetTcpConnectionStart(crate::proto::tcp::conntrack::NetTcpConnectionStart),
+    NetTcpConnectionEnd(crate::proto::tcp::conntrack::NetTcpConnectionEnd),
+
+}
 
 #[derive(Debug,Clone)]
 pub struct EventId {
@@ -11,22 +32,13 @@ pub struct EventId {
 }
 
 impl EventId {
-    pub fn new(ts: PktTime, ptr: *const u8) -> EventId {
+    pub fn new(ts: PktTime) -> EventId {
 
-        let val: u128 = ((u64::from(ts) as u128) << 64) | ((ptr as u128));
+        let counter = EVENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let val: u128 = ((u64::from(ts) as u128) << 16) | counter as u128;
         EventId {
             id: base62::encode(val)
         }
-    }
-}
-
-pub trait EventData: Any + Debug {
-    fn as_any(&self) -> &dyn Any;
-}
-
-impl <T: Any + Debug> EventData for T {
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -35,24 +47,29 @@ pub struct Event {
 
     id: EventId,
     ts: PktTime,
-    name: &'static str,
-    data: Box<dyn EventData>,
+    payload: EventPayload,
 
 }
 
 impl Event {
 
-    pub fn new(name: &'static str, ts: PktTime, data: Box<dyn EventData>) -> Self {
+    pub fn new(ts: PktTime, payload: EventPayload) -> Self {
         Event {
-            id: EventId::new(ts, &data as *const Box<dyn EventData> as *const u8),
+            id: EventId::new(ts),
             ts: ts,
-            name: name,
-            data: data,
+            payload: payload,
         }
     }
 
     pub fn send(&self) {
         println!("Got event {:?}", self);
+    }
+
+    pub fn kind(&self) -> EventKind {
+        match self.payload {
+            EventPayload::NetTcpConnectionStart(_) => EventKind::NetTcpConnectionStart,
+            EventPayload::NetTcpConnectionEnd(_) => EventKind::NetTcpConnectionEnd,
+        }
     }
 
 }

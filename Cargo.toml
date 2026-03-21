@@ -15,6 +15,9 @@ slab = "0.4"
 crossbeam-channel = "0.5"
 memchr = "2"
 base62 = "2.2"
+strum = "0.28"
+strum_macros = "0.28"
+
 
 [dev-dependencies]
 tracing-test = "0.1"

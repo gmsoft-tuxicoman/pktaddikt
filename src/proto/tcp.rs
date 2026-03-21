@@ -1,5 +1,5 @@
 mod seq;
-mod conntrack;
+pub mod conntrack;
 
 use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};

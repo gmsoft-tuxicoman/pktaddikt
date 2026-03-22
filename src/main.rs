@@ -61,8 +61,12 @@ fn main() {
     let datalink = cap.get_datalink();
     println!("Capture datalink : {:?}", datalink);
 
-    // We only handle ethernet for now
-    assert_eq!(datalink, Linktype::ETHERNET);
+    let proto = match datalink {
+        Linktype::ETHERNET => Protocols::Ethernet,
+        Linktype(12) => Protocols::Ipv4,
+        Linktype::RAW => Protocols::Ipv4,
+        _ => panic!("Unsupported protocol !"),
+    };
 
     while let Ok(pcap_pkt) = cap.next_packet() {
 
@@ -70,7 +74,7 @@ fn main() {
         let pkt_data = PktDataBorrowed::new(pcap_pkt.data);
 
         let mut pkt = Packet::new(ts, pkt_data);
-        let mut infos = PktInfoStack::new(Protocols::Ethernet);
+        let mut infos = PktInfoStack::new(proto);
 
 
 

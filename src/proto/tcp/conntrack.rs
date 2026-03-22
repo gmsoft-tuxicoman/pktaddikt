@@ -288,10 +288,12 @@ impl ConntrackTcp {
             self.last_ts = data.ts;
         }
 
+        let mut end_seq = seq + data.remaining_len() as u32;
 
         // Let's handle the SYN flag first
         if (flags & TCP_TH_SYN) != 0 {
             seq += 1;
+            end_seq += 1;
 
 
             match self.get_dir(dir).start_seq {
@@ -345,8 +347,9 @@ impl ConntrackTcp {
             }
         }
 
-
-
+        if (flags & TCP_TH_FIN) != 0 {
+            end_seq += 1;
+        }
 
         // Now, let's check what to do with this packet
 
@@ -371,11 +374,8 @@ impl ConntrackTcp {
                 return
             }
         };
-        let mut end_seq = seq + data.remaining_len() as u32;
 
-        if (flags & TCP_TH_FIN) != 0 {
-            end_seq += 1;
-        }
+
 
         // Let's see if we can process it
 
@@ -403,7 +403,7 @@ impl ConntrackTcp {
         }
 
 
-        if self.flow_state != ConntrackTcpFlowState::Unidirectional {
+        if (self.flow_state != ConntrackTcpFlowState::Unidirectional) && ((flags & TCP_TH_SYN) == 0) {
             // Let's check the ack now
             let cur_ack = match self.get_dir(op_dir).cur_seq {
                 Some(a) => a,
@@ -877,5 +877,27 @@ mod tests {
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_RST, &[]);
     }
 
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_syn_fin_payload() {
+
+        ProtoTest::add_expectation(&[ 0 ], PktTime::from_nanos(0));
+        ProtoTest::add_expectation(&[ 10 ], PktTime::from_nanos(0));
+        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
+        ProtoTest::add_expectation(&[ 11 ], PktTime::from_nanos(0));
+        ProtoTest::add_expectation(&[ 2 ], PktTime::from_nanos(0));
+        ProtoTest::add_expectation(&[ 12 ], PktTime::from_nanos(0));
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        assert_eq!(ct.state, TcpState::New);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[ 0 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 2, TCP_TH_SYN | TCP_TH_ACK, &[ 10 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 2, 12, 0, &[ 1 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 2, 0, &[ 11 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 12, TCP_TH_FIN, &[ 2 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 13, 4, TCP_TH_FIN, &[ 12 ]);
+
+        ProtoTest::assert_empty();
+    }
 }
 

@@ -89,12 +89,6 @@ impl ProtoPktProcessor for ProtoTcp {
             }
         }
 
-        if ((flags & TCP_TH_SYN) != 0) && pkt.remaining_len() > 0 {
-            // No payload allowed in SYN packets
-            trace!("SYN segment contains data in packet {:p}", pkt);
-            return ProtoParseResult::Invalid;
-        }
-
         if ((flags & TCP_TH_RST) != 0) && pkt.remaining_len() > 0 {
             // RFC 1122 4.2.2.12 : RST may contain the data that caused the packet to be sent,
             // discard it
@@ -244,15 +238,6 @@ mod tests {
         ProtoTest::process(&mut pkt, &mut infos);
         ProtoTest::assert_empty();
 
-    }
-
-    #[test]
-    #[traced_test]
-    fn tcp_syn_with_pload() {
-        let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x02, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let ret = tcp_parse_test(&data);
-        assert_eq!(ret, ProtoParseResult::Invalid);
-        assert!(logs_contain("SYN segment contains data"));
     }
 
     #[test]

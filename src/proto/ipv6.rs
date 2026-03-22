@@ -109,9 +109,9 @@ impl ProtoPktProcessor for ProtoIpv6 {
         }
 
         let ct_key = ConntrackKeyIpv6 { a: ((a >> 8) as u64) ^ (a as u64) , b: ((b >> 8) as u64) ^ (b as u64) };
-        let (ce, _) = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce());
+        let (ce, ce_dir) = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce());
 
-        infos.proto_push(next_proto, Some(ce.clone()));
+        infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
         let mut ce_locked = ce.lock().unwrap();
 
         match ce_locked.has_children() {

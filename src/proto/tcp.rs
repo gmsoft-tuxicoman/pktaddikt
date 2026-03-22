@@ -112,16 +112,16 @@ impl ProtoPktProcessor for ProtoTcp {
         };
 
         let ct_key = ConntrackKeyTcp { a: sport, b: dport };
-        let (ce, dir) = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce());
+        let (ce, ce_dir) = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce());
 
-        infos.proto_push(next_proto, Some(ce.clone()));
+        infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
 
 
         let mut ce_locked = ce.lock().unwrap();
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData)
                     .downcast_mut::<ConntrackTcp>().unwrap();
 
-        cd.process_packet(dir, seq, ack, flags, pkt);
+        cd.process_packet(ce_dir, seq, ack, flags, pkt);
 
 
         let timeout = match cd.get_state() {

@@ -1,6 +1,6 @@
 use crate::proto::Protocols;
 use crate::param::Param;
-use crate::conntrack::{ConntrackRef, ConntrackWeakRef};
+use crate::conntrack::{ConntrackRef, ConntrackWeakRef, ConntrackDirection};
 use std::sync::Arc;
 use std::ops::Range;
 use tracing::trace;
@@ -72,7 +72,7 @@ pub struct PktInfoStack<'a> {
 // All info about a packet
 pub struct PktInfo<'a> {
     pub proto: Protocols,
-    parent_ce: Option<ConntrackRef>,
+    parent_ce: Option<(ConntrackRef, ConntrackDirection)>,
     fields: Vec<Param<'a>>
 }
 
@@ -86,7 +86,7 @@ impl<'a> PktInfoStack<'a> {
         ret
     }
 
-    pub fn proto_push(&mut self, proto: Protocols, parent_ce: Option<ConntrackRef>) {
+    pub fn proto_push(&mut self, proto: Protocols, parent_ce: Option<(ConntrackRef, ConntrackDirection)>) {
         let info = PktInfo {
             proto: proto,
             fields: Vec::with_capacity(5),
@@ -123,8 +123,12 @@ impl<'a> PktInfo<'a> {
         self.fields.iter()
     }
 
-    pub fn parent_ce(&self) -> Option<ConntrackWeakRef> {
-        Some(Arc::downgrade(self.parent_ce.as_ref()?))
+    pub fn parent_ce(&self) -> Option<(ConntrackWeakRef, ConntrackDirection)> {
+
+        match self.parent_ce {
+            Some((ref p, d)) => Some((Arc::downgrade(p), d)),
+            None => None,
+        }
     }
 
     pub fn get_field(&self, id: usize) -> &Param<'a> {

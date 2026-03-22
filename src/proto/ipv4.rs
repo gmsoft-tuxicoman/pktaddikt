@@ -128,10 +128,10 @@ impl ProtoPktProcessor for ProtoIpv4 {
         }
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let (ce, _ct_dir) = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce());
+        let (ce, ce_dir) = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce());
 
 
-        infos.proto_push(next_proto, Some(ce.clone()));
+        infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
         let mut ce_locked = ce.lock().unwrap();
 
         match ce_locked.has_children() {

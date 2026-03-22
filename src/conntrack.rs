@@ -30,6 +30,7 @@ impl ConntrackDirection {
 
 pub trait ConntrackKey {
     fn key(&self) -> u64;
+    fn is_both_dir(&self) -> bool;
     fn fwd_eq(&self, other: &Self) -> bool;
     fn rev_eq(&self, other: &Self) -> bool;
 }
@@ -43,15 +44,24 @@ pub struct ConntrackKeyBidir<T> {
 impl<T> ConntrackKey for ConntrackKeyBidir<T>
     where T: Copy + PartialEq + Into<u64>
 {
+
+    /// Calculate the reversible hash key
     fn key(&self) -> u64 {
         // FIXME: This hash algo is wayy too simple
         self.a.into().overflowing_mul(self.b.into()).0
     }
 
+    /// Check if it's not possible to know if the key matched in a specific direction
+    fn is_both_dir(&self) -> bool {
+        self.a == self.b
+    }
+
+    /// Match the key in the forward direction
     fn fwd_eq(&self, other: &Self) -> bool {
         self == other
     }
 
+    /// Match the key in the reverse direction
     fn rev_eq(&self, other: &Self) -> bool {
         self.a == other.b && self.b == other.a
     }
@@ -154,7 +164,7 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
     }
 
     //#[tracing::instrument(skip(self))]
-    pub fn get(&'static self, key: K, parent: Option<ConntrackWeakRef>) -> (ConntrackRef, ConntrackDirection) {
+    pub fn get(&'static self, key: K, parent: Option<(ConntrackWeakRef, ConntrackDirection)>) -> (ConntrackRef, ConntrackDirection) {
 
         // Calculate the key and try to find it in the array
         let hash_key = key.key();
@@ -170,7 +180,9 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
 
         for ct_entry in ct_list.iter_mut() { // Try to find the exact conntrack in the ConntrackList
 
-            if let Some(ref parent_weak) = parent { // If we were provided a parent
+            let parent_dir;
+            if let Some((ref parent_weak, parent_dir_tmp)) = parent { // If we were provided a parent
+                parent_dir = parent_dir_tmp;
                 if let Some(ct_parent_weak) = &ct_entry.parent { // Check the parent of the conntrack entry
                     debug!("Comparing ct_entry {:p} with parent {:p}", Weak::as_ptr(&ct_parent_weak), Weak::as_ptr(&parent_weak));
                     // Make sure the parent is the same
@@ -183,6 +195,7 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
                     continue;
                 }
             } else {
+                parent_dir = ConntrackDirection::Forward;
                 if ct_entry.parent.is_some() {
                     // We need a conntrack without parent
                     continue;
@@ -192,7 +205,10 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
 
             if ct_entry.key.fwd_eq(&key) {
                 // Conntrack found, forward direction
-                debug!("Conntrack found in forward direction");
+                if ct_entry.key.is_both_dir() {
+                    direction = parent_dir;
+                }
+                debug!("Conntrack found in {:?} direction", direction);
                 found = Some(ct_entry);
                 break;
             } else if ct_entry.key.rev_eq(&key) {
@@ -217,14 +233,17 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
         let ce = Conntrack::new(cleanup_cb);
         let ct_entry = ConntrackEntry {
             key: key,
-            parent: parent.clone(),
+            parent: match parent {
+                Some((ref p, _)) => Some(p.clone()),
+                None => None,
+            },
             ce: ce.clone(),
             id: next_id,
         };
         debug!("Created new conntrack {:p}", Arc::as_ptr(&ct_entry.ce));
         ct_list.push(ct_entry);
 
-        if let Some(ref parent_weak) = parent {
+        if let Some((ref parent_weak, _)) = parent {
             if let Some(ref parent_strong) = parent_weak.upgrade() {
                 parent_strong.lock().unwrap().children.push(ce.clone());
             }
@@ -351,8 +370,8 @@ mod tests {
 
         let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
 
-        let (parent, _) = ct.get(ct_key, None);
-        ct.get(ct_key, Some(Arc::downgrade(&parent)));
+        let (parent, dir) = ct.get(ct_key, None);
+        ct.get(ct_key, Some((Arc::downgrade(&parent), dir)));
         assert_eq!(ct_len(&ct), 2);
 
         // Cannot call cleanup_cb while locked

@@ -22,6 +22,7 @@ pub struct PktStream {
     proto: PktStreamProto,
     pkt_buff_fwd: Vec<Packet<'static>>,
     pkt_buff_rev: Vec<Packet<'static>>,
+    is_active: bool,
 
 }
 
@@ -49,10 +50,20 @@ impl PktStream {
             },
             pkt_buff_fwd: Vec::new(),
             pkt_buff_rev: Vec::new(),
+            is_active: true,
         })
     }
 
+    pub fn is_active(&self) -> bool {
+        self.is_active
+    }
+
     pub fn process_packet(&mut self, dir: ConntrackDirection, pkt: &mut Packet) {
+
+        if ! self.is_active {
+            return;
+        }
+
         let pkt_buff =  match dir {
             ConntrackDirection::Forward => &mut self.pkt_buff_fwd,
             ConntrackDirection::Reverse => &mut self.pkt_buff_rev,
@@ -79,6 +90,9 @@ impl PktStream {
 
         if ret == StreamParseResult::NeedData && pkt.remaining_len() > 0 {
             pkt_buff.push(pkt.clone());
+        } else if ret == StreamParseResult::Invalid || ret == StreamParseResult::Done {
+            self.is_active = false;
+            return;
         }
     }
 }

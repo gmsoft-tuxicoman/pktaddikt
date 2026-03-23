@@ -160,7 +160,10 @@ impl ConntrackTcp {
 
         let new_size = data.remaining_len();
         let new_data = match self.stream {
-            Some(_) => data.clone(),
+            Some(ref s) =>  match s.is_active() {
+                true => data.clone(),
+                false => data.clone_zero(),
+            },
             None => data.clone_zero(),
         };
         let queue = self.get_dir_mut(dir);

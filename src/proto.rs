@@ -73,6 +73,7 @@ impl Proto {
                 Protocols::Udp => ProtoUdp::process(pkt, infos),
                 Protocols::Tcp => ProtoTcp::process(pkt, infos),
                 Protocols::Arp => ProtoArp::process(pkt, infos),
+                Protocols::Vlan => ProtoVlan::process(pkt, infos),
                 _ => break,
             };
 
@@ -107,6 +108,8 @@ impl Proto {
         ProtoIpv6::purge();
         ProtoUdp::purge();
         ProtoTcp::purge();
+        ProtoArp::purge();
+        ProtoVlan::purge();
 
     }
 }

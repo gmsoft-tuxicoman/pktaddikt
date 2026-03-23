@@ -61,7 +61,7 @@ impl PktStreamProcessor for ProtoTest {
     }
 
 
-    fn process(&self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn process(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
         let data = parser.remaining_data();
         println!("Data: {:x?}, (len: {})", data, data.len());
 

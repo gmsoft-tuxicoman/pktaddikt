@@ -9,7 +9,7 @@ use memchr::memchr;
 
 pub trait PktStreamProcessor {
     fn new(infos: &PktInfoStack) -> Self;
-    fn process(&self, dir: ConntrackDirection, parser: PktStreamParser) -> StreamParseResult;
+    fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> StreamParseResult;
 }
 
 pub enum PktStreamProto {
@@ -30,6 +30,7 @@ pub enum StreamParseResult {
     Ok, // Some item was parsed, waiting for more stuff to parse
     NeedData, // Tried to parse something but there was not enough data
     Done, // WIP Done parsing
+    Invalid, // Parsing failed
 }
 
 pub struct PktStreamParser<'a, 'b> {
@@ -60,7 +61,7 @@ impl PktStream {
 
         let ret = loop {
             let parser = PktStreamParser::new(pkt, pkt_buff);
-            let ret = match &self.proto {
+            let ret = match &mut self.proto {
                 PktStreamProto::Test(p) => p.process(dir, parser),
                 PktStreamProto::Http(p) => p.process(dir, parser),
             };

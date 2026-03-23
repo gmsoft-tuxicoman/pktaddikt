@@ -29,6 +29,7 @@ impl ProtoPktProcessor for ProtoEthernet {
 
         let next_proto = match eth_type {
             0x0800 => Protocols::Ipv4,
+            0x0806 => Protocols::Arp,
             0x86DD => Protocols::Ipv6,
             _ => Protocols::None
         };

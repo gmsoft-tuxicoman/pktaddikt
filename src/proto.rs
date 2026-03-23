@@ -5,12 +5,15 @@ pub mod ipv6;
 pub mod udp;
 pub mod tcp;
 pub mod http;
+pub mod arp;
+
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::ProtoEthernet;
 use crate::proto::ipv4::ProtoIpv4;
 use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
 use crate::proto::tcp::ProtoTcp;
+use crate::proto::arp::ProtoArp;
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 
@@ -28,6 +31,7 @@ pub enum Protocols {
     Udp,
     Tcp,
     Http,
+    Arp,
 }
 
 #[derive(PartialEq, Debug)]
@@ -65,6 +69,7 @@ impl Proto {
                 Protocols::Ipv6 => ProtoIpv6::process(pkt, infos),
                 Protocols::Udp => ProtoUdp::process(pkt, infos),
                 Protocols::Tcp => ProtoTcp::process(pkt, infos),
+                Protocols::Arp => ProtoArp::process(pkt, infos),
                 _ => break,
             };
 

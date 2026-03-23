@@ -4,17 +4,27 @@ use crate::packet::{Packet, PktInfoStack};
 
 pub struct ProtoEthernet {}
 
+impl ProtoEthernet {
+
+    pub fn next_proto(eth_type: u16) -> Protocols {
+         match eth_type {
+            0x0800 => Protocols::Ipv4,
+            0x8100 => Protocols::Vlan,
+            0x0806 => Protocols::Arp,
+            0x86DD => Protocols::Ipv6,
+            _ => Protocols::None
+        }
+    }
+
+}
+
 impl ProtoPktProcessor for ProtoEthernet {
 
-
     fn process(pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult {
-
 
         if pkt.remaining_len() < 14 {
             return ProtoParseResult::Invalid;
         }
-
-
 
         let f_src = ParamValue::Mac(pkt.read_bytes(6).unwrap().try_into().unwrap());
         let f_dst = ParamValue::Mac(pkt.read_bytes(6).unwrap().try_into().unwrap());
@@ -27,14 +37,7 @@ impl ProtoPktProcessor for ProtoEthernet {
         info.field_push(Param { name: "dst", value: Some(f_dst)});
         info.field_push(Param { name: "type", value: Some(f_eth_type)});
 
-        let next_proto = match eth_type {
-            0x0800 => Protocols::Ipv4,
-            0x0806 => Protocols::Arp,
-            0x86DD => Protocols::Ipv6,
-            _ => Protocols::None
-        };
-
-        stack.proto_push(next_proto, None);
+        stack.proto_push(ProtoEthernet::next_proto(eth_type), None);
 
         ProtoParseResult::Ok
 

@@ -6,6 +6,7 @@ pub mod udp;
 pub mod tcp;
 pub mod http;
 pub mod arp;
+pub mod vlan;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::ProtoEthernet;
@@ -14,6 +15,7 @@ use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
 use crate::proto::tcp::ProtoTcp;
 use crate::proto::arp::ProtoArp;
+use crate::proto::vlan::ProtoVlan;
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 
@@ -32,6 +34,7 @@ pub enum Protocols {
     Tcp,
     Http,
     Arp,
+    Vlan,
 }
 
 #[derive(PartialEq, Debug)]

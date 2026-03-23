@@ -81,6 +81,14 @@ mod tests {
 
         let opcode = field_iter.next().unwrap();
         param_assert_eq(opcode, "opcode", ParamValue::U16(0x01));
+        let sender_hw = field_iter.next().unwrap();
+        param_assert_eq(sender_hw, "sender_hw", ParamValue::Mac([0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A]));
+        let sender_ip = field_iter.next().unwrap();
+        param_assert_eq(sender_ip, "sender_ip", ParamValue::Ipv4(Ipv4Addr::new(0x01, 0x01, 0x01, 0x01)));
+        let target_hw = field_iter.next().unwrap();
+        param_assert_eq(target_hw, "target_hw", ParamValue::Mac([0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B]));
+        let target_ip = field_iter.next().unwrap();
+        param_assert_eq(target_ip, "target_ip", ParamValue::Ipv4(Ipv4Addr::new(0x02, 0x02, 0x02, 0x02)));
     }
 
 }

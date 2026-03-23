@@ -137,7 +137,7 @@ impl ConntrackTcp {
     }
 
     fn send_packet(&mut self, dir: ConntrackDirection, flags: u8, data: &mut Packet) {
-        self.update_state(dir, flags, data.ts);
+        self.update_state(dir, flags);
         let queue = self.get_dir_mut(dir);
         let mut seq_advance = data.remaining_len() as u32;
         if (flags & TCP_TH_FIN) != 0 {
@@ -185,7 +185,7 @@ impl ConntrackTcp {
         }
     }
 
-    fn update_state(&mut self, dir: ConntrackDirection, flags: u8, ts: PktTime) {
+    fn update_state(&mut self, dir: ConntrackDirection, flags: u8) {
 
         let new_state;
 
@@ -329,7 +329,7 @@ impl ConntrackTcp {
             }
 
             // SYN packets won't get queue so update the state now
-            self.update_state(dir, flags, data.ts);
+            self.update_state(dir, flags);
 
             if self.flow_state == ConntrackTcpFlowState::Probing && self.forward.cur_seq.is_some() && self.reverse.cur_seq.is_some() {
                 // We have a bidir stream
@@ -339,7 +339,7 @@ impl ConntrackTcp {
             // Check if we have the ACK right after the SYN in case we have a uni directional
             // capture
             if (flags & TCP_TH_ACK) != 0 && self.get_dir(dir).start_seq == Some(seq) {
-                self.update_state(dir, flags, data.ts);
+                self.update_state(dir, flags);
                 if self.get_dir(op_dir).start_seq.is_none() {
                     self.get_dir_mut(op_dir).start_seq = Some(ack);
                     trace!("TCP connection {:p}: start seq {:?} from ACK after SYN", &self, ack);

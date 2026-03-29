@@ -1,0 +1,107 @@
+use crate::packet::{Packet, PktTime, PktDataBorrowed, PktInfoStack};
+use crate::proto::{Proto, Protocols};
+
+use serde::Deserialize;
+use pcap::{Capture, Linktype, Offline, Active};
+
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct PcapInterfaceConfig {
+    pub iface: String,
+    pub promisc: bool,
+    pub snaplen: i32,
+    pub buffer_size: i32,
+}
+
+impl Default for PcapInterfaceConfig {
+    fn default() -> Self {
+        Self {
+            iface: "eth0".to_string(),
+            promisc: true,
+            snaplen: 1550,
+            buffer_size: 16777216,
+        }
+    }
+}
+
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct PcapFileConfig {
+    pub file: String,
+}
+
+impl Default for PcapFileConfig {
+   fn default() -> Self {
+        Self {
+            file: "file.cap".to_string(),
+        }
+   }
+}
+
+
+enum PcapCapture {
+    File(Capture<Offline>),
+    Interface(Capture<Active>),
+}
+
+pub struct InputPcap {
+
+    capture: PcapCapture,
+
+}
+
+impl InputPcap {
+
+    pub fn new_file(cfg: PcapFileConfig) -> InputPcap {
+
+        InputPcap {
+            capture: PcapCapture::File(Capture::from_file(&cfg.file).unwrap())
+        }
+    }
+
+    pub fn new_interface(cfg: PcapInterfaceConfig) -> InputPcap {
+        InputPcap {
+            capture: PcapCapture::Interface(Capture::from_device(&*cfg.iface).unwrap()
+                .promisc(cfg.promisc)
+                .snaplen(cfg.snaplen)
+                .buffer_size(cfg.buffer_size)
+                .open().unwrap())
+        }
+    }
+
+    pub fn main_loop(&mut self) {
+
+        let datalink = match &mut self.capture {
+            PcapCapture::File(cap) => cap.get_datalink(),
+            PcapCapture::Interface(cap) => cap.get_datalink(),
+        };
+        println!("Capture datalink : {:?}", datalink);
+
+        let proto = match datalink {
+            Linktype::ETHERNET => Protocols::Ethernet,
+            Linktype(12) => Protocols::Ipv4,
+            Linktype::RAW => Protocols::Ipv4,
+            _ => panic!("Unsupported protocol !"),
+        };
+
+        while let Ok(pcap_pkt) = match &mut self.capture {
+            PcapCapture::File(cap) => cap.next_packet(),
+            PcapCapture::Interface(cap) => cap.next_packet(),
+        } {
+
+            let ts = PktTime::from_timeval(pcap_pkt.header.ts.tv_sec, pcap_pkt.header.ts.tv_usec);
+            let pkt_data = PktDataBorrowed::new(pcap_pkt.data);
+
+            let mut pkt = Packet::new(ts, pkt_data);
+            let mut infos = PktInfoStack::new(proto);
+
+
+
+            Proto::process_packet(&mut pkt, &mut infos);
+        }
+    }
+}
+
+

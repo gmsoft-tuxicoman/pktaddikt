@@ -1,11 +1,9 @@
-extern crate getopts;
-use getopts::Options;
-use pcap::{Capture, Linktype};
-use std::env;
 
-use crate::packet::{Packet, PktTime, PktDataBorrowed, PktInfoStack};
-use crate::proto::{Proto, Protocols};
-
+use crate::proto::Proto;
+use crate::config::Config;
+use crate::input::{Input, InputConfig};
+use crate::input::pcap::{PcapFileConfig, PcapInterfaceConfig};
+use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub mod proto;
@@ -15,32 +13,55 @@ pub mod packet;
 pub mod timer;
 pub mod stream;
 pub mod event;
+pub mod config;
+pub mod input;
 
-fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage: {} [options]", program);
-    print!("{}", opts.usage(&brief));
+
+#[derive(Parser, Debug)]
+struct CliOpts {
+
+    #[arg(short = 'c', long = "config", default_value = "config.yaml")]
+    config: String,
+
+    #[arg(short = 'r', long = "read", conflicts_with = "pcap_interface")]
+    pcap_file: Option<String>,
+
+    #[arg(short = 'i', long = "interface", conflicts_with = "pcap_file")]
+    pcap_interface: Option<String>,
+
+    #[arg(short = 'o')]
+    overrides: Vec<String>,
+
 }
 
 
 fn main() {
 
+    let cli_cfg = CliOpts::parse();
 
-    let args: Vec<String> = env::args().collect();
-    let program = args[0].clone();
-    let mut opts = Options::new();
-    opts.optopt("r", "read", "input PCAP file", "NAME");
-    opts.optflag("h", "help", "print this help menu");
-    let matches = match opts.parse(&args[1..]){
-        Ok(m) => { m }
-        Err(f) => { panic!("{}", f.to_string()) }
-    };
+    let mut cfg = Config::load(&cli_cfg.config).unwrap();
 
-
-    if matches.opt_present("h") {
-        print_usage(&program, opts);
-        return;
+    if cli_cfg.pcap_file.is_some() {
+        cfg.input = InputConfig::PcapFile(PcapFileConfig {
+            file: cli_cfg.pcap_file.unwrap().clone(),
+        });
+    } else if cli_cfg.pcap_interface.is_some() {
+        match cfg.input {
+            InputConfig::PcapFile(_) => {
+                cfg.input = InputConfig::PcapInterface(PcapInterfaceConfig {
+                    iface: cli_cfg.pcap_interface.unwrap().clone(),
+                    buffer_size: 65535,
+                    promisc: true,
+                    snaplen: 1550
+                })
+            },
+            InputConfig::PcapInterface(ref mut c) => {
+                    c.iface = cli_cfg.pcap_interface.unwrap().clone();
+            }
+        };
     }
 
+    let mut input = Input::new(cfg.input);
 
     let subscriber = tracing_subscriber::registry()
         .with(fmt::layer())
@@ -49,37 +70,7 @@ fn main() {
     tracing::subscriber::set_global_default(subscriber)
             .expect("Failed to set global subscriber");
 
-
-    let filename = match matches.opt_str("r") {
-        None => { panic!("No filename provided") }
-        Some(f) => { f }
-    };
-
-    let mut cap = Capture::from_file(filename).unwrap();
-
-
-    let datalink = cap.get_datalink();
-    println!("Capture datalink : {:?}", datalink);
-
-    let proto = match datalink {
-        Linktype::ETHERNET => Protocols::Ethernet,
-        Linktype(12) => Protocols::Ipv4,
-        Linktype::RAW => Protocols::Ipv4,
-        _ => panic!("Unsupported protocol !"),
-    };
-
-    while let Ok(pcap_pkt) = cap.next_packet() {
-
-        let ts = PktTime::from_timeval(pcap_pkt.header.ts.tv_sec, pcap_pkt.header.ts.tv_usec);
-        let pkt_data = PktDataBorrowed::new(pcap_pkt.data);
-
-        let mut pkt = Packet::new(ts, pkt_data);
-        let mut infos = PktInfoStack::new(proto);
-
-
-
-        Proto::process_packet(&mut pkt, &mut infos);
-    }
+    input.main_loop();
 
     Proto::purge_all();
 

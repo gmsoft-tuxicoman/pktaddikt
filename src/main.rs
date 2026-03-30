@@ -1,10 +1,9 @@
-
-use crate::proto::Proto;
 use crate::config::Config;
 use crate::input::{Input, InputConfig};
 use crate::input::pcap::{PcapFileConfig, PcapInterfaceConfig};
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use std::sync::Arc;
 
 pub mod proto;
 pub mod conntrack;
@@ -61,7 +60,7 @@ fn main() {
         };
     }
 
-    let mut input = Input::new(cfg.input);
+    let mut input = Input::new(Arc::new(cfg));
 
     let subscriber = tracing_subscriber::registry()
         .with(fmt::layer())
@@ -71,9 +70,6 @@ fn main() {
             .expect("Failed to set global subscriber");
 
     input.main_loop();
-
-    Proto::purge_all();
-
 }
 
 

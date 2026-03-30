@@ -5,10 +5,17 @@ use crate::proto::ethernet::ProtoEthernet;
 
 pub struct ProtoVlan {}
 
+impl ProtoVlan {
+
+    pub fn new() -> Self {
+        Self {}
+    }
+
+}
 
 impl ProtoPktProcessor for ProtoVlan {
 
-    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
 
@@ -33,8 +40,6 @@ impl ProtoPktProcessor for ProtoVlan {
 
         ProtoParseResult::Ok
     }
-
-    fn purge() {}
 }
 
 #[cfg(test)]

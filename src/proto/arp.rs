@@ -6,10 +6,15 @@ use std::net::Ipv4Addr;
 
 pub struct ProtoArp {}
 
+impl ProtoArp {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
 
 impl ProtoPktProcessor for ProtoArp {
 
-    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
 
@@ -55,7 +60,6 @@ impl ProtoPktProcessor for ProtoArp {
         return ProtoParseResult::Stop;
     }
 
-    fn purge() {}
 }
 
 #[cfg(test)]

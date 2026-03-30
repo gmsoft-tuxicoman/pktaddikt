@@ -13,13 +13,29 @@ use crate::proto::ethernet::ProtoEthernet;
 use crate::proto::ipv4::ProtoIpv4;
 use crate::proto::ipv6::ProtoIpv6;
 use crate::proto::udp::ProtoUdp;
-use crate::proto::tcp::ProtoTcp;
+use crate::proto::tcp::{ProtoTcp, TcpConfig};
 use crate::proto::arp::ProtoArp;
 use crate::proto::vlan::ProtoVlan;
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
+use crate::config::ConfigRef;
 
 use std::time::Instant;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub struct ProtoConfig {
+    tcp: TcpConfig,
+}
+
+impl Default for ProtoConfig {
+    fn default() -> Self {
+        Self {
+            tcp: TcpConfig::default(),
+        }
+    }
+}
 
 
 // List of implemented protocols
@@ -42,20 +58,43 @@ pub enum ProtoParseResult {
     Ok,
     Stop,
     Invalid,
+//    New { pkt: Packet<'a>, infos: &'a mut PktInfoStack<'a>},
     None
 }
 
 pub trait ProtoPktProcessor {
-    fn process(pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult;
-    fn purge();
+    fn process(&mut self, pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult;
 }
 
 
-pub struct Proto;
+pub struct Proto {
+    test: ProtoTest,
+    ethernet: ProtoEthernet,
+    ipv4: ProtoIpv4,
+    ipv6: ProtoIpv6,
+    udp: ProtoUdp,
+    tcp: ProtoTcp,
+    arp: ProtoArp,
+    vlan: ProtoVlan,
+}
 
 impl Proto {
 
-    pub fn process_packet<'a>(pkt: &mut Packet, infos: &mut PktInfoStack) {
+    pub fn new(cfg: ConfigRef) -> Self {
+        Self {
+            test: ProtoTest::new(),
+            ethernet: ProtoEthernet::new(),
+            ipv4: ProtoIpv4::new(cfg.clone()),
+            ipv6: ProtoIpv6::new(),
+            tcp: ProtoTcp::new(cfg.clone()),
+            udp: ProtoUdp::new(),
+            arp: ProtoArp::new(),
+            vlan: ProtoVlan::new(),
+
+        }
+    }
+
+    pub fn process_packet<'a>(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) {
 
         let start = Instant::now();
 
@@ -66,14 +105,14 @@ impl Proto {
         loop {
 
             ret = match infos.proto_last().proto {
-                Protocols::Test => ProtoTest::process(pkt, infos),
-                Protocols::Ethernet => ProtoEthernet::process(pkt, infos),
-                Protocols::Ipv4 => ProtoIpv4::process(pkt, infos),
-                Protocols::Ipv6 => ProtoIpv6::process(pkt, infos),
-                Protocols::Udp => ProtoUdp::process(pkt, infos),
-                Protocols::Tcp => ProtoTcp::process(pkt, infos),
-                Protocols::Arp => ProtoArp::process(pkt, infos),
-                Protocols::Vlan => ProtoVlan::process(pkt, infos),
+                Protocols::Test => self.test.process(pkt, infos),
+                Protocols::Ethernet => self.ethernet.process(pkt, infos),
+                Protocols::Ipv4 => self.ipv4.process(pkt, infos),
+                Protocols::Ipv6 => self.ipv6.process(pkt, infos),
+                Protocols::Udp => self.udp.process(pkt, infos),
+                Protocols::Tcp => self.tcp.process(pkt, infos),
+                Protocols::Arp => self.arp.process(pkt, infos),
+                Protocols::Vlan => self.vlan.process(pkt, infos),
                 _ => break,
             };
 
@@ -101,15 +140,4 @@ impl Proto {
         println!("[{:?} {}ns]", ret, processing_time.as_nanos());
     }
 
-    pub fn purge_all() {
-        ProtoTest::purge();
-        ProtoEthernet::purge();
-        ProtoIpv4::purge();
-        ProtoIpv6::purge();
-        ProtoUdp::purge();
-        ProtoTcp::purge();
-        ProtoArp::purge();
-        ProtoVlan::purge();
-
-    }
 }

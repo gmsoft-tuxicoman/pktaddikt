@@ -17,9 +17,16 @@ static CT_UDP: OnceLock<ConntrackTable<ConntrackKeyUdp>> = OnceLock::new();
 pub struct ProtoUdp {}
 
 
+impl ProtoUdp {
+
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 impl ProtoPktProcessor for ProtoUdp {
 
-    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
         if plen < 9 { // length smaller than UDP header and 1 byte of data
@@ -64,8 +71,10 @@ impl ProtoPktProcessor for ProtoUdp {
         ProtoParseResult::Ok
 
     }
+}
 
-    fn purge() {
+impl Drop for ProtoUdp {
+    fn drop(&mut self) {
         if let Some(ct) = CT_UDP.get() {
            ct.purge();
         }

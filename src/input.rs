@@ -1,4 +1,5 @@
 use crate::input::pcap::{InputPcap, PcapFileConfig, PcapInterfaceConfig};
+use crate::config::ConfigRef;
 
 use serde::Deserialize;
 pub mod pcap;
@@ -26,16 +27,16 @@ pub enum Input {
 
 impl Input {
 
-    pub fn new(cfg: InputConfig) -> Input {
+    pub fn new(cfg: ConfigRef) -> Input {
 
-        match cfg {
+        match &cfg.input {
             InputConfig::PcapInterface(c) => {
                 println!("Using pcap interface with iface {}", c.iface);
-                Input::Pcap(InputPcap::new_interface(c))
+                Input::Pcap(InputPcap::new_interface(cfg))
             },
             InputConfig::PcapFile(c) => {
                 println!("Using pcap file with file {}", c.file);
-                Input::Pcap(InputPcap::new_file(c))
+                Input::Pcap(InputPcap::new_file(cfg))
             }
         }
    }

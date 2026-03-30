@@ -1,5 +1,7 @@
 use crate::packet::{Packet, PktTime, PktDataBorrowed, PktInfoStack};
 use crate::proto::{Proto, Protocols};
+use crate::config::ConfigRef;
+use crate::input::InputConfig;
 
 use serde::Deserialize;
 use pcap::{Capture, Linktype, Offline, Active};
@@ -48,25 +50,37 @@ enum PcapCapture {
 
 pub struct InputPcap {
 
+    cfg: ConfigRef,
     capture: PcapCapture,
 
 }
 
 impl InputPcap {
 
-    pub fn new_file(cfg: PcapFileConfig) -> InputPcap {
+    pub fn new_file(cfg: ConfigRef) -> InputPcap {
+
+        let InputConfig::PcapFile(ref c) = cfg.input else {
+            panic!("Unexpected config");
+        };
 
         InputPcap {
-            capture: PcapCapture::File(Capture::from_file(&cfg.file).unwrap())
+            cfg: cfg.clone(),
+            capture: PcapCapture::File(Capture::from_file(&c.file).unwrap())
         }
     }
 
-    pub fn new_interface(cfg: PcapInterfaceConfig) -> InputPcap {
+    pub fn new_interface(cfg: ConfigRef) -> InputPcap {
+
+        let InputConfig::PcapInterface(ref c) = cfg.input else {
+            panic!("Unexpected config");
+        };
+
         InputPcap {
-            capture: PcapCapture::Interface(Capture::from_device(&*cfg.iface).unwrap()
-                .promisc(cfg.promisc)
-                .snaplen(cfg.snaplen)
-                .buffer_size(cfg.buffer_size)
+            cfg: cfg.clone(),
+            capture: PcapCapture::Interface(Capture::from_device(&*c.iface).unwrap()
+                .promisc(c.promisc)
+                .snaplen(c.snaplen)
+                .buffer_size(c.buffer_size)
                 .open().unwrap())
         }
     }
@@ -86,6 +100,8 @@ impl InputPcap {
             _ => panic!("Unsupported protocol !"),
         };
 
+        let mut proto_parser = Proto::new(self.cfg.clone());
+
         while let Ok(pcap_pkt) = match &mut self.capture {
             PcapCapture::File(cap) => cap.next_packet(),
             PcapCapture::Interface(cap) => cap.next_packet(),
@@ -99,7 +115,7 @@ impl InputPcap {
 
 
 
-            Proto::process_packet(&mut pkt, &mut infos);
+            proto_parser.process_packet(&mut pkt, &mut infos);
         }
     }
 }

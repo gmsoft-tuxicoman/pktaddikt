@@ -6,19 +6,38 @@ use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
+use crate::config::ConfigRef;
 
 use std::sync::OnceLock;
 use std::time::Duration;
 use tracing::trace;
+use serde::Deserialize;
 
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct TcpConfig {
+
+    pub timeout_syn_recv: u64,
+    pub timeout_syn_sent: u64,
+    pub timeout_established: u64,
+    pub timeout_half_closed: u64,
+    pub timeout_closed: u64,
+}
+
+impl Default for TcpConfig {
+    fn default() -> Self {
+        Self {
+            timeout_syn_recv: 60,
+            timeout_syn_sent: 180,
+            timeout_established: 1800,
+            timeout_half_closed: 120,
+            timeout_closed: 30,
+        }
+    }
+}
 
 type ConntrackKeyTcp = ConntrackKeyBidir<u16>;
-
-static TCP_TIMEOUT_SYN_RECV :u64 = 60;
-static TCP_TIMEOUT_SYN_SENT :u64 = 180;
-static TCP_TIMEOUT_ESTABLISHED: u64 = 1800;
-static TCP_TIMEOUT_HALF_CLOSED: u64 = 120;
-static TCP_TIMEOUT_CLOSED: u64 = 30;
 
 static CT_TCP_SIZE :usize = 32768;
 static CT_TCP: OnceLock<ConntrackTable<ConntrackKeyTcp>> = OnceLock::new();
@@ -29,7 +48,9 @@ const TCP_TH_SYN: u8 = 0x2;
 const TCP_TH_RST: u8 = 0x4;
 const TCP_TH_ACK: u8 = 0x10;
 
-pub struct ProtoTcp {}
+pub struct ProtoTcp {
+    cfg: ConfigRef,
+}
 
 impl ProtoTcp {
     fn next_proto(port: u16) -> Protocols {
@@ -42,9 +63,17 @@ impl ProtoTcp {
 
 }
 
+impl ProtoTcp {
+    pub fn new(cfg: ConfigRef) -> Self {
+        Self {
+            cfg: cfg
+        }
+    }
+}
+
 impl ProtoPktProcessor for ProtoTcp {
 
-    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than TCP header
@@ -125,13 +154,13 @@ impl ProtoPktProcessor for ProtoTcp {
 
 
         let timeout = match cd.get_state() {
-            TcpState::New => TCP_TIMEOUT_SYN_RECV,
-            TcpState::SynRecv => TCP_TIMEOUT_SYN_RECV,
-            TcpState::SynSent => TCP_TIMEOUT_SYN_SENT,
-            TcpState::Established => TCP_TIMEOUT_ESTABLISHED,
-            TcpState::HalfClosedFwd => TCP_TIMEOUT_HALF_CLOSED,
-            TcpState::HalfClosedRev => TCP_TIMEOUT_HALF_CLOSED,
-            TcpState::Closed => TCP_TIMEOUT_CLOSED,
+            TcpState::New => self.cfg.proto.tcp.timeout_syn_recv,
+            TcpState::SynRecv => self.cfg.proto.tcp.timeout_syn_recv,
+            TcpState::SynSent => self.cfg.proto.tcp.timeout_syn_sent,
+            TcpState::Established => self.cfg.proto.tcp.timeout_established,
+            TcpState::HalfClosedFwd => self.cfg.proto.tcp.timeout_half_closed,
+            TcpState::HalfClosedRev => self.cfg.proto.tcp.timeout_half_closed,
+            TcpState::Closed => self.cfg.proto.tcp.timeout_closed,
         };
 
         ce_locked.set_timeout(Duration::from_secs(timeout), pkt.ts);
@@ -140,14 +169,15 @@ impl ProtoPktProcessor for ProtoTcp {
         ProtoParseResult::Stop
 
     }
+}
 
-    fn purge() {
+impl Drop for ProtoTcp {
+
+    fn drop(&mut self) {
         if let Some(ct) = CT_TCP.get() {
            ct.purge();
         }
     }
-
-
 }
 
 #[cfg(test)]

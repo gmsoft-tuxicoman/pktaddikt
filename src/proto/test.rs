@@ -10,6 +10,12 @@ use std::ops::Range;
 
 pub struct ProtoTest {}
 
+impl ProtoTest {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 struct ProtoTestExpect {
 
     ts: PktTime,
@@ -23,18 +29,15 @@ thread_local! {
 #[cfg(not(test))]
 impl ProtoPktProcessor for ProtoTest {
 
-    fn process(pkt: &mut Packet, _: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, _: &mut PktInfoStack) -> ProtoParseResult {
         return ProtoParseResult::Invalid;
     }
-
-    fn purge() {}
-
 }
 
 #[cfg(test)]
 impl ProtoPktProcessor for ProtoTest {
 
-    fn process(pkt: &mut Packet, _: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, _: &mut PktInfoStack) -> ProtoParseResult {
 
         let test_data = pkt.remaining_data();
         println!("Remaining data: {:x?} (len {})", test_data, test_data.len());
@@ -48,10 +51,6 @@ impl ProtoPktProcessor for ProtoTest {
 
         return ProtoParseResult::Stop;
     }
-    
-
-    fn purge() {}
-
 }
 
 impl PktStreamProcessor for ProtoTest {

@@ -44,7 +44,7 @@ impl PktStream {
     pub fn new(proto: Protocols, infos: &PktInfoStack) -> Option<PktStream> {
         Some(PktStream {
             proto: match proto {
-                Protocols::Test => PktStreamProto::Test(ProtoTest::new(infos)),
+                Protocols::Test => PktStreamProto::Test(<ProtoTest as PktStreamProcessor>::new(infos)),
                 Protocols::Http => PktStreamProto::Http(ProtoHttp::new(infos)),
                 _ => return None
             },

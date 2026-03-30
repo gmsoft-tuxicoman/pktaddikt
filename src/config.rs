@@ -1,22 +1,28 @@
 
-use config::{Config as ConfigLoader, File};
+
 use crate::input::InputConfig;
+use crate::proto::ProtoConfig;
 
+use config::{Config as ConfigLoader, File};
 use serde::Deserialize;
+use std::sync::Arc;
 
+pub type ConfigRef = Arc<Config>;
 
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {
 
-    pub input: InputConfig
+    pub input: InputConfig,
+    pub proto: ProtoConfig,
 
 }
 impl Default for Config {
     fn default() -> Self {
         Self {
-            input: InputConfig::default()
+            input: InputConfig::default(),
+            proto: ProtoConfig::default(),
         }
     }
 }

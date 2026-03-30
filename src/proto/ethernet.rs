@@ -6,6 +6,10 @@ pub struct ProtoEthernet {}
 
 impl ProtoEthernet {
 
+    pub fn new() -> Self {
+        Self {}
+    }
+
     pub fn next_proto(eth_type: u16) -> Protocols {
          match eth_type {
             0x0800 => Protocols::Ipv4,
@@ -20,7 +24,7 @@ impl ProtoEthernet {
 
 impl ProtoPktProcessor for ProtoEthernet {
 
-    fn process(pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult {
 
         if pkt.remaining_len() < 14 {
             return ProtoParseResult::Invalid;
@@ -43,7 +47,6 @@ impl ProtoPktProcessor for ProtoEthernet {
 
     }
 
-    fn purge() {}
 }
 
 

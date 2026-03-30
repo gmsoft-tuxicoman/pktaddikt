@@ -1,7 +1,8 @@
-use crate::proto::{Proto, ProtoPktProcessor, ProtoParseResult, Protocols};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackTimer, ConntrackRef};
 use crate::packet::{Packet, PktDataType, PktDataMultipart, PktInfoStack};
+use crate::config::ConfigRef;
 
 use std::sync::{OnceLock, Arc};
 use std::net::Ipv4Addr;
@@ -16,7 +17,9 @@ const IP_OFFSET_MASK: u16 = 0x1FFF;
 const IP_TIMEOUT: u64 = 7200;
 const IPV4_FRAG_TIMEOUT: u64 = 30;
 
-pub struct ProtoIpv4 {}
+pub struct ProtoIpv4 {
+    cfg: ConfigRef,
+}
 
 type ConntrackKeyIpv4 = ConntrackKeyBidir<u32>;
 
@@ -34,6 +37,12 @@ static CT_IPV4: OnceLock<ConntrackTable<ConntrackKeyIpv4>> = OnceLock::new();
 
 impl ProtoIpv4 {
 
+    pub fn new(cfg: ConfigRef) -> Self {
+        Self {
+            cfg: cfg
+        }
+    }
+
     fn frag_cleanup(ce: ConntrackRef, frag_id: u16) {
         let mut ce_locked = ce.lock().unwrap();
 
@@ -48,7 +57,7 @@ impl ProtoIpv4 {
 impl ProtoPktProcessor for ProtoIpv4 {
 
 
-    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than IP header
@@ -195,7 +204,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
             // Process the reassembled packet
             let mut reassembled_pkt = Packet::new(pkt.ts, PktDataType::Multipart(frags.pkt.take().unwrap()));
 
-            Proto::process_packet(&mut reassembled_pkt, infos);
+            return ProtoParseResult::New{pkt: reassembled_pkt, infos: infos};
 
         }
 
@@ -203,13 +212,15 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
     }
 
-    fn purge() {
+}
+
+impl Drop for ProtoIpv4 {
+    fn drop(&mut self) {
        if let Some(ct) = CT_IPV4.get() {
            ct.purge();
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

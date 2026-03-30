@@ -19,9 +19,15 @@ static CT_IPV6: OnceLock<ConntrackTable<ConntrackKeyIpv6>> = OnceLock::new();
 
 const IPV6_TIMEOUT :u64 = 7200;
 
+impl ProtoIpv6 {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 impl ProtoPktProcessor for ProtoIpv6 {
 
-    fn process(pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
 
         let plen = pkt.remaining_len();
         if plen < 40 {
@@ -124,7 +130,10 @@ impl ProtoPktProcessor for ProtoIpv6 {
 
     }
 
-    fn purge() {
+}
+
+impl Drop for ProtoIpv6 {
+    fn drop(&mut self) {
         if let Some(ct) = CT_IPV6.get() {
             ct.purge();
         }

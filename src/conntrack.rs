@@ -88,7 +88,7 @@ struct ConntrackEntry<K: ConntrackKey> {
 }
 
 pub struct ConntrackTable<K: ConntrackKey> {
-    entries: Vec<Mutex<ConntrackList<K>>>,
+    entries: Arc<Vec<Mutex<ConntrackList<K>>>>,
     next_id: AtomicU64,
 }
 
@@ -150,7 +150,7 @@ impl Drop for Conntrack {
 }
 
 
-impl<K: ConntrackKey + Send> ConntrackTable<K> {
+impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
 
     pub fn new(size: usize) -> Self {
 
@@ -160,11 +160,11 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
             entries.push(Mutex::new(ConntrackList::new()));
         }
 
-        Self { entries, next_id: AtomicU64::new(1) }
+        Self { entries: Arc::new(entries), next_id: AtomicU64::new(1) }
     }
 
     //#[tracing::instrument(skip(self))]
-    pub fn get(&'static self, key: K, parent: Option<(ConntrackWeakRef, ConntrackDirection)>) -> (ConntrackRef, ConntrackDirection) {
+    pub fn get(&self, key: K, parent: Option<(ConntrackWeakRef, ConntrackDirection)>) -> (ConntrackRef, ConntrackDirection) {
 
         // Calculate the key and try to find it in the array
         let hash_key = key.key();
@@ -229,7 +229,12 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
         // Not found, create and add to the ConntrackList
 
         let next_id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let cleanup_cb = Arc::new(move || self.remove(ct_index, next_id));
+        let entries_weak = Arc::downgrade(&self.entries);
+        let cleanup_cb = Arc::new(move ||
+            if let Some(entries) = entries_weak.upgrade() {
+                ConntrackTable::remove(entries, ct_index, next_id);
+            }
+        );
         let ce = Conntrack::new(cleanup_cb);
         let ct_entry = ConntrackEntry {
             key: key,
@@ -252,11 +257,11 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
         (ce, ConntrackDirection::Forward)
     }
 
-    fn remove(&self, ct_index: usize, id: ConntrackId) {
+    fn remove(entries: Arc<Vec<Mutex<ConntrackList<K>>>>, ct_index: usize, id: ConntrackId) {
 
         let ct_entry;
         {
-            let mut ct_list = self.entries[ct_index].lock().unwrap();
+            let mut ct_list = entries[ct_index].lock().unwrap();
 
             let pos = match ct_list.iter().position(|ct| ct.id == id) {
                 Some(p) => p,
@@ -277,7 +282,7 @@ impl<K: ConntrackKey + Send> ConntrackTable<K> {
 
     pub fn purge(&self) {
 
-        for ct_list in &self.entries {
+        for ct_list in self.entries.iter() {
             ct_list.lock().unwrap().clear();
         }
 
@@ -324,7 +329,6 @@ impl Drop for ConntrackTimer {
 mod tests {
 
     use super::*;
-    use std::sync::OnceLock;
     use tracing_test::traced_test;
 
 
@@ -333,7 +337,7 @@ mod tests {
     fn ct_len<K: ConntrackKey>(ct: &ConntrackTable<K>) -> usize {
         let mut count = 0;
 
-        for entry in &ct.entries {
+        for entry in ct.entries.iter() {
             count = count + entry.lock().unwrap().len();
         }
         count
@@ -344,10 +348,9 @@ mod tests {
     #[test]
     #[traced_test]
     fn add_remove() {
-        static CT_TEST: OnceLock<ConntrackTable<ConntrackKeyTest>> = OnceLock::new();
 
         let ct_key = ConntrackKeyTest{ a: 1, b: 2};
-        let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
+        let ct = ConntrackTable::new(CT_TEST_SIZE);
         let (ce, _) = ct.get(ct_key, None);
         assert_eq!(ct_len(&ct), 1);
 
@@ -363,12 +366,11 @@ mod tests {
     #[test]
     #[traced_test]
     fn add_child_remove_parent() {
-        static CT_TEST: OnceLock<ConntrackTable<ConntrackKeyTest>> = OnceLock::new();
 
         // Use the same ct_key for parent and child to make sure it creates different conntracks
         let ct_key = ConntrackKeyTest{ a: 1, b: 2};
 
-        let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
+        let ct = ConntrackTable::new(CT_TEST_SIZE);
 
         let (parent, dir) = ct.get(ct_key, None);
         ct.get(ct_key, Some((Arc::downgrade(&parent), dir)));
@@ -385,12 +387,11 @@ mod tests {
     #[test]
     #[traced_test]
     fn match_fwd_rev() {
-        static CT_TEST: OnceLock<ConntrackTable<ConntrackKeyTest>> = OnceLock::new();
 
         let ct_key_fwd = ConntrackKeyTest{ a: 1, b: 2};
         let ct_key_rev = ConntrackKeyTest{ a: 2, b: 1};
 
-        let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
+        let ct = ConntrackTable::new(CT_TEST_SIZE);
 
         let (ce_fwd, _) = ct.get(ct_key_fwd, None);
         assert_eq!(ct_len(&ct), 1);
@@ -405,8 +406,7 @@ mod tests {
     #[traced_test]
     fn purge() {
 
-        static CT_TEST: OnceLock<ConntrackTable<ConntrackKeyTest>> = OnceLock::new();
-        let ct = CT_TEST.get_or_init(|| ConntrackTable::new(CT_TEST_SIZE));
+        let ct = ConntrackTable::new(CT_TEST_SIZE);
         let ct_key1 = ConntrackKeyTest{ a: 1, b: 2};
         let ct_key2 = ConntrackKeyTest{ a: 2, b: 3};
         let ct_key3 = ConntrackKeyTest{ a: 3, b: 4};

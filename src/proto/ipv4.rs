@@ -4,21 +4,20 @@ use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, Conntra
 use crate::packet::{Packet, PktDataType, PktDataMultipart, PktInfoStack};
 use crate::config::ConfigRef;
 
-use std::sync::{OnceLock, Arc};
+use std::sync::Arc;
 use std::net::Ipv4Addr;
 use std::collections::HashMap;
 use std::time::Duration;
+use serde::Deserialize;
 use tracing::{debug, trace};
 
 const IP_DONT_FRAG: u16 = 0x4000;
 const IP_MORE_FRAG: u16 = 0x2000;
 const IP_OFFSET_MASK: u16 = 0x1FFF;
 
-const IP_TIMEOUT: u64 = 7200;
-const IPV4_FRAG_TIMEOUT: u64 = 30;
-
 pub struct ProtoIpv4 {
     cfg: ConfigRef,
+    ct: ConntrackTable<ConntrackKeyIpv4>,
 }
 
 type ConntrackKeyIpv4 = ConntrackKeyBidir<u32>;
@@ -32,14 +31,31 @@ struct ConntrackIpv4 {
     fragments: HashMap<u16, Ipv4Fragment>
 }
 
-static CT_IPV4_SIZE :usize = 65535;
-static CT_IPV4: OnceLock<ConntrackTable<ConntrackKeyIpv4>> = OnceLock::new();
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct Ipv4Config {
+
+    pub conntrack_size: usize,
+    pub conntrack_timeout: u64,
+    pub fragment_timeout: u64,
+}
+
+impl Default for Ipv4Config {
+    fn default() -> Self {
+        Self {
+            conntrack_size: 65535,
+            conntrack_timeout: 7200,
+            fragment_timeout: 30,
+        }
+    }
+}
 
 impl ProtoIpv4 {
 
     pub fn new(cfg: ConfigRef) -> Self {
         Self {
-            cfg: cfg
+            cfg: cfg.clone(),
+            ct: ConntrackTable::new(cfg.proto.ipv4.conntrack_size),
         }
     }
 
@@ -137,7 +153,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
         }
 
         let ct_key = ConntrackKeyIpv4 { a: src.to_bits(), b: dst.to_bits()};
-        let (ce, ce_dir) = CT_IPV4.get_or_init(|| ConntrackTable::new(CT_IPV4_SIZE)).get(ct_key, info.parent_ce());
+        let (ce, ce_dir) = self.ct.get(ct_key, info.parent_ce());
 
 
         infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
@@ -145,7 +161,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         match ce_locked.has_children() {
             true => ce_locked.set_timeout(Duration::ZERO, pkt.ts),
-            false => ce_locked.set_timeout(Duration::from_secs(IP_TIMEOUT), pkt.ts)
+            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.ipv4.conntrack_timeout), pkt.ts)
         }
 
         // Check if the packet is fragmented and needs more handling
@@ -176,13 +192,13 @@ impl ProtoPktProcessor for ProtoIpv4 {
         let frags = frags_entry
             .and_modify(|v| {
                 debug!("Fragment data with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
-                ConntrackTimer::requeue(&v.timer, Duration::from_secs(IPV4_FRAG_TIMEOUT), pkt.ts);
+                ConntrackTimer::requeue(&v.timer, Duration::from_secs(self.cfg.proto.ipv4.fragment_timeout), pkt.ts);
             })
             .or_insert_with( || {
                     debug!("Fragment created with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
                     Ipv4Fragment {
                         pkt: Some(PktDataMultipart::new_raw(1500)),
-                        timer: ConntrackTimer::new(&ce, Duration::from_secs(IPV4_FRAG_TIMEOUT), pkt.ts, Arc::new(move |x| ProtoIpv4::frag_cleanup(x, id))),
+                        timer: ConntrackTimer::new(&ce, Duration::from_secs(self.cfg.proto.ipv4.fragment_timeout), pkt.ts, Arc::new(move |x| ProtoIpv4::frag_cleanup(x, id))),
                     }
                 }
             );
@@ -214,23 +230,13 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
 }
 
-// FIXME
-#[cfg(not(test))]
-impl Drop for ProtoIpv4 {
-    fn drop(&mut self) {
-       if let Some(ct) = CT_IPV4.get() {
-           ct.purge();
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
     use super::*;
     use crate::packet::PktDataBorrowed;
     use crate::param::tests::param_assert_eq;
-    use crate::packet::{PktTime, PktDataZero};
+    use crate::packet::PktTime;
     use crate::config::Config;
     use tracing_test::traced_test;
 

@@ -2,25 +2,43 @@ use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::packet::{Packet, PktInfoStack};
+use crate::config::ConfigRef;
 
-use std::sync::OnceLock;
 use std::time::Duration;
-
+use serde::Deserialize;
 
 type ConntrackKeyUdp = ConntrackKeyBidir<u16>;
 
-static UDP_TIMEOUT :u64 = 120;
 
-static CT_UDP_SIZE :usize = 32768;
-static CT_UDP: OnceLock<ConntrackTable<ConntrackKeyUdp>> = OnceLock::new();
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct UdpConfig {
+    pub conntrack_size: usize,
+    pub conntrack_timeout: u64,
+}
 
-pub struct ProtoUdp {}
+impl Default for UdpConfig {
+    fn default() -> Self {
+        Self {
+            conntrack_size: 32768,
+            conntrack_timeout: 120,
+        }
+    }
+}
+
+pub struct ProtoUdp {
+    cfg: ConfigRef,
+    ct: ConntrackTable<ConntrackKeyUdp>,
+}
 
 
 impl ProtoUdp {
 
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(cfg: ConfigRef) -> Self {
+        Self {
+            cfg: cfg.clone(),
+            ct: ConntrackTable::new(cfg.proto.udp.conntrack_size),
+        }
     }
 }
 
@@ -55,7 +73,7 @@ impl ProtoPktProcessor for ProtoUdp {
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        let (ce, _) = CT_UDP.get_or_init(|| ConntrackTable::new(CT_UDP_SIZE)).get(ct_key, info.parent_ce());
+        let (ce, _) = self.ct.get(ct_key, info.parent_ce());
 
         // WIP
         infos.proto_push(Protocols::None, None);
@@ -64,20 +82,11 @@ impl ProtoPktProcessor for ProtoUdp {
 
         match ce_locked.has_children() {
             true => ce_locked.set_timeout(Duration::ZERO, pkt.ts),
-            false => ce_locked.set_timeout(Duration::from_secs(UDP_TIMEOUT), pkt.ts)
+            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.udp.conntrack_timeout), pkt.ts)
         }
 
 
         ProtoParseResult::Ok
 
     }
-}
-
-impl Drop for ProtoUdp {
-    fn drop(&mut self) {
-        if let Some(ct) = CT_UDP.get() {
-           ct.purge();
-        }
-    }
-
 }

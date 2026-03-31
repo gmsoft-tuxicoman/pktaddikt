@@ -10,9 +10,9 @@ pub mod vlan;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::ProtoEthernet;
-use crate::proto::ipv4::ProtoIpv4;
-use crate::proto::ipv6::ProtoIpv6;
-use crate::proto::udp::ProtoUdp;
+use crate::proto::ipv4::{ProtoIpv4, Ipv4Config};
+use crate::proto::ipv6::{ProtoIpv6, Ipv6Config};
+use crate::proto::udp::{ProtoUdp, UdpConfig};
 use crate::proto::tcp::{ProtoTcp, TcpConfig};
 use crate::proto::arp::ProtoArp;
 use crate::proto::vlan::ProtoVlan;
@@ -28,13 +28,19 @@ use std::mem;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 pub struct ProtoConfig {
+    ipv4: Ipv4Config,
+    ipv6: Ipv6Config,
     tcp: TcpConfig,
+    udp: UdpConfig,
 }
 
 impl Default for ProtoConfig {
     fn default() -> Self {
         Self {
+            ipv4: Ipv4Config::default(),
+            ipv6: Ipv6Config::default(),
             tcp: TcpConfig::default(),
+            udp: UdpConfig::default(),
         }
     }
 }
@@ -120,9 +126,9 @@ impl Proto {
             test: ProtoTest::new(),
             ethernet: ProtoEthernet::new(),
             ipv4: ProtoIpv4::new(cfg.clone()),
-            ipv6: ProtoIpv6::new(),
+            ipv6: ProtoIpv6::new(cfg.clone()),
             tcp: ProtoTcp::new(cfg.clone()),
-            udp: ProtoUdp::new(),
+            udp: ProtoUdp::new(cfg.clone()),
             arp: ProtoArp::new(),
             vlan: ProtoVlan::new(),
 

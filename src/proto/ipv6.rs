@@ -2,26 +2,44 @@ use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::param::{Param, ParamValue};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::packet::{Packet, PktInfoStack};
+use crate::config::ConfigRef;
 
-use std::sync::OnceLock;
 use std::net::Ipv6Addr;
 use std::time::Duration;
+use serde::Deserialize;
 
-pub struct ProtoIpv6 {}
+
+pub struct ProtoIpv6 {
+    cfg: ConfigRef,
+    ct: ConntrackTable<ConntrackKeyIpv6>,
+}
 
 
 type ConntrackKeyIpv6 = ConntrackKeyBidir<u64>;
 
 
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct Ipv6Config {
+    pub conntrack_size: usize,
+    pub conntrack_timeout: u64,
+}
 
-static CT_IPV6_SIZE :usize = 65535;
-static CT_IPV6: OnceLock<ConntrackTable<ConntrackKeyIpv6>> = OnceLock::new();
-
-const IPV6_TIMEOUT :u64 = 7200;
+impl Default for Ipv6Config {
+    fn default() -> Self {
+        Self {
+            conntrack_size: 65535,
+            conntrack_timeout: 7200,
+        }
+    }
+}
 
 impl ProtoIpv6 {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(cfg: ConfigRef) -> Self {
+        Self {
+            cfg: cfg.clone(),
+            ct: ConntrackTable::new(cfg.proto.ipv6.conntrack_size),
+        }
     }
 }
 
@@ -115,14 +133,14 @@ impl ProtoPktProcessor for ProtoIpv6 {
         }
 
         let ct_key = ConntrackKeyIpv6 { a: ((a >> 8) as u64) ^ (a as u64) , b: ((b >> 8) as u64) ^ (b as u64) };
-        let (ce, ce_dir) = CT_IPV6.get_or_init(|| ConntrackTable::new(CT_IPV6_SIZE)).get(ct_key, info.parent_ce());
+        let (ce, ce_dir) = self.ct.get(ct_key, info.parent_ce());
 
         infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
         let mut ce_locked = ce.lock().unwrap();
 
         match ce_locked.has_children() {
             true => ce_locked.set_timeout(Duration::ZERO, pkt.ts),
-            false => ce_locked.set_timeout(Duration::from_secs(IPV6_TIMEOUT), pkt.ts)
+            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.ipv6.conntrack_timeout), pkt.ts)
         }
 
 
@@ -132,10 +150,3 @@ impl ProtoPktProcessor for ProtoIpv6 {
 
 }
 
-impl Drop for ProtoIpv6 {
-    fn drop(&mut self) {
-        if let Some(ct) = CT_IPV6.get() {
-            ct.purge();
-        }
-    }
-}

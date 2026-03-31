@@ -8,7 +8,6 @@ use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
 use crate::config::ConfigRef;
 
-use std::sync::OnceLock;
 use std::time::Duration;
 use tracing::trace;
 use serde::Deserialize;
@@ -23,6 +22,7 @@ pub struct TcpConfig {
     pub timeout_established: u64,
     pub timeout_half_closed: u64,
     pub timeout_closed: u64,
+    pub conntrack_size: usize,
 }
 
 impl Default for TcpConfig {
@@ -33,15 +33,12 @@ impl Default for TcpConfig {
             timeout_established: 1800,
             timeout_half_closed: 120,
             timeout_closed: 30,
+            conntrack_size: 32768,
         }
     }
 }
 
 type ConntrackKeyTcp = ConntrackKeyBidir<u16>;
-
-static CT_TCP_SIZE :usize = 32768;
-static CT_TCP: OnceLock<ConntrackTable<ConntrackKeyTcp>> = OnceLock::new();
-
 
 const TCP_TH_FIN: u8 = 0x1;
 const TCP_TH_SYN: u8 = 0x2;
@@ -50,6 +47,7 @@ const TCP_TH_ACK: u8 = 0x10;
 
 pub struct ProtoTcp {
     cfg: ConfigRef,
+    ct: ConntrackTable<ConntrackKeyTcp>,
 }
 
 impl ProtoTcp {
@@ -66,7 +64,8 @@ impl ProtoTcp {
 impl ProtoTcp {
     pub fn new(cfg: ConfigRef) -> Self {
         Self {
-            cfg: cfg
+            cfg: cfg.clone(),
+            ct: ConntrackTable::new(cfg.proto.tcp.conntrack_size),
         }
     }
 }
@@ -142,7 +141,7 @@ impl ProtoPktProcessor for ProtoTcp {
         };
 
         let ct_key = ConntrackKeyTcp { a: sport, b: dport };
-        let (ce, ce_dir) = CT_TCP.get_or_init(|| ConntrackTable::new(CT_TCP_SIZE)).get(ct_key, info.parent_ce());
+        let (ce, ce_dir) = self.ct.get(ct_key, info.parent_ce());
 
         infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
 
@@ -175,9 +174,7 @@ impl ProtoPktProcessor for ProtoTcp {
 impl Drop for ProtoTcp {
 
     fn drop(&mut self) {
-        if let Some(ct) = CT_TCP.get() {
-           ct.purge();
-        }
+        self.ct.purge();
     }
 }
 

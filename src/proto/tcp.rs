@@ -14,7 +14,7 @@ use serde::Deserialize;
 
 
 #[derive(Debug, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct TcpConfig {
 
     pub timeout_syn_recv: u64,

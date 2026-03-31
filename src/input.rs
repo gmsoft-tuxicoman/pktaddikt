@@ -5,7 +5,7 @@ use serde::Deserialize;
 pub mod pcap;
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum InputConfig {
     #[serde(rename = "pcap_file")]
     PcapFile(PcapFileConfig),

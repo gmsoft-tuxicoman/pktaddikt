@@ -11,7 +11,7 @@ pub type ConfigRef = Arc<Config>;
 
 
 #[derive(Debug, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Config {
 
     pub input: InputConfig,

@@ -32,7 +32,7 @@ struct ConntrackIpv4 {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Ipv4Config {
 
     pub conntrack_size: usize,

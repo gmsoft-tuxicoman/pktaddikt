@@ -8,7 +8,7 @@ use pcap::{Capture, Linktype, Offline, Active};
 
 
 #[derive(Debug, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct PcapInterfaceConfig {
     pub iface: String,
     pub promisc: bool,
@@ -29,7 +29,7 @@ impl Default for PcapInterfaceConfig {
 
 
 #[derive(Debug, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct PcapFileConfig {
     pub file: String,
 }

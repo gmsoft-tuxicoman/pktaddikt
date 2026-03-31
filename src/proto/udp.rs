@@ -11,7 +11,7 @@ type ConntrackKeyUdp = ConntrackKeyBidir<u16>;
 
 
 #[derive(Debug, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct UdpConfig {
     pub conntrack_size: usize,
     pub conntrack_timeout: u64,

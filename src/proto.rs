@@ -26,7 +26,7 @@ use std::fmt;
 use std::mem;
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub struct ProtoConfig {
     ipv4: Ipv4Config,
     ipv6: Ipv6Config,

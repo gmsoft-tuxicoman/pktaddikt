@@ -19,7 +19,7 @@ type ConntrackKeyIpv6 = ConntrackKeyBidir<u64>;
 
 
 #[derive(Debug, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Ipv6Config {
     pub conntrack_size: usize,
     pub conntrack_timeout: u64,

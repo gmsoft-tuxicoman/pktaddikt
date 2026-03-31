@@ -58,6 +58,14 @@ impl PktStream {
         self.is_active
     }
 
+    #[cfg(test)]
+    pub fn add_expectation(&mut self, data: &[u8], ts: PktTime) {
+        let PktStreamProto::Test(ref mut test) = self.proto else {
+            panic!("Stream proto is not Test");
+        };
+        test.add_expectation(data, ts);
+    }
+
     pub fn process_packet(&mut self, dir: ConntrackDirection, pkt: &mut Packet) {
 
         if ! self.is_active {

@@ -8,11 +8,15 @@ use crate::conntrack::ConntrackDirection;
 use std::cell::RefCell;
 use std::ops::Range;
 
-pub struct ProtoTest {}
+pub struct ProtoTest {
+    expectations: Vec<ProtoTestExpect>,
+}
 
 impl ProtoTest {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            expectations: Vec::new(),
+        }
     }
 }
 
@@ -20,10 +24,6 @@ struct ProtoTestExpect {
 
     ts: PktTime,
     data: Vec<u8>
-}
-
-thread_local! {
-    static TEST_EXPECT: RefCell<Vec<ProtoTestExpect>> = RefCell::new(Vec::new());
 }
 
 #[cfg(not(test))]
@@ -42,9 +42,7 @@ impl ProtoPktProcessor for ProtoTest {
         let test_data = pkt.remaining_data();
         println!("Remaining data: {:x?} (len {})", test_data, test_data.len());
 
-        let expect_pkt = TEST_EXPECT.with(|expect| {
-            expect.borrow_mut().remove(0)
-        });
+        let expect_pkt = self.expectations.remove(0);
 
         assert_eq!(expect_pkt.data, test_data);
         assert_eq!(expect_pkt.ts, pkt.ts);
@@ -56,7 +54,7 @@ impl ProtoPktProcessor for ProtoTest {
 impl PktStreamProcessor for ProtoTest {
 
     fn new(infos: &PktInfoStack) -> Self {
-        ProtoTest{}
+        ProtoTest::new()
     }
 
 
@@ -64,9 +62,7 @@ impl PktStreamProcessor for ProtoTest {
         let data = parser.remaining_data();
         println!("Data: {:x?}, (len: {})", data, data.len());
 
-        let expect_pkt = TEST_EXPECT.with(|expect| {
-            expect.borrow_mut().remove(0)
-        });
+        let expect_pkt = self.expectations.remove(0);
 
         assert_eq!(expect_pkt.data, data.as_ref());
         assert_eq!(expect_pkt.ts, parser.timestamp());
@@ -79,20 +75,19 @@ impl PktStreamProcessor for ProtoTest {
 #[cfg(test)]
 impl ProtoTest {
 
-    pub fn add_expectation(data: &[u8], ts: PktTime) {
+    pub fn add_expectation(&mut self, data: &[u8], ts: PktTime) {
 
-        TEST_EXPECT.with(|expect| {
-           expect.borrow_mut().push(ProtoTestExpect {
-               ts: ts,
-               data: data.to_vec(),
-           });
+        self.expectations.push(ProtoTestExpect {
+           ts: ts,
+           data: data.to_vec(),
         });
     }
 
-    pub fn assert_empty() {
-        TEST_EXPECT.with(|expect| {
-            assert_eq!(expect.borrow().len(), 0, "Some packets are still expected");
-        });
-    }
 }
 
+#[cfg(test)]
+impl Drop for ProtoTest {
+    fn drop(&mut self) {
+        assert_eq!(self.expectations.len(), 0, "Some packets are still expected");
+    }
+}

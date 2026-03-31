@@ -256,7 +256,7 @@ mod tests {
 
 
         let mut test = ProtoTest::new();
-        ProtoTest::add_expectation(&[ 0xdd ] , PktTime::from_nanos(0));
+        test.add_expectation(&[ 0xdd ] , PktTime::from_nanos(0));
 
         let pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
@@ -266,7 +266,6 @@ mod tests {
         assert_eq!(ret, ProtoParseResult::Stop);
 
         test.process(&mut pkt, &mut infos);
-        ProtoTest::assert_empty();
 
     }
 

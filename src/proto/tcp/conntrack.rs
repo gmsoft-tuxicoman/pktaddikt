@@ -617,7 +617,6 @@ impl Drop for ConntrackTcp {
 mod tests {
 
     use super::*;
-    use crate::proto::ProtoTest;
     use crate::packet::PktDataOwned;
     use crate::param::{Param,    ParamValue};
     use tracing_test::traced_test;
@@ -643,60 +642,53 @@ mod tests {
     #[test]
     fn conntrack_tcp_basic() {
 
-        ProtoTest::add_expectation(&[ 0 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 0 ], PktTime::from_nanos(0));
+
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
 
-        ProtoTest::assert_empty();
-
     }
 
     #[test]
     fn conntrack_tcp_missed_syn() {
 
-        ProtoTest::add_expectation(&[ 0 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 0 ], PktTime::from_nanos(0));
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
         ct.force_dequeue(); // Force dequeuing
-
-        ProtoTest::assert_empty();
 
     }
 
     #[test]
     fn conntrack_tcp_out_of_order_one_direction() {
 
-        ProtoTest::add_expectation(&[ 0 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 0 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_nanos(0));
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, TCP_TH_ACK, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 2, 1, 0, &[ 1 ]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 1, 0, &[ 0 ]);
 
-        ProtoTest::assert_empty();
     }
 
     #[test]
     #[traced_test]
     fn conntrack_tcp_complex() {
 
-        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 2 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 3 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 4, 5 ], PktTime::from_nanos(0)); // Bigger dupe has precedence
-        ProtoTest::add_expectation(&[ 6 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 2 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 3 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 4, 5 ], PktTime::from_nanos(0)); // Bigger dupe has precedence
+        ct.stream.as_mut().unwrap().add_expectation(&[ 6 ], PktTime::from_nanos(0));
+
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
@@ -712,26 +704,23 @@ mod tests {
         queue_pkt(&mut ct, ConntrackDirection::Forward, 5, 1, 0, &[ 5, 6 ]); // Needs trimming
         queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 1, 0, &[ 3 ]); //  Missing packet
 
-
-        ProtoTest::assert_empty();
-
     }
 
     #[test]
     #[traced_test]
     fn conntrack_tcp_reverse_missing() {
 
-        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 11 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 2 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 3 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 4 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 5 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 12 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 6 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 7 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 11 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 2 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 3 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 4 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 5 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 12 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 6 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 7 ], PktTime::from_nanos(0));
+
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
@@ -749,19 +738,17 @@ mod tests {
         queue_pkt(&mut ct, ConntrackDirection::Forward, 7, 13, 0, &[ 7 ]); // One more queued packet
         queue_pkt(&mut ct, ConntrackDirection::Forward, 4, 12, 0, &[ 4 ]); // Our awaited packet !
 
-        ProtoTest::assert_empty();
-
     }
 
     #[test]
     #[traced_test]
     fn conntrack_tcp_gap() {
 
-        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 0 ], PktTime::from_nanos(0)); // Gap filled for missing packet
-        ProtoTest::add_expectation(&[ 3 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 0 ], PktTime::from_nanos(0)); // Gap filled for missing packet
+        ct.stream.as_mut().unwrap().add_expectation(&[ 3 ], PktTime::from_nanos(0));
+
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 0, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
@@ -772,19 +759,17 @@ mod tests {
 
         // Fill the gap
         ct.force_dequeue();
-
-        ProtoTest::assert_empty();
     }
 
     #[test]
     #[traced_test]
     fn conntrack_tcp_state() {
 
-        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 2 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 11 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 2 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 11 ], PktTime::from_nanos(0));
+
         assert_eq!(ct.state, TcpState::New);
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
@@ -803,8 +788,6 @@ mod tests {
         assert_eq!(ct.state, TcpState::HalfClosedFwd);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 4, TCP_TH_FIN, &[ ]);
         assert_eq!(ct.state, TcpState::Closed);
-
-        ProtoTest::assert_empty();
     }
 
     #[test]
@@ -819,22 +802,22 @@ mod tests {
     #[test]
     fn conntrack_tcp_single_data_packet() {
 
-        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
 
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_nanos(0));
+
         queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, 0, &[ 1 ]);
         ct.force_dequeue();
-        ProtoTest::assert_empty();
     }
 
     #[test]
     #[traced_test]
     fn conntrack_tcp_uni_dir_fwd() {
 
-        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 2 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 2 ], PktTime::from_nanos(0));
+
         assert_eq!(ct.state, TcpState::New);
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
@@ -848,8 +831,6 @@ mod tests {
         assert_eq!(ct.state, TcpState::Established);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 12, TCP_TH_FIN, &[ ]);
         assert_eq!(ct.state, TcpState::Closed);
-
-        ProtoTest::assert_empty();
     }
 
 
@@ -857,9 +838,9 @@ mod tests {
     #[traced_test]
     fn conntrack_tcp_uni_dir_rev() {
 
-        ProtoTest::add_expectation(&[ 11 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 11 ], PktTime::from_nanos(0));
+
         assert_eq!(ct.state, TcpState::New);
         // Normal 3 way handshake
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
@@ -869,8 +850,6 @@ mod tests {
         assert_eq!(ct.state, TcpState::Established);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 4, TCP_TH_FIN, &[ ]);
         assert_eq!(ct.state, TcpState::Closed);
-
-        ProtoTest::assert_empty();
     }
 
     #[test]
@@ -884,14 +863,14 @@ mod tests {
     #[traced_test]
     fn conntrack_tcp_syn_fin_payload() {
 
-        ProtoTest::add_expectation(&[ 0 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 10 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 1 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 11 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 2 ], PktTime::from_nanos(0));
-        ProtoTest::add_expectation(&[ 12 ], PktTime::from_nanos(0));
-
         let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 0 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 10 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 11 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 2 ], PktTime::from_nanos(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 12 ], PktTime::from_nanos(0));
+
         assert_eq!(ct.state, TcpState::New);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 0, TCP_TH_SYN, &[ 0 ]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 2, TCP_TH_SYN | TCP_TH_ACK, &[ 10 ]);
@@ -899,8 +878,6 @@ mod tests {
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 2, 0, &[ 11 ]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 12, TCP_TH_FIN, &[ 2 ]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 13, 4, TCP_TH_FIN, &[ 12 ]);
-
-        ProtoTest::assert_empty();
     }
 }
 

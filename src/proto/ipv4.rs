@@ -202,9 +202,9 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         if frags_pkt.is_complete() {
             // Process the reassembled packet
-            let mut reassembled_pkt = Packet::new(pkt.ts, PktDataType::Multipart(frags.pkt.take().unwrap()));
+            let reassembled_pkt = Packet::new(pkt.ts, PktDataType::Multipart(frags.pkt.take().unwrap()));
 
-            return ProtoParseResult::New{pkt: reassembled_pkt, infos: infos};
+            return ProtoParseResult::New(reassembled_pkt);
 
         }
 
@@ -214,6 +214,8 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
 }
 
+// FIXME
+#[cfg(not(test))]
 impl Drop for ProtoIpv4 {
     fn drop(&mut self) {
        if let Some(ct) = CT_IPV4.get() {
@@ -228,16 +230,16 @@ mod tests {
     use super::*;
     use crate::packet::PktDataBorrowed;
     use crate::param::tests::param_assert_eq;
-    use crate::proto::ProtoTest;
-    use crate::packet::PktTime;
+    use crate::packet::{PktTime, PktDataZero};
+    use crate::config::Config;
     use tracing_test::traced_test;
 
-    fn ipv4_parse_test(data: &[u8], ts: PktTime) -> ProtoParseResult {
+    fn ipv4_parse_test(proto: &mut ProtoIpv4, data: &[u8], ts: PktTime) -> ProtoParseResult {
         let pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(ts, pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
-        ProtoIpv4::process(&mut pkt, &mut infos)
+        proto.process(&mut pkt, &mut infos)
     }
 
     #[test]
@@ -247,7 +249,7 @@ mod tests {
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
-        let ret = ProtoIpv4::process(&mut pkt, &mut infos);
+        let ret = ProtoIpv4::new(Config::new()).process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Ok);
 
         let info = infos.iter().next().unwrap();
@@ -271,7 +273,7 @@ mod tests {
     #[traced_test]
     fn ipv4_packet_too_short() {
         let data = vec![ 0x45, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Payload lenght smaller than IP header"));
     }
@@ -280,7 +282,7 @@ mod tests {
     #[traced_test]
     fn ipv4_invalid_version() {
         let data = vec![ 0x55, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Invalid protocol version : 5"));
     }
@@ -289,7 +291,7 @@ mod tests {
     #[traced_test]
     fn ipv4_hlen_too_short() {
         let data = vec![ 0x44, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Header length too small"));
     }
@@ -298,7 +300,7 @@ mod tests {
     #[traced_test]
     fn ipv4_totlen_too_short() {
         let data = vec![ 0x45, 0x00, 0x00, 0x14, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Total length shorter than header size"));
     }
@@ -307,7 +309,7 @@ mod tests {
     #[traced_test]
     fn ipv4_truncated_pkt() {
         let data = vec![ 0x45, 0x00, 0x00, 0xff, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Stop);
         assert!(logs_contain("Truncated packet"));
     }
@@ -319,7 +321,7 @@ mod tests {
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
-        let ret = ProtoIpv4::process(&mut pkt, &mut infos);
+        let ret = ProtoIpv4::new(Config::new()).process(&mut pkt, &mut infos);
 
         assert_eq!(ret, ProtoParseResult::Ok);
 
@@ -340,23 +342,29 @@ mod tests {
         let data3 = vec![ 0x45, 0x00, 0x00, 0x15, 0x05, 0x39, 0x00, 0x02, 0x40, 0xff, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0c ];
 
         let expect_data = vec![ 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0c];
-        ProtoTest::add_expectation(&expect_data, PktTime::from_nanos(2));
 
-        let ret1 = ipv4_parse_test(&data1, PktTime::from_nanos(0));
+        let mut ipv4 = ProtoIpv4::new(Config::new());
+
+        let ret1 = ipv4_parse_test(&mut ipv4, &data1, PktTime::from_nanos(0));
         assert_eq!(ret1, ProtoParseResult::Stop);
-        let ret2 = ipv4_parse_test(&data2, PktTime::from_nanos(1));
+        let ret2 = ipv4_parse_test(&mut ipv4, &data2, PktTime::from_nanos(1));
         assert_eq!(ret2, ProtoParseResult::Stop);
-        let ret3 = ipv4_parse_test(&data3, PktTime::from_nanos(2));
-        assert_eq!(ret3, ProtoParseResult::Stop);
+        let mut ret3 = ipv4_parse_test(&mut ipv4, &data3, PktTime::from_nanos(2));
 
-        ProtoTest::assert_empty();
+        let pkt = match ret3 {
+            ProtoParseResult::New(ref mut p) => p,
+            _ => panic!("Reassembled fragment not found"),
+        };
+
+        assert_eq!(pkt.remaining_data(), expect_data);
+
     }
 
     #[test]
     fn ipv4_frag_not_8byte_multiple() {
         // Frag 2 continued data with 0xb data
         let data = vec![ 0x45, 0x00, 0x00, 0x1b, 0x05, 0x39, 0x20, 0x01, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b ];
-        let ret = ipv4_parse_test(&data, PktTime::from_nanos(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_nanos(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
 
     }

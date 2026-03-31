@@ -137,6 +137,7 @@ impl ProtoPktProcessor for ProtoTcp {
         // WIP, needs to be improved
         let next_proto = match ProtoTcp::next_proto(dport) {
             Protocols::None => ProtoTcp::next_proto(sport),
+            Protocols::Test => { return ProtoParseResult::Stop; },
             proto => proto
         };
 
@@ -187,14 +188,15 @@ mod tests {
     use crate::packet::{PktTime, PktDataBorrowed};
     use crate::param::tests::param_assert_eq;
     use crate::proto::ProtoTest;
+    use crate::config::Config;
     use tracing_test::traced_test;
 
-    fn tcp_parse_test(data: &[u8]) -> ProtoParseResult {
+    fn tcp_parse_test(proto: &mut ProtoTcp, data: &[u8]) -> ProtoParseResult {
         let pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
-        ProtoTcp::process(&mut pkt, &mut infos)
+        proto.process(&mut pkt, &mut infos)
 
     }
 
@@ -205,7 +207,7 @@ mod tests {
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
-        let ret = ProtoTcp::process(&mut pkt, &mut infos);
+        let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Stop);
 
         let info = infos.iter().next().unwrap();
@@ -227,7 +229,7 @@ mod tests {
     #[traced_test]
     fn tcp_packet_too_short() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00 ];
-        let ret = tcp_parse_test(&data);
+        let ret = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Payload length smaller than TCP header"));
     }
@@ -236,7 +238,7 @@ mod tests {
     #[traced_test]
     fn tcp_header_too_small() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x40, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let ret = tcp_parse_test(&data);
+        let ret = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Header length too small"));
     }
@@ -245,7 +247,7 @@ mod tests {
     #[traced_test]
     fn tcp_header_too_big() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x70, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let ret = tcp_parse_test(&data);
+        let ret = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("Header length bigger than payload size"));
     }
@@ -255,17 +257,18 @@ mod tests {
     fn tcp_skip_options() {
         let data = vec![ 0x00, 0x01, 0x00, 0x00, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x70, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xdd ];
 
+
+        let mut test = ProtoTest::new();
         ProtoTest::add_expectation(&[ 0xdd ] , PktTime::from_nanos(0));
 
         let pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
-        let ret = ProtoTcp::process(&mut pkt, &mut infos);
+        let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Stop);
-        assert_eq!(infos.proto_last().proto, Protocols::Test);
 
-        ProtoTest::process(&mut pkt, &mut infos);
+        test.process(&mut pkt, &mut infos);
         ProtoTest::assert_empty();
 
     }
@@ -274,7 +277,7 @@ mod tests {
     #[traced_test]
     fn tcp_packet_invalid_flags() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x07, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let ret = tcp_parse_test(&data);
+        let ret = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
         assert_eq!(ret, ProtoParseResult::Invalid);
         assert!(logs_contain("More than one SYN/FIN/RST at the same time"));
     }

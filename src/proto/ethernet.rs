@@ -64,7 +64,7 @@ mod tests {
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ethernet);
 
-        let ret = ProtoEthernet::process(&mut pkt, &mut infos);
+        let ret = ProtoEthernet::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Ok);
 
         let info = infos.iter().next().unwrap();
@@ -88,7 +88,7 @@ mod tests {
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Ethernet);
 
-        let ret = ProtoEthernet::process(&mut pkt, &mut infos);
+        let ret = ProtoEthernet::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Invalid);
     }
 }

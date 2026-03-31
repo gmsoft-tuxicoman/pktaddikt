@@ -22,6 +22,8 @@ use crate::config::ConfigRef;
 
 use std::time::Instant;
 use serde::Deserialize;
+use std::fmt;
+use std::mem;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -53,13 +55,46 @@ pub enum Protocols {
     Vlan,
 }
 
-#[derive(PartialEq, Debug)]
 pub enum ProtoParseResult {
     Ok,
     Stop,
     Invalid,
-//    New { pkt: Packet<'a>, infos: &'a mut PktInfoStack<'a>},
+    New(Packet<'static>),
     None
+}
+
+impl PartialEq for ProtoParseResult {
+
+    fn eq(&self, other:&Self) -> bool {
+        use ProtoParseResult::*;
+
+        match (self, other) {
+            (Ok, Ok) => true,
+            (Stop, Stop) => true,
+            (Invalid, Invalid) => true,
+            (New(_), New(_)) => true, // don't check content
+            (None, None) => true,
+            _ => false,
+        }
+
+    }
+
+}
+
+impl fmt::Debug for ProtoParseResult {
+
+    fn fmt(&self, f:&mut fmt::Formatter<'_>) -> fmt::Result {
+        use ProtoParseResult::*;
+
+        match self {
+            Ok => write!(f, "Ok"),
+            Stop => write!(f, "Stop"),
+            Invalid => write!(f, "Invalid"),
+            None => write!(f, "None"),
+            New(_) => write!(f, "New"),
+        }
+
+    }
 }
 
 pub trait ProtoPktProcessor {
@@ -94,15 +129,21 @@ impl Proto {
         }
     }
 
-    pub fn process_packet<'a>(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) {
+    pub fn process_packet<'a>(&mut self, orig_pkt: &mut Packet, infos: &mut PktInfoStack) {
 
         let start = Instant::now();
 
-        TimerManager::update_time(pkt.ts);
+        TimerManager::update_time(orig_pkt.ts);
 
         let mut ret = ProtoParseResult::None;
+        let mut pkt_holder: Option<Packet> = None;
 
         loop {
+
+            let pkt = match pkt_holder.as_mut() {
+                Some(p) => p,
+                None => orig_pkt,
+            };
 
             ret = match infos.proto_last().proto {
                 Protocols::Test => self.test.process(pkt, infos),
@@ -116,6 +157,11 @@ impl Proto {
                 _ => break,
             };
 
+            if let ProtoParseResult::New(new_pkt) = mem::replace(&mut ret, ProtoParseResult::Ok) {
+                pkt_holder = Some(new_pkt);
+                continue;
+            }
+
             if ret != ProtoParseResult::Ok {
                 break;
             }
@@ -125,7 +171,7 @@ impl Proto {
 
         let processing_time = start.elapsed();
 
-        print!("{} ", pkt.ts);
+        print!("{} ", orig_pkt.ts);
         for i in infos.iter() {
             if i.proto == Protocols::None {
                 break;

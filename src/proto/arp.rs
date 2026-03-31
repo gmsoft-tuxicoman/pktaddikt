@@ -77,7 +77,7 @@ mod tests {
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Arp);
 
-        let ret = ProtoArp::process(&mut pkt, &mut infos);
+        let ret = ProtoArp::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Stop);
 
         let info = infos.iter().next().unwrap();

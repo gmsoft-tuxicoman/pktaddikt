@@ -29,6 +29,10 @@ impl Default for Config {
 
 impl Config {
 
+    pub fn new() -> ConfigRef {
+        Arc::new(Config::default())
+    }
+
     pub fn load(filename: &str) -> Result<Config, config::ConfigError> {
 
         let settings = ConfigLoader::builder()

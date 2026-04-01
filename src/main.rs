@@ -28,9 +28,6 @@ struct CliOpts {
     #[arg(short = 'i', long = "interface", conflicts_with = "pcap_file")]
     pcap_interface: Option<String>,
 
-    #[arg(short = 'o')]
-    overrides: Vec<String>,
-
 }
 
 

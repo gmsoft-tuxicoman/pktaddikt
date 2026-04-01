@@ -35,11 +35,12 @@ impl Config {
 
     pub fn load(filename: &str) -> Result<Config, config::ConfigError> {
 
-        let settings = ConfigLoader::builder()
+        ConfigLoader::builder()
             .add_source(File::with_name(filename).required(false))
-            .build()?;
+            .build()?
+            .try_deserialize()
 
-        settings.try_deserialize()
 
     }
+
 }

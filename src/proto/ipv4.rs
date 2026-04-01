@@ -138,6 +138,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
         info.field_push(Param { name: "proto", value: Some(f_proto) });
 
         let next_proto = match proto {
+            1 => Protocols::Icmp,
             4 => Protocols::Ipv4,
             6 => Protocols::Tcp,
             17 => Protocols::Udp,

@@ -7,6 +7,7 @@ pub mod tcp;
 pub mod http;
 pub mod arp;
 pub mod vlan;
+pub mod icmp;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::ProtoEthernet;
@@ -16,6 +17,7 @@ use crate::proto::udp::{ProtoUdp, UdpConfig};
 use crate::proto::tcp::{ProtoTcp, TcpConfig};
 use crate::proto::arp::ProtoArp;
 use crate::proto::vlan::ProtoVlan;
+use crate::proto::icmp::ProtoIcmp;
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 use crate::config::ConfigRef;
@@ -59,6 +61,7 @@ pub enum Protocols {
     Http,
     Arp,
     Vlan,
+    Icmp,
 }
 
 pub enum ProtoParseResult {
@@ -117,6 +120,7 @@ pub struct Proto {
     tcp: ProtoTcp,
     arp: ProtoArp,
     vlan: ProtoVlan,
+    icmp: ProtoIcmp,
 }
 
 impl Proto {
@@ -131,6 +135,7 @@ impl Proto {
             udp: ProtoUdp::new(cfg.clone()),
             arp: ProtoArp::new(),
             vlan: ProtoVlan::new(),
+            icmp: ProtoIcmp::new(),
 
         }
     }
@@ -156,6 +161,7 @@ impl Proto {
                 Some(i) => i,
                 None => break,
             };
+            stack_index += 1;
 
             ret = match info.proto {
                 Protocols::Test => self.test.process(pkt, infos),
@@ -166,6 +172,7 @@ impl Proto {
                 Protocols::Tcp => self.tcp.process(pkt, infos),
                 Protocols::Arp => self.arp.process(pkt, infos),
                 Protocols::Vlan => self.vlan.process(pkt, infos),
+                Protocols::Icmp => self.icmp.process(pkt, infos),
                 _ => break,
             };
 
@@ -178,7 +185,6 @@ impl Proto {
                 break;
             }
 
-            stack_index += 1;
 
         }
 

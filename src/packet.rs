@@ -99,6 +99,10 @@ impl<'a> PktInfoStack<'a> {
         &self.infos[self.infos.len() - 2]
     }
 
+    pub fn proto_id(&self, id: usize) -> Option<&PktInfo<'a>> {
+        self.infos.get(id)
+    }
+
     pub fn proto_last(&self) -> &PktInfo<'a> {
         self.infos.last().unwrap()
     }

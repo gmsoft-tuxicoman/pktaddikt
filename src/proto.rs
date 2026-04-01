@@ -143,6 +143,7 @@ impl Proto {
 
         let mut ret = ProtoParseResult::None;
         let mut pkt_holder: Option<Packet> = None;
+        let mut stack_index: usize = 0;
 
         loop {
 
@@ -151,7 +152,12 @@ impl Proto {
                 None => orig_pkt,
             };
 
-            ret = match infos.proto_last().proto {
+            let info = match infos.proto_id(stack_index) {
+                Some(i) => i,
+                None => break,
+            };
+
+            ret = match info.proto {
                 Protocols::Test => self.test.process(pkt, infos),
                 Protocols::Ethernet => self.ethernet.process(pkt, infos),
                 Protocols::Ipv4 => self.ipv4.process(pkt, infos),
@@ -172,6 +178,7 @@ impl Proto {
                 break;
             }
 
+            stack_index += 1;
 
         }
 

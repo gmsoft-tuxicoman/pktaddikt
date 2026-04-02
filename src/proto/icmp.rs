@@ -16,7 +16,7 @@ impl ProtoPktProcessor for ProtoIcmp {
 
         let plen = pkt.remaining_len();
 
-        if plen < 28 {
+        if plen < 8 {
             return ProtoParseResult::Invalid;
         }
 

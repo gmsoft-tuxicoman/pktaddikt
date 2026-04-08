@@ -48,7 +48,7 @@ mod tests {
         let mut infos = PktInfoStack::new(Protocols::Icmp);
 
         let ret = ProtoIcmp::new().process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Stop);
+        assert_eq!(ret, ProtoParseResult::Ok);
 
         let info = infos.iter().next().unwrap();
         let mut field_iter = info.iter_fields();

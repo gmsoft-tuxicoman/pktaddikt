@@ -6,6 +6,7 @@ use crate::packet::{Packet, PktTime, PktDataZero, PktInfoStack};
 use crate::stream::PktStream;
 use crate::proto::Protocols;
 use crate::event::{Event, EventId, EventPayload};
+use crate::param::ParamValue;
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -18,8 +19,10 @@ const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
 pub struct NetTcpConnectionStart {
     #[serde(flatten)]
     conn_id: EventId,
-    sport: u16,
-    dport: u16,
+    src_host: ParamValue,
+    dst_host: ParamValue,
+    src_port: u16,
+    dst_port: u16,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,8 +30,10 @@ pub struct NetTcpConnectionEnd {
     #[serde(flatten)]
     conn_id: EventId,
     duration: Duration,
-    sport: u16,
-    dport: u16,
+    src_host: ParamValue,
+    dst_host: ParamValue,
+    src_port: u16,
+    dst_port: u16,
     fwd_bytes: usize,
     rev_bytes: usize,
     fwd_pkts: usize,
@@ -84,8 +89,10 @@ pub struct ConntrackTcp {
     last_ts: PktTime,
     conn_id: Option<EventId>,
     flow_state: ConntrackTcpFlowState,
-    sport: u16,
-    dport: u16,
+    src_port: u16,
+    dst_port: u16,
+    src_host: ParamValue,
+    dst_host: ParamValue,
 }
 
 impl ConntrackTcp {
@@ -117,8 +124,10 @@ impl ConntrackTcp {
             last_ts: PktTime::from_nanos(0),
             conn_id: None,
             flow_state: ConntrackTcpFlowState::Probing,
-            sport: infos.proto_before_last().get_field(0).value.unwrap().get_u16(),
-            dport: infos.proto_before_last().get_field(1).value.unwrap().get_u16(),
+            src_port: infos.proto_from_last(2).unwrap().get_field(0).value.unwrap().get_u16(),
+            dst_port: infos.proto_from_last(2).unwrap().get_field(1).value.unwrap().get_u16(),
+            src_host: infos.proto_from_last(3).unwrap().get_field(0).value.unwrap().clone(),
+            dst_host: infos.proto_from_last(3).unwrap().get_field(1).value.unwrap().clone(),
         };
         ct
     }
@@ -245,8 +254,10 @@ impl ConntrackTcp {
         let evt_pload = NetTcpConnectionEnd {
             conn_id: self.conn_id.clone().unwrap(),
             duration: (self.last_ts - self.start_ts.unwrap()).into(),
-            sport: self.sport,
-            dport: self.dport,
+            src_host: self.src_host,
+            dst_host: self.dst_host,
+            src_port: self.src_port,
+            dst_port: self.dst_port,
             fwd_bytes: self.forward.tot_bytes,
             rev_bytes: self.reverse.tot_bytes,
             fwd_pkts: self.forward.tot_pkts,
@@ -282,8 +293,10 @@ impl ConntrackTcp {
             self.conn_id = Some(EventId::new(data.ts));
             let evt_pload = NetTcpConnectionStart {
                 conn_id: self.conn_id.clone().unwrap(),
-                sport: self.sport,
-                dport: self.dport,
+                src_host: self.src_host,
+                dst_host: self.dst_host,
+                src_port: self.src_port,
+                dst_port: self.dst_port,
             };
 
             let evt = Event::new(data.ts, EventPayload::NetTcpConnectionStart(evt_pload));

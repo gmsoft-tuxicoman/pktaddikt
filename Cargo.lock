@@ -667,6 +667,7 @@ dependencies = [
  "rangemap",
  "regex",
  "serde",
+ "serde_json",
  "slab",
  "strum",
  "strum_macros",

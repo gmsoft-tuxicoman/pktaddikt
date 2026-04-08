@@ -1,6 +1,8 @@
 use crate::config::Config;
 use crate::input::{Input, InputConfig};
 use crate::input::pcap::{PcapFileConfig, PcapInterfaceConfig};
+use crate::output::OutputBuilder;
+use crate::event::EventBus;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use std::sync::Arc;
@@ -14,6 +16,7 @@ pub mod stream;
 pub mod event;
 pub mod config;
 pub mod input;
+pub mod output;
 
 
 #[derive(Parser, Debug)]
@@ -31,7 +34,22 @@ struct CliOpts {
 }
 
 
+fn logging_init() {
+
+    let subscriber = tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env());
+
+    tracing::subscriber::set_global_default(subscriber)
+            .expect("Failed to set global subscriber");
+
+
+}
+
+
 fn main() {
+
+    logging_init();
 
     let cli_cfg = CliOpts::parse();
 
@@ -57,16 +75,20 @@ fn main() {
         };
     }
 
-    let mut input = Input::new(Arc::new(cfg));
+    let cfg_ref = Arc::new(cfg);
 
-    let subscriber = tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env());
+    let mut evt_bus = EventBus::new();
 
-    tracing::subscriber::set_global_default(subscriber)
-            .expect("Failed to set global subscriber");
+    let mut input = Input::new(cfg_ref.clone());
+
+    let mut outputs = OutputBuilder::build_all(cfg_ref.clone(), &mut evt_bus);
+
+    evt_bus.init();
+
 
     input.main_loop();
+
+    outputs.join();
 }
 
 

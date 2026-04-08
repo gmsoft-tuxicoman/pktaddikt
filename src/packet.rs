@@ -8,10 +8,11 @@ use rangemap::RangeSet;
 use std::fmt;
 use std::time::Duration;
 use std::ops::{Add, Sub};
+use serde::{Serialize, Serializer};
 
 
 // Time in microsecond
-#[derive(PartialEq,Debug,Clone,Copy,Eq,PartialOrd,Ord)]
+#[derive(PartialEq,Debug,Clone,Copy,Eq,PartialOrd,Ord,Serialize)]
 pub struct PktTime(u64);
 
 impl PktTime {
@@ -22,11 +23,18 @@ impl PktTime {
     pub fn from_nanos(nsec: u64) -> PktTime {
         PktTime(nsec)
     }
+
+    pub fn serialize<S>(time: &PktTime, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&time.to_string())
+    }
 }
 
 impl fmt::Display for PktTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}", self.0 / 1000000, self.0 % 1000000)
+        write!(f, "{}.{:06}", self.0 / 1000000, self.0 % 1000000)
     }
 }
 

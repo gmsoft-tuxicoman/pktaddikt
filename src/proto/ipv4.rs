@@ -331,9 +331,6 @@ mod tests {
         let ret = ProtoIpv4::new(Config::new()).process(&mut pkt, &mut infos);
 
         assert_eq!(ret, ProtoParseResult::Ok);
-
-        let remaining = pkt.remaining_len();
-        println!("remaining: {}", remaining);
         assert_eq!(pkt.remaining_len(), 1);
 
     }

@@ -2,10 +2,12 @@
 
 use crate::input::InputConfig;
 use crate::proto::ProtoConfig;
+use crate::output::OutputConfig;
 
 use config::{Config as ConfigLoader, File};
 use serde::Deserialize;
 use std::sync::Arc;
+use std::collections::HashMap;
 
 pub type ConfigRef = Arc<Config>;
 
@@ -16,6 +18,7 @@ pub struct Config {
 
     pub input: InputConfig,
     pub proto: ProtoConfig,
+    pub outputs: HashMap<String, OutputConfig>,
 
 }
 impl Default for Config {
@@ -23,6 +26,7 @@ impl Default for Config {
         Self {
             input: InputConfig::default(),
             proto: ProtoConfig::default(),
+            outputs: HashMap::new(),
         }
     }
 }

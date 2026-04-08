@@ -10,18 +10,21 @@ use crate::event::{Event, EventId, EventPayload};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use tracing::{debug, trace};
+use serde::Serialize;
 
 const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct NetTcpConnectionStart {
+    #[serde(flatten)]
     conn_id: EventId,
     sport: u16,
     dport: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct NetTcpConnectionEnd {
+    #[serde(flatten)]
     conn_id: EventId,
     duration: Duration,
     sport: u16,

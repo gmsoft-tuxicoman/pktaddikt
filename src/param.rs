@@ -1,25 +1,26 @@
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
+use serde::Serialize;
 
 
-pub struct Param<'a> {
+pub struct Param {
     pub name: &'static str,
-    pub value: Option<ParamValue<'a>>
+    pub value: Option<ParamValue>
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ParamValue<'a> {
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum ParamValue {
     U8(u8),
     U16(u16),
     U32(u32),
     U64(u64),
-    Str(&'a str),
     Mac([u8;6]),
     Ipv4(Ipv4Addr),
     Ipv6(Ipv6Addr)
 }
 
-impl<'a> ParamValue<'a> {
+impl ParamValue {
 
     pub fn get_u8(&self) -> u8 {
         match self {
@@ -43,12 +44,6 @@ impl<'a> ParamValue<'a> {
         match self {
             ParamValue::U64(val) => *val,
             _ => panic!("Trying to fetch u64")
-        }
-    }
-    pub fn get_str(&self) -> &str {
-        match self {
-            ParamValue::Str(val) => val,
-            _ => panic!("Trying to fetch string")
         }
     }
     pub fn get_mac(&self) -> [u8;6] {

@@ -73,18 +73,18 @@ impl Sub<PktTime> for PktTime {
 }
 
 // Stack of packet info
-pub struct PktInfoStack<'a> {
-    infos: Vec<PktInfo<'a>>
+pub struct PktInfoStack {
+    infos: Vec<PktInfo>
 }
 
 // All info about a packet
-pub struct PktInfo<'a> {
+pub struct PktInfo {
     pub proto: Protocols,
     parent_ce: Option<(ConntrackRef, ConntrackDirection)>,
-    fields: Vec<Param<'a>>
+    fields: Vec<Param>
 }
 
-impl<'a> PktInfoStack<'a> {
+impl PktInfoStack {
 
     pub fn new(datalink: Protocols) -> Self {
         let mut ret = PktInfoStack {
@@ -103,35 +103,35 @@ impl<'a> PktInfoStack<'a> {
         self.infos.push(info);
     }
 
-    pub fn proto_before_last(&self) -> &PktInfo<'a> {
-        &self.infos[self.infos.len() - 2]
+    pub fn proto_from_last(&self, id: usize) -> Option<&PktInfo> {
+        self.infos.get(self.infos.len() - id)
     }
 
-    pub fn proto_id(&self, id: usize) -> Option<&PktInfo<'a>> {
+    pub fn proto_id(&self, id: usize) -> Option<&PktInfo> {
         self.infos.get(id)
     }
 
-    pub fn proto_last(&self) -> &PktInfo<'a> {
+    pub fn proto_last(&self) -> &PktInfo {
         self.infos.last().unwrap()
     }
 
-    pub fn proto_last_mut(&mut self) -> &mut PktInfo<'a> {
+    pub fn proto_last_mut(&mut self) -> &mut PktInfo {
         self.infos.last_mut().unwrap()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &PktInfo<'a>> {
+    pub fn iter(&self) -> impl Iterator<Item = &PktInfo> {
         self.infos.iter()
     }
 }
 
 
-impl<'a> PktInfo<'a> {
+impl PktInfo {
 
-    pub fn field_push(&mut self, param: Param<'a>) {
+    pub fn field_push(&mut self, param: Param) {
         self.fields.push(param);
     }
 
-    pub fn iter_fields<'b>(&'b self) -> impl Iterator<Item = &'b Param<'b>> {
+    pub fn iter_fields(&self) -> impl Iterator<Item = &Param> {
         self.fields.iter()
     }
 
@@ -143,7 +143,7 @@ impl<'a> PktInfo<'a> {
         }
     }
 
-    pub fn get_field(&self, id: usize) -> &Param<'a> {
+    pub fn get_field(&self, id: usize) -> &Param {
         &self.fields[id]
     }
 

@@ -97,13 +97,16 @@ impl PktInfoStack {
     pub fn proto_push(&mut self, proto: Protocols, parent_ce: Option<(ConntrackRef, ConntrackDirection)>) {
         let info = PktInfo {
             proto: proto,
-            fields: Vec::with_capacity(5),
+            fields: Vec::with_capacity(6),
             parent_ce: parent_ce,
         };
         self.infos.push(info);
     }
 
     pub fn proto_from_last(&self, id: usize) -> Option<&PktInfo> {
+        if id > self.infos.len() {
+            return None;
+        }
         self.infos.get(self.infos.len() - id)
     }
 

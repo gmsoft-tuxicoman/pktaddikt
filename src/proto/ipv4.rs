@@ -126,6 +126,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         let f_src = ParamValue::Ipv4(src);
         let f_dst = ParamValue::Ipv4(dst);
+        let f_tot_len = ParamValue::U32(tot_len as u32);
         let f_hdr_len = ParamValue::U16(hdr_len);
         let f_proto = ParamValue::U8(proto);
         let f_id = ParamValue::U16(id);
@@ -133,6 +134,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
         let info = infos.proto_last_mut();
         info.field_push(Param { name: "src", value: Some(f_src) });
         info.field_push(Param { name: "dst", value: Some(f_dst) });
+        info.field_push(Param { name: "tot_len", value: Some(f_tot_len) });
         info.field_push(Param { name: "hdr_len", value: Some(f_hdr_len) });
         info.field_push(Param { name: "id", value: Some(f_id) });
         info.field_push(Param { name: "proto", value: Some(f_proto) });
@@ -266,6 +268,8 @@ mod tests {
         param_assert_eq(src, "src", ParamValue::Ipv4(Ipv4Addr::new(0x01, 0x02, 0x03, 0x04)));
         let dst = field_iter.next().unwrap();
         param_assert_eq(dst, "dst", ParamValue::Ipv4(Ipv4Addr::new(0x10, 0x20, 0x30, 0x40)));
+        let tot_len = field_iter.next().unwrap();
+        param_assert_eq(tot_len, "tot_len", ParamValue::U32(data.len() as u32));
         let hdr_len = field_iter.next().unwrap();
         param_assert_eq(hdr_len, "hdr_len", ParamValue::U16(20));
         let id = field_iter.next().unwrap();

@@ -150,7 +150,8 @@ impl ProtoPktProcessor for ProtoTcp {
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData)
                     .downcast_mut::<ConntrackTcp>().unwrap();
 
-        cd.process_packet(ce_dir, seq, ack, flags, pkt);
+        let ip_len = infos.proto_from_last(3).and_then(|p| p.get_field(2).value);
+        cd.process_packet(ce_dir, seq, ack, flags, pkt, ip_len.unwrap_or(ParamValue::U32(0)).get_u32());
 
 
         let timeout = match cd.get_state() {

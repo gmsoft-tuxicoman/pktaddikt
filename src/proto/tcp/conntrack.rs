@@ -19,8 +19,8 @@ const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
 pub struct NetTcpConnectionStart {
     #[serde(flatten)]
     conn_id: EventId,
-    src_host: ParamValue,
-    dst_host: ParamValue,
+    src_host: Option<ParamValue>,
+    dst_host: Option<ParamValue>,
     src_port: u16,
     dst_port: u16,
 }
@@ -30,12 +30,14 @@ pub struct NetTcpConnectionEnd {
     #[serde(flatten)]
     conn_id: EventId,
     duration: Duration,
-    src_host: ParamValue,
-    dst_host: ParamValue,
+    src_host: Option<ParamValue>,
+    dst_host: Option<ParamValue>,
     src_port: u16,
     dst_port: u16,
     fwd_bytes: usize,
     rev_bytes: usize,
+    fwd_ip_bytes: usize,
+    rev_ip_bytes: usize,
     fwd_pkts: usize,
     rev_pkts: usize,
     fwd_missed_bytes: usize,
@@ -68,6 +70,7 @@ struct ConntrackTcpDir {
     pkts: BTreeMap<TcpSeq, TcpPacket>,
     buff_size: usize,
     tot_bytes: usize,
+    tot_ip_bytes: usize,
     tot_pkts: usize,
     missed_bytes: usize,
 }
@@ -91,8 +94,8 @@ pub struct ConntrackTcp {
     flow_state: ConntrackTcpFlowState,
     src_port: u16,
     dst_port: u16,
-    src_host: ParamValue,
-    dst_host: ParamValue,
+    src_host: Option<ParamValue>,
+    dst_host: Option<ParamValue>,
 }
 
 impl ConntrackTcp {
@@ -106,6 +109,7 @@ impl ConntrackTcp {
                 pkts: BTreeMap::new(),
                 buff_size: 0,
                 tot_bytes: 0,
+                tot_ip_bytes: 0,
                 tot_pkts: 0,
                 missed_bytes: 0,
             },
@@ -115,6 +119,7 @@ impl ConntrackTcp {
                 pkts: BTreeMap::new(),
                 buff_size: 0,
                 tot_bytes: 0,
+                tot_ip_bytes: 0,
                 tot_pkts: 0,
                 missed_bytes: 0,
             },
@@ -126,8 +131,8 @@ impl ConntrackTcp {
             flow_state: ConntrackTcpFlowState::Probing,
             src_port: infos.proto_from_last(2).unwrap().get_field(0).value.unwrap().get_u16(),
             dst_port: infos.proto_from_last(2).unwrap().get_field(1).value.unwrap().get_u16(),
-            src_host: infos.proto_from_last(3).unwrap().get_field(0).value.unwrap().clone(),
-            dst_host: infos.proto_from_last(3).unwrap().get_field(1).value.unwrap().clone(),
+            src_host: infos.proto_from_last(3).and_then(|p| p.get_field(0).value),
+            dst_host: infos.proto_from_last(3).and_then(|p| p.get_field(0).value),
         };
         ct
     }
@@ -148,7 +153,7 @@ impl ConntrackTcp {
         }
     }
 
-    fn send_packet(&mut self, dir: ConntrackDirection, flags: u8, data: &mut Packet) {
+    fn send_packet(&mut self, dir: ConntrackDirection, flags: u8, data: &mut Packet, is_missed: bool) {
         self.update_state(dir, flags);
         let queue = self.get_dir_mut(dir);
         let mut seq_advance = data.remaining_len() as u32;
@@ -156,6 +161,7 @@ impl ConntrackTcp {
             seq_advance += 1;
         }
 
+        queue.tot_bytes += data.remaining_len();
         *queue.cur_seq.as_mut().unwrap() += seq_advance;
 
         if data.remaining_len() == 0 {
@@ -260,6 +266,8 @@ impl ConntrackTcp {
             dst_port: self.dst_port,
             fwd_bytes: self.forward.tot_bytes,
             rev_bytes: self.reverse.tot_bytes,
+            fwd_ip_bytes: self.forward.tot_ip_bytes,
+            rev_ip_bytes: self.reverse.tot_ip_bytes,
             fwd_pkts: self.forward.tot_pkts,
             rev_pkts: self.reverse.tot_pkts,
             fwd_missed_bytes: self.forward.missed_bytes,
@@ -274,7 +282,7 @@ impl ConntrackTcp {
         self.state
     }
 
-    pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, data: &mut Packet) {
+    pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, data: &mut Packet, ip_len: u32) {
 
         let mut seq = TcpSeq(seq_u32);
         let ack = TcpSeq(ack_u32);
@@ -284,7 +292,7 @@ impl ConntrackTcp {
             // Update stats
             let queue = self.get_dir_mut(dir);
             queue.tot_pkts += 1;
-            queue.tot_bytes += data.remaining_len();
+            queue.tot_ip_bytes += ip_len as usize;
         }
 
         // Send the start event
@@ -443,7 +451,7 @@ impl ConntrackTcp {
         }
 
         // Packet is ready to be sent !
-        self.send_packet(dir, flags, data);
+        self.send_packet(dir, flags, data, false);
 
         // Check if this packet filled a gap
         self.process_more_packets();
@@ -522,7 +530,7 @@ impl ConntrackTcp {
             if pkt.is_some() {
                 let mut pkt = pkt.unwrap();
                 debug!("Sending additional packet with ts {}, seq {:?} and ack {:?}", pkt.data.ts, pkt.seq, pkt.ack);
-                self.send_packet(dir, pkt.flags, &mut pkt.data);
+                self.send_packet(dir, pkt.flags, &mut pkt.data, false);
                 tries = 2; // We unblocked some packets, let's keep trying in both directions
             }
         }
@@ -602,7 +610,7 @@ impl ConntrackTcp {
 
                 let data = PktDataZero::new(filler_len);
 
-                self.send_packet(dir, 0, &mut Packet::new(ts, data));
+                self.send_packet(dir, 0, &mut Packet::new(ts, data), true);
 
                 gap -= filler_len;
             }
@@ -637,7 +645,7 @@ mod tests {
     use crate::param::{Param,    ParamValue};
     use tracing_test::traced_test;
 
-    fn dummy_infos() -> PktInfoStack<'static> {
+    fn dummy_infos() -> PktInfoStack {
         let mut infos = PktInfoStack::new(Protocols::Tcp);
         let info = infos.proto_last_mut();
         info.field_push(Param { name: "sport", value: Some(ParamValue::U16(1234)) });
@@ -651,7 +659,7 @@ mod tests {
 
         let pkt_data = PktDataOwned::new(&data);
         let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
-        ct.process_packet(dir, seq, ack, flags, &mut pkt);
+        ct.process_packet(dir, seq, ack, flags, &mut pkt, 0);
 
     }
 

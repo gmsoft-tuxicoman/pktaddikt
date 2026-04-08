@@ -58,6 +58,8 @@ impl ProtoPktProcessor for ProtoIpv6 {
             return ProtoParseResult::Invalid;
         }
 
+        let tot_len: u32 = (((hdr[4] as u32) << 8) | (hdr[5] as u32)) + 40;
+
         let src = Ipv6Addr::new((hdr[8] as u16) << 8 | (hdr[9] as u16),
                                 (hdr[10] as u16) << 8 | (hdr[11] as u16),
                                 (hdr[12] as u16) << 8 | (hdr[13] as u16),
@@ -112,6 +114,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
         let info = infos.proto_last_mut();
         info.field_push(Param { name: "src", value: Some(ParamValue::Ipv6(src)) });
         info.field_push(Param { name: "dst", value: Some(ParamValue::Ipv6(dst)) });
+        info.field_push(Param { name: "tot_len", value: Some(ParamValue::U32(tot_len)) });
         info.field_push(Param { name: "hop_limit", value: Some(ParamValue::U8(hop_limit)) });
 
         let a = src.to_bits();

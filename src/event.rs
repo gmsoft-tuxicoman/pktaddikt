@@ -28,6 +28,10 @@ pub enum EventKind {
     NetTcpConnectionStart,
     #[strum(serialize = "net.tcp.connection.end")]
     NetTcpConnectionEnd,
+    #[strum(serialize = "net.udp.connection.start")]
+    NetUdpConnectionStart,
+    #[strum(serialize = "net.udp.connection.end")]
+    NetUdpConnectionEnd,
 }
 
 #[derive(Debug, Serialize)]
@@ -37,6 +41,8 @@ pub enum EventPayload {
     SysShutdown(SysShutdown),
     NetTcpConnectionStart(crate::proto::tcp::conntrack::NetTcpConnectionStart),
     NetTcpConnectionEnd(crate::proto::tcp::conntrack::NetTcpConnectionEnd),
+    NetUdpConnectionStart(crate::proto::udp::NetUdpConnectionStart),
+    NetUdpConnectionEnd(crate::proto::udp::NetUdpConnectionEnd),
 
 }
 
@@ -46,6 +52,8 @@ impl EventPayload {
             EventPayload::SysShutdown(_) => EventKind::SysShutdown,
             EventPayload::NetTcpConnectionStart(_) => EventKind::NetTcpConnectionStart,
             EventPayload::NetTcpConnectionEnd(_) => EventKind::NetTcpConnectionEnd,
+            EventPayload::NetUdpConnectionStart(_) => EventKind::NetUdpConnectionStart,
+            EventPayload::NetUdpConnectionEnd(_) => EventKind::NetUdpConnectionEnd,
         }
     }
 }
@@ -137,6 +145,13 @@ impl EventBus {
         // Everything matched and we have the same number of parts
         g_parts.len() == n_parts.len()
 
+    }
+
+    pub fn has_subscribers(evt_kind: EventKind) -> bool {
+        let id = evt_kind as usize;
+        let evt_bus = EVENT_BUS.get().unwrap();
+
+        evt_bus.subscribers[id].len() > 0
     }
 
     #[cfg(test)]

@@ -74,7 +74,7 @@ mod tests {
     fn arp_parse_basic() {
         let data = vec![0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x01, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x01, 0x01, 0x01, 0x01, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x02, 0x02, 0x02, 0x02];
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
+        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Arp);
 
         let ret = ProtoArp::new().process(&mut pkt, &mut infos);

@@ -55,8 +55,8 @@ impl TimerManager {
 
         let timer = Timer {
                 action: Some(action),
-                duration: PktTime::from_nanos(0),
-                expiry: PktTime::from_nanos(0),
+                duration: PktTime::from_micros(0),
+                expiry: PktTime::from_micros(0),
                 next: None,
                 prev: None,
         };
@@ -175,7 +175,7 @@ impl TimerManager {
                 Err(TryLockError::WouldBlock) => return,
                 _ => panic!("Unexpected lock error")
             };
-            let now = PktTime::from_nanos(TIMER_NOW.load(Ordering::Relaxed));
+            let now = PktTime::from_micros(TIMER_NOW.load(Ordering::Relaxed));
             actions = manager.collect_timers_locked(now);
         }
 
@@ -259,7 +259,7 @@ mod tests {
 
         let cb = Arc::new(|| { println!("Timer1")});
 
-        let timer1 = manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb);
+        let timer1 = manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb);
         assert_eq!(manager.timers.len(), 1);
         manager.destroy_locked(timer1);
         assert_eq!(manager.timers.len(), 0);
@@ -271,18 +271,18 @@ mod tests {
 
         let cb1 = Arc::new(|| { println!("Timer1")});
         let cb2 = Arc::new(|| { println!("Timer2")});
-        let timer1 = manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb1);
-        let timer2 = manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb2);
+        let timer1 = manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb1);
+        let timer2 = manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb2);
         assert_eq!(manager.timers.len(), 2);
         manager.destroy_locked(timer1);
         assert_eq!(manager.timers.len(), 1);
         assert_eq!(manager.timers[timer2].next, None);
         assert_eq!(manager.timers[timer2].prev, None);
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().head, Some(timer2));
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().tail, Some(timer2));
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().head, Some(timer2));
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().tail, Some(timer2));
         manager.destroy_locked(timer2);
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().head, None);
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().tail, None);
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().head, None);
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().tail, None);
 
     }
 
@@ -292,18 +292,18 @@ mod tests {
 
         let cb1 = Arc::new(|| { println!("Timer1")});
         let cb2 = Arc::new(|| { println!("Timer2")});
-        let timer1 = manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb1);
-        let timer2 = manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb2);
+        let timer1 = manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb1);
+        let timer2 = manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb2);
         assert_eq!(manager.timers.len(), 2);
         manager.destroy_locked(timer2);
         assert_eq!(manager.timers.len(), 1);
         assert_eq!(manager.timers[timer1].next, None);
         assert_eq!(manager.timers[timer1].prev, None);
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().head, Some(timer1));
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().tail, Some(timer1));
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().head, Some(timer1));
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().tail, Some(timer1));
         manager.destroy_locked(timer1);
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().head, None);
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().tail, None);
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().head, None);
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().tail, None);
 
     }
 
@@ -314,9 +314,9 @@ mod tests {
         let cb1 = Arc::new(|| { println!("Timer1")});
         let cb2 = Arc::new(|| { println!("Timer2")});
         let cb3 = Arc::new(|| { println!("Timer3")});
-        let timer1 = manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb1);
-        let timer2 = manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb2);
-        let timer3 = manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb3);
+        let timer1 = manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb1);
+        let timer2 = manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb2);
+        let timer3 = manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb3);
         assert_eq!(manager.timers.len(), 3);
         manager.destroy_locked(timer2);
         assert_eq!(manager.timers.len(), 2);
@@ -324,8 +324,8 @@ mod tests {
         assert_eq!(manager.timers[timer1].next, Some(timer3));
         assert_eq!(manager.timers[timer3].prev, Some(timer1));
         assert_eq!(manager.timers[timer3].next, None);
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().head, Some(timer1));
-        assert_eq!(manager.queues.get(&PktTime::from_nanos(1)).unwrap().tail, Some(timer3));
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().head, Some(timer1));
+        assert_eq!(manager.queues.get(&PktTime::from_micros(1)).unwrap().tail, Some(timer3));
 
     }
 
@@ -344,11 +344,11 @@ mod tests {
         let cb1 = Arc::new(|| { println!("Timer1")});
         let cb2 = Arc::new(|| { println!("Timer2")});
         let cb3 = Arc::new(|| { println!("Timer3")});
-        manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb1);
-        manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(2), cb2);
-        manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(3), cb3);
+        manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb1);
+        manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(2), cb2);
+        manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(3), cb3);
 
-        let actions = manager.collect_timers_locked(PktTime::from_nanos(3)).unwrap();
+        let actions = manager.collect_timers_locked(PktTime::from_micros(3)).unwrap();
 
         assert_eq!(actions.len(), 2);
         assert_eq!(manager.timers.len(), 1);
@@ -362,11 +362,11 @@ mod tests {
         let cb1 = Arc::new(|| { println!("Timer1")});
         let cb2 = Arc::new(|| { println!("Timer2")});
         let cb3 = Arc::new(|| { println!("Timer3")});
-        manager.queue_new_locked(PktTime::from_nanos(1), PktTime::from_nanos(1), cb1);
-        manager.queue_new_locked(PktTime::from_nanos(2), PktTime::from_nanos(1), cb2);
-        manager.queue_new_locked(PktTime::from_nanos(3), PktTime::from_nanos(1), cb3);
+        manager.queue_new_locked(PktTime::from_micros(1), PktTime::from_micros(1), cb1);
+        manager.queue_new_locked(PktTime::from_micros(2), PktTime::from_micros(1), cb2);
+        manager.queue_new_locked(PktTime::from_micros(3), PktTime::from_micros(1), cb3);
 
-        let actions = manager.collect_timers_locked(PktTime::from_nanos(3)).unwrap();
+        let actions = manager.collect_timers_locked(PktTime::from_micros(3)).unwrap();
 
         assert_eq!(actions.len(), 2);
         assert_eq!(manager.timers.len(), 1);

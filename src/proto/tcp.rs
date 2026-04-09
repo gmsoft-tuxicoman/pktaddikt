@@ -191,7 +191,7 @@ mod tests {
 
     fn tcp_parse_test(proto: &mut ProtoTcp, data: &[u8]) -> ProtoParseResult {
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
+        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         proto.process(&mut pkt, &mut infos)
@@ -202,7 +202,7 @@ mod tests {
     fn tcp_parse_basic() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
+        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);
@@ -257,10 +257,10 @@ mod tests {
 
 
         let mut test = ProtoTest::new();
-        test.add_expectation(&[ 0xdd ] , PktTime::from_nanos(0));
+        test.add_expectation(&[ 0xdd ] , PktTime::from_micros(0));
 
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
+        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);

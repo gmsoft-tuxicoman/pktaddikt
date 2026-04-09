@@ -44,7 +44,7 @@ mod tests {
     fn icmp_parse_basic() {
         let data = vec![0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
+        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Icmp);
 
         let ret = ProtoIcmp::new().process(&mut pkt, &mut infos);

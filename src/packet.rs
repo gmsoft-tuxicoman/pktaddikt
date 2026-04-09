@@ -20,7 +20,7 @@ impl PktTime {
         PktTime((tv_sec as u64 * 1000000) + tv_usec as u64)
     }
 
-    pub fn from_nanos(nsec: u64) -> PktTime {
+    pub fn from_micros(nsec: u64) -> PktTime {
         PktTime(nsec)
     }
 
@@ -34,13 +34,13 @@ impl fmt::Display for PktTime {
 
 impl From<Duration> for PktTime {
     fn from(d: Duration) -> Self {
-        PktTime(d.as_nanos() as u64)
+        PktTime(d.as_micros() as u64)
     }
 }
 
 impl From<PktTime> for Duration {
     fn from(d: PktTime) -> Self {
-        Duration::from_nanos(d.0)
+        Duration::from_micros(d.0)
     }
 }
 

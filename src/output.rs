@@ -87,7 +87,7 @@ impl OutputBuilder {
     pub fn join(&mut self) {
 
         for output in self.outputs.drain(..) {
-            output.tx.send(Arc::new(Event::new(PktTime::from_nanos(0), EventPayload::SysShutdown(SysShutdown{})))).unwrap();
+            output.tx.send(Arc::new(Event::new(PktTime::from_micros(0), EventPayload::SysShutdown(SysShutdown{})))).unwrap();
             output.thread.join().unwrap();
         }
 

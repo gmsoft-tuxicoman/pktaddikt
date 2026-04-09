@@ -152,7 +152,7 @@ impl ProtoPktProcessor for ProtoUdp {
                     },
                     conn_id: EventId::new(pkt.ts),
                     start_ts: pkt.ts,
-                    last_ts: PktTime::from_nanos(0),
+                    last_ts: PktTime::from_micros(0),
                     src_port: sport,
                     dst_port: dport,
                     src_host: infos.proto_from_last(3).and_then(|p| p.get_field(0).value),

@@ -54,7 +54,7 @@ mod tests {
     fn vlan_parse_basic() {
         let data = vec![0x50, 0x0a, 0x81, 0x00];
         let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_nanos(0), pkt_data);
+        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
         let mut infos = PktInfoStack::new(Protocols::Vlan);
 
         let ret = ProtoVlan::new().process(&mut pkt, &mut infos);

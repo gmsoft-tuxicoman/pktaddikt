@@ -102,7 +102,9 @@ impl EventBus {
         EVENT_BUS.set(self).unwrap();
     }
 
-    pub fn subscribe_glob(&mut self, evt_glob: &str, tx: &EventTxChannel) {
+    pub fn subscribe_glob(&mut self, evt_glob: &str, tx: &EventTxChannel) -> Result<(), ()> {
+
+        let mut found = false;
 
         for evt in EventKind::iter() {
             let id = evt as usize;
@@ -112,8 +114,16 @@ impl EventBus {
                 continue;
             }
 
+            found = true;
+
             debug!("Adding one subscriber to event {} ({})", name, id);
             self.subscribers[id].push(tx.clone());
+        }
+
+        if found {
+            Ok(())
+        } else {
+            Err(())
         }
     }
 

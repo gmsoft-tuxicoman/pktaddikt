@@ -35,12 +35,12 @@ pub struct OutputLogJson {
 impl OutputLogJson {
 
     pub fn new(_cfg: ConfigRef, output_cfg: &LogJsonConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
-        let file = OpenOptions::new().create(true).write(true).append(true).open(&output_cfg.file).expect("Unable to open file {} for output logjson", &output_cfg.file);
+        let file = OpenOptions::new().create(true).write(true).append(true).open(&output_cfg.file).expect(&format!("Unable to open file {} for output logjson", &output_cfg.file));
         let writer = BufWriter::new(file);
 
 
         for evt_name in &output_cfg.events {
-            evt_bus.subscribe_glob(evt_name, tx);
+            evt_bus.subscribe_glob(evt_name, tx).expect(&format!("Event {} does not exists", evt_name));
         }
 
         Box::new(Self { writer })

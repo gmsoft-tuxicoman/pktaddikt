@@ -132,7 +132,7 @@ impl ConntrackTcp {
             src_port: infos.proto_from_last(2).unwrap().get_field(0).value.unwrap().get_u16(),
             dst_port: infos.proto_from_last(2).unwrap().get_field(1).value.unwrap().get_u16(),
             src_host: infos.proto_from_last(3).and_then(|p| p.get_field(0).value),
-            dst_host: infos.proto_from_last(3).and_then(|p| p.get_field(0).value),
+            dst_host: infos.proto_from_last(3).and_then(|p| p.get_field(1).value),
         };
         ct
     }

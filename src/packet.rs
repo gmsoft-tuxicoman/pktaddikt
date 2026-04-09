@@ -12,7 +12,7 @@ use serde::{Serialize, Serializer};
 
 
 // Time in microsecond
-#[derive(PartialEq,Debug,Clone,Copy,Eq,PartialOrd,Ord,Serialize)]
+#[derive(PartialEq,Debug,Clone,Copy,Eq,PartialOrd,Ord)]
 pub struct PktTime(u64);
 
 impl PktTime {
@@ -24,12 +24,6 @@ impl PktTime {
         PktTime(nsec)
     }
 
-    pub fn serialize<S>(time: &PktTime, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&time.to_string())
-    }
 }
 
 impl fmt::Display for PktTime {
@@ -69,6 +63,15 @@ impl Sub<PktTime> for PktTime {
 
     fn sub(self, rhs: PktTime) -> Self::Output {
         PktTime(self.0 - rhs.0)
+    }
+}
+
+impl Serialize for PktTime {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
     }
 }
 

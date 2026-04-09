@@ -1,5 +1,6 @@
 
 use crate::output::logjson::{OutputLogJson, LogJsonConfig};
+use crate::output::logzeek::{OutputLogZeek, LogZeekConfig};
 use crate::config::ConfigRef;
 use crate::event::{EventRxChannel, EventTxChannel, EventBus, Event, EventPayload, SysShutdown};
 use crate::packet::PktTime;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 use tracing::debug;
 
 pub mod logjson;
+pub mod logzeek;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type" )]
@@ -17,6 +19,8 @@ pub enum OutputConfig {
     
     #[serde(rename = "logjson")]
     LogJson(LogJsonConfig),
+    #[serde(rename = "logzeek")]
+    LogZeek(LogZeekConfig),
 }
 
 pub trait Output: Send + 'static {
@@ -75,6 +79,7 @@ impl OutputBuilder {
 
         match &output_cfg {
             OutputConfig::LogJson(c) => OutputLogJson::new(cfg.clone(), c, evt_bus, tx),
+            OutputConfig::LogZeek(c) => OutputLogZeek::new(cfg.clone(), c, evt_bus, tx),
         }
 
     }

@@ -17,31 +17,29 @@ const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionStart {
-    #[serde(flatten)]
-    conn_id: EventId,
-    src_host: Option<ParamValue>,
-    dst_host: Option<ParamValue>,
-    src_port: u16,
-    dst_port: u16,
+    pub conn_id: EventId,
+    pub src_host: Option<ParamValue>,
+    pub dst_host: Option<ParamValue>,
+    pub src_port: u16,
+    pub dst_port: u16,
 }
 
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionEnd {
-    #[serde(flatten)]
-    conn_id: EventId,
-    duration: Duration,
-    src_host: Option<ParamValue>,
-    dst_host: Option<ParamValue>,
-    src_port: u16,
-    dst_port: u16,
-    fwd_bytes: usize,
-    rev_bytes: usize,
-    fwd_ip_bytes: usize,
-    rev_ip_bytes: usize,
-    fwd_pkts: usize,
-    rev_pkts: usize,
-    fwd_missed_bytes: usize,
-    rev_missed_bytes: usize,
+    pub conn_id: EventId,
+    pub duration: Duration,
+    pub src_host: Option<ParamValue>,
+    pub dst_host: Option<ParamValue>,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub fwd_bytes: usize,
+    pub rev_bytes: usize,
+    pub fwd_ip_bytes: usize,
+    pub rev_ip_bytes: usize,
+    pub fwd_pkts: usize,
+    pub rev_pkts: usize,
+    pub fwd_missed_bytes: usize,
+    pub rev_missed_bytes: usize,
 }
 
 struct TcpPacket {

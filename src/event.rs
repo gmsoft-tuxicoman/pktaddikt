@@ -59,18 +59,14 @@ impl EventPayload {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct EventId {
-    id: String,
-}
+pub struct EventId (String);
 
 impl EventId {
     pub fn new(ts: PktTime) -> EventId {
 
         let counter = EVENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let val: u128 = ((u64::from(ts) as u128) << 16) | counter as u128;
-        EventId {
-            id: base62::encode(val)
-        }
+        EventId(base62::encode(val))
     }
 }
 
@@ -125,6 +121,13 @@ impl EventBus {
         } else {
             Err(())
         }
+    }
+
+    pub fn subscribe_kind(&mut self, evt_kind: EventKind, tx: &EventTxChannel) {
+
+        let evt_id = evt_kind as usize;
+        self.subscribers[evt_id].push(tx.clone());
+
     }
 
     fn match_glob(evt_glob: &str, evt_name: &str) -> bool {
@@ -192,14 +195,12 @@ pub type EventRef = Arc<Event>;
 #[derive(Debug, Serialize)]
 pub struct Event {
 
-    #[serde(flatten)]
-    id: EventId,
-    #[serde(serialize_with = "PktTime::serialize")]
-    ts: PktTime,
-    kind: &'static str,
+    pub id: EventId,
+    pub ts: PktTime,
+    pub kind: &'static str,
 
     #[serde(flatten)]
-    payload: EventPayload,
+    pub payload: EventPayload,
 
 }
 

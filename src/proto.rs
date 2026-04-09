@@ -197,7 +197,7 @@ impl Proto {
             }
             print!("{:?} {{ ", i.proto);
             for f in i.iter_fields() {
-                print!("{}: {:?}; ", f.name, f.value.unwrap());
+                print!("{}: {}; ", f.name, f.value.unwrap());
             }
             print!("}}; ");
         }

@@ -1,6 +1,7 @@
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use serde::Serialize;
+use std::fmt;
 
 
 pub struct Param {
@@ -64,6 +65,23 @@ impl ParamValue {
             _ => panic!("Trying to fetch ipv6")
         }
     }
+
+}
+
+impl fmt::Display for ParamValue {
+
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParamValue::U8(v) => write!(f, "{}", v),
+            ParamValue::U16(v) => write!(f, "{}", v),
+            ParamValue::U32(v) => write!(f, "{}", v),
+            ParamValue::U64(v) => write!(f, "{}", v),
+            ParamValue::Mac(v) => write!(f, "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", v[0], v[1], v[2], v[3], v[4], v[5]),
+            ParamValue::Ipv4(v) => write!(f, "{}", v),
+            ParamValue::Ipv6(v) => write!(f, "{}", v),
+        }
+    }
+
 
 }
 

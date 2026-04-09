@@ -6,7 +6,6 @@ use crate::packet::PktTime;
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::to_writer;
 
@@ -48,7 +47,7 @@ struct ZeekConnLog {
     resp_p: u16,
     proto: &'static str,
     //service: &'static str,
-    duration: Duration,
+    duration: PktTime,
     orig_bytes: usize,
     resp_bytes: usize,
     //conn_state

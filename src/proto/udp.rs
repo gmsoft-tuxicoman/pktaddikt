@@ -39,7 +39,7 @@ pub struct NetUdpConnectionStart {
 #[derive(Debug, Serialize)]
 pub struct NetUdpConnectionEnd {
     pub conn_id: EventId,
-    pub duration: Duration,
+    pub duration: PktTime,
     pub src_host: Option<ParamValue>,
     pub dst_host: Option<ParamValue>,
     pub src_port: u16,
@@ -209,7 +209,7 @@ impl Drop for ConntrackUdp {
             dst_port: self.dst_port,
             src_host: self.src_host,
             dst_host: self.dst_host,
-            duration: (self.last_ts - self.start_ts).into(),
+            duration: self.last_ts - self.start_ts,
             fwd_bytes: self.forward.tot_bytes,
             rev_bytes: self.reverse.tot_bytes,
             fwd_ip_bytes: self.forward.tot_ip_bytes,

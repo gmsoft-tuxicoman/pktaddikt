@@ -9,7 +9,6 @@ use crate::event::{Event, EventId, EventPayload};
 use crate::param::ParamValue;
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 use tracing::{debug, trace};
 use serde::Serialize;
 
@@ -27,7 +26,7 @@ pub struct NetTcpConnectionStart {
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionEnd {
     pub conn_id: EventId,
-    pub duration: Duration,
+    pub duration: PktTime,
     pub src_host: Option<ParamValue>,
     pub dst_host: Option<ParamValue>,
     pub src_port: u16,
@@ -259,7 +258,7 @@ impl ConntrackTcp {
         // Send the end event
         let evt_pload = NetTcpConnectionEnd {
             conn_id: self.conn_id.clone().unwrap(),
-            duration: (self.last_ts - self.start_ts.unwrap()).into(),
+            duration: self.last_ts - self.start_ts.unwrap(),
             src_host: self.src_host,
             dst_host: self.dst_host,
             src_port: self.src_port,

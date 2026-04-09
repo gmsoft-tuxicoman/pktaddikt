@@ -161,7 +161,9 @@ impl ConntrackTcp {
             seq_advance += 1;
         }
 
-        queue.tot_bytes += data.remaining_len();
+        if ! is_missed {
+            queue.tot_bytes += data.remaining_len();
+        }
         *queue.cur_seq.as_mut().unwrap() += seq_advance;
 
         if data.remaining_len() == 0 {

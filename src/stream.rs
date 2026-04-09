@@ -12,6 +12,7 @@ pub trait PktStreamProcessor {
     fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> StreamParseResult;
 }
 
+#[derive(Debug)]
 pub enum PktStreamProto {
     Test(ProtoTest),
     Http(ProtoHttp),
@@ -102,6 +103,11 @@ impl PktStream {
             self.is_active = false;
             return;
         }
+    }
+
+    #[cfg(test)]
+    pub fn proto(&self) -> &PktStreamProto {
+        &self.proto
     }
 }
 

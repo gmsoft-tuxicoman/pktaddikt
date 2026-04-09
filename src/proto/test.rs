@@ -8,6 +8,7 @@ use crate::conntrack::ConntrackDirection;
 use std::cell::RefCell;
 use std::ops::Range;
 
+#[derive(Debug)]
 pub struct ProtoTest {
     expectations: Vec<ProtoTestExpect>,
 }
@@ -20,6 +21,7 @@ impl ProtoTest {
     }
 }
 
+#[derive(Debug)]
 struct ProtoTestExpect {
 
     ts: PktTime,

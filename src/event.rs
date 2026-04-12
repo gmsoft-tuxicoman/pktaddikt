@@ -7,8 +7,9 @@ use std::sync::{Arc, OnceLock};
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumString, AsRefStr, EnumCount, EnumIter, IntoStaticStr};
 use crossbeam_channel;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use tracing::{debug, trace};
+use std::ops::Deref;
 
 
 static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
@@ -180,13 +181,13 @@ impl EventBus {
 
     #[cfg(test)]
     pub fn publish(evt: Event) {
-        trace!("Got event {:?}", evt.kind());
+        trace!("Publishing event {:?}", evt.kind());
     }
 
     #[cfg(not(test))]
     pub fn publish(evt: Event) {
 
-        trace!("Got event {:?}", evt.kind());
+        trace!("Publishing event {:?}", evt.kind());
         let evt_bus = EVENT_BUS.get().unwrap();
 
         let id = evt.kind() as usize;
@@ -238,4 +239,39 @@ impl Event {
         self.payload.kind()
     }
 
+}
+
+/// String stored as Vec<u8> and serialized to string
+/// This allow quick storage in parsing process
+/// And slower deserialization in output process
+#[derive(Debug)]
+pub struct EventStr(Vec<u8>);
+
+impl Serialize for EventStr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&String::from_utf8_lossy(&self.0))
+    }
+}
+
+impl Deref for EventStr {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Vec<u8>> for EventStr {
+    fn from(v: Vec<u8>) -> Self {
+        EventStr(v)
+    }
+}
+
+impl From<&[u8]> for EventStr {
+    fn from(s: &[u8]) -> Self {
+        EventStr(s.to_vec())
+    }
 }

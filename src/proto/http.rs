@@ -4,7 +4,7 @@ use crate::packet::{PktInfoStack, PktTime};
 use crate::conntrack::ConntrackDirection;
 use crate::event::{EventId, EventKind};
 use crate::proto::ProtoInfo;
-use crate::event::{Event, EventBus, EventPayload};
+use crate::event::{Event, EventBus, EventPayload, EventStr};
 
 use memchr::memchr;
 use tracing::trace;
@@ -21,14 +21,14 @@ pub struct NetHttpRequestBasic {
     pub ts: PktTime,
     pub method: String,
     pub version: String,
-    pub uri: Vec<u8>,
+    pub uri: EventStr,
 }
 
 
 #[derive(Debug, Serialize)]
 pub struct NetHttpRequestFull {
     pub base: NetHttpRequestBasic,
-    pub headers: Vec<(Vec<u8>, Vec<u8>)>
+    pub headers: Vec<(EventStr, EventStr)>
 }
 
 #[derive(Debug, Serialize)]
@@ -41,13 +41,13 @@ pub struct NetHttpResponseBasic {
     pub ts: PktTime,
     pub status: usize,
     pub version: String,
-    pub reason: Vec<u8>,
+    pub reason: EventStr,
 }
 
 #[derive(Debug, Serialize)]
 pub struct NetHttpResponseFull {
     pub base: NetHttpResponseBasic,
-    pub headers: Vec<(Vec<u8>, Vec<u8>)>,
+    pub headers: Vec<(EventStr, EventStr)>,
 }
 
 #[derive(Debug)]
@@ -196,7 +196,7 @@ impl ProtoHttp {
             ts,
             method: String::from_utf8_lossy(method).into_owned(),
             version: String::from_utf8_lossy(version).into_owned(),
-            uri: uri.to_vec(),
+            uri: uri.into(),
         };
 
         trace!("HTTP Method: {}", evt.method);
@@ -239,7 +239,7 @@ impl ProtoHttp {
             ts,
             version: String::from_utf8_lossy(version).into_owned(),
             status: status_code,
-            reason: reason.to_vec(),
+            reason: reason.into(),
 
         };
 

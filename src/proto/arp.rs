@@ -1,8 +1,19 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult};
-use crate::param::{Param, ParamValue};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
+use crate::proto::ethernet::EthernetMac;
 
 use std::net::Ipv4Addr;
+
+#[derive(Debug, PartialEq)]
+pub struct ProtoArpInfo {
+    pub sender_ip: Ipv4Addr,
+    pub target_ip: Ipv4Addr,
+    pub sender_hw: EthernetMac,
+    pub target_hw: EthernetMac,
+    pub opcode: u16,
+
+}
+
 
 pub struct ProtoArp {}
 
@@ -42,22 +53,27 @@ impl ProtoPktProcessor for ProtoArp {
             return ProtoParseResult::Invalid;
         }
 
-        let opcode = ParamValue::U16(pkt.read_u16().unwrap());
-        let sender_hw = ParamValue::Mac(pkt.read_bytes(6).unwrap().try_into().unwrap());
+        let opcode = pkt.read_u16().unwrap();
+        let sender_hw: EthernetMac = pkt.read_bytes(6).unwrap().try_into().unwrap();
         let sender_ip_raw = pkt.read_bytes(4).unwrap();
-        let sender_ip = ParamValue::Ipv4(Ipv4Addr::new(sender_ip_raw[0], sender_ip_raw[1], sender_ip_raw[2], sender_ip_raw[3]));
-        let target_hw = ParamValue::Mac(pkt.read_bytes(6).unwrap().try_into().unwrap());
+        let sender_ip = Ipv4Addr::new(sender_ip_raw[0], sender_ip_raw[1], sender_ip_raw[2], sender_ip_raw[3]);
+        let target_hw: EthernetMac = pkt.read_bytes(6).unwrap().try_into().unwrap();
         let target_ip_raw = pkt.read_bytes(4).unwrap();
-        let target_ip = ParamValue::Ipv4(Ipv4Addr::new(target_ip_raw[0], target_ip_raw[1], target_ip_raw[2], target_ip_raw[3]));
+        let target_ip = Ipv4Addr::new(target_ip_raw[0], target_ip_raw[1], target_ip_raw[2], target_ip_raw[3]);
 
         let info = infos.proto_last_mut();
-        info.field_push(Param { name: "opcode", value: Some(opcode) });
-        info.field_push(Param { name: "sender_hw", value: Some(sender_hw) });
-        info.field_push(Param { name: "sender_ip", value: Some(sender_ip) });
-        info.field_push(Param { name: "target_hw", value: Some(target_hw) });
-        info.field_push(Param { name: "target_ip", value: Some(target_ip) });
 
-        return ProtoParseResult::Stop;
+        let proto_info = ProtoArpInfo {
+            sender_ip,
+            target_ip,
+            sender_hw,
+            target_hw,
+            opcode
+        };
+
+        info.proto_info = Some(ProtoInfo::Arp(proto_info));
+
+        return ProtoParseResult::Ok;
     }
 
 }
@@ -68,7 +84,6 @@ mod tests {
     use super::*;
     use crate::packet::{PktDataBorrowed, PktTime};
     use crate::proto::Protocols;
-    use crate::param::tests::param_assert_eq;
 
     #[test]
     fn arp_parse_basic() {
@@ -78,21 +93,19 @@ mod tests {
         let mut infos = PktInfoStack::new(Protocols::Arp);
 
         let ret = ProtoArp::new().process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Stop);
+        assert_eq!(ret, ProtoParseResult::Ok);
 
         let info = infos.iter().next().unwrap();
-        let mut field_iter = info.iter_fields();
 
-        let opcode = field_iter.next().unwrap();
-        param_assert_eq(opcode, "opcode", ParamValue::U16(0x01));
-        let sender_hw = field_iter.next().unwrap();
-        param_assert_eq(sender_hw, "sender_hw", ParamValue::Mac([0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A]));
-        let sender_ip = field_iter.next().unwrap();
-        param_assert_eq(sender_ip, "sender_ip", ParamValue::Ipv4(Ipv4Addr::new(0x01, 0x01, 0x01, 0x01)));
-        let target_hw = field_iter.next().unwrap();
-        param_assert_eq(target_hw, "target_hw", ParamValue::Mac([0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B]));
-        let target_ip = field_iter.next().unwrap();
-        param_assert_eq(target_ip, "target_ip", ParamValue::Ipv4(Ipv4Addr::new(0x02, 0x02, 0x02, 0x02)));
+        let expected = ProtoInfo::Arp(ProtoArpInfo {
+            opcode: 0x01,
+            sender_hw: EthernetMac([0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A]),
+            sender_ip: Ipv4Addr::new(0x01, 0x01, 0x01, 0x01),
+            target_hw: EthernetMac([0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B]),
+            target_ip: Ipv4Addr::new(0x02, 0x02, 0x02, 0x02),
+        });
+
+        assert_eq!(info.proto_info, Some(expected));
     }
 
 }

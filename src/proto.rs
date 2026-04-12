@@ -10,14 +10,14 @@ pub mod vlan;
 pub mod icmp;
 
 use crate::proto::test::ProtoTest;
-use crate::proto::ethernet::ProtoEthernet;
-use crate::proto::ipv4::{ProtoIpv4, Ipv4Config};
-use crate::proto::ipv6::{ProtoIpv6, Ipv6Config};
-use crate::proto::udp::{ProtoUdp, UdpConfig};
-use crate::proto::tcp::{ProtoTcp, TcpConfig};
-use crate::proto::arp::ProtoArp;
-use crate::proto::vlan::ProtoVlan;
-use crate::proto::icmp::ProtoIcmp;
+use crate::proto::ethernet::{ProtoEthernet, ProtoEthernetInfo};
+use crate::proto::ipv4::{ProtoIpv4, ProtoIpv4Info, Ipv4Config};
+use crate::proto::ipv6::{ProtoIpv6, ProtoIpv6Info, Ipv6Config};
+use crate::proto::udp::{ProtoUdp, ProtoUdpInfo, UdpConfig};
+use crate::proto::tcp::{ProtoTcp, ProtoTcpInfo, TcpConfig};
+use crate::proto::arp::{ProtoArp, ProtoArpInfo};
+use crate::proto::vlan::{ProtoVlan, ProtoVlanInfo};
+use crate::proto::icmp::{ProtoIcmp, ProtoIcmpInfo};
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 use crate::config::ConfigRef;
@@ -70,6 +70,18 @@ pub enum ProtoParseResult {
     Invalid,
     New(Packet<'static>),
     None
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ProtoInfo {
+    Ethernet(ProtoEthernetInfo),
+    Ipv4(ProtoIpv4Info),
+    Ipv6(ProtoIpv6Info),
+    Udp(ProtoUdpInfo),
+    Tcp(ProtoTcpInfo),
+    Arp(ProtoArpInfo),
+    Vlan(ProtoVlanInfo),
+    Icmp(ProtoIcmpInfo),
 }
 
 impl PartialEq for ProtoParseResult {
@@ -161,6 +173,7 @@ impl Proto {
                 Some(i) => i,
                 None => break,
             };
+            info.tot_len = pkt.remaining_len();
             stack_index += 1;
 
             ret = match info.proto {
@@ -175,6 +188,16 @@ impl Proto {
                 Protocols::Icmp => self.icmp.process(pkt, infos),
                 _ => break,
             };
+
+            let info = match infos.proto_id(stack_index) {
+                Some(i) => i,
+                None => break,
+            };
+
+            if info.data_len != 0 {
+                // data_len hasn't been set by the previous proto, let's set it now
+                info.data_len = pkt.remaining_len();
+            }
 
             if let ProtoParseResult::New(new_pkt) = mem::replace(&mut ret, ProtoParseResult::Ok) {
                 pkt_holder = Some(new_pkt);
@@ -195,11 +218,7 @@ impl Proto {
             if i.proto == Protocols::None {
                 break;
             }
-            print!("{:?} {{ ", i.proto);
-            for f in i.iter_fields() {
-                print!("{}: {}; ", f.name, f.value.unwrap());
-            }
-            print!("}}; ");
+            print!("{:?} {{ {:?} }}; ", i.proto, i.proto_info );
         }
 
         println!("[{:?} {}ns]", ret, processing_time.as_nanos());

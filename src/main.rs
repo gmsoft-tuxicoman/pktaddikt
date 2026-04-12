@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 pub mod proto;
 pub mod conntrack;
-pub mod param;
 pub mod packet;
 pub mod timer;
 pub mod stream;

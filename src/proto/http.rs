@@ -163,10 +163,11 @@ impl PktStreamProcessor for ProtoHttp {
 mod tests {
 
     use crate::packet::{Packet, PktDataOwned, PktInfoStack, PktTime};
-    use crate::proto::Protocols;
-    use crate::param::{Param, ParamValue};
+    use crate::proto::{Protocols, ProtoInfo};
     use crate::stream::PktStream;
     use crate::conntrack::ConntrackDirection;
+    use crate::proto::ipv4::ProtoIpv4Info;
+    use crate::proto::tcp::ProtoTcpInfo;
     use std::net::Ipv4Addr;
 
 
@@ -175,13 +176,28 @@ mod tests {
 
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
         let mut info = infos.proto_last_mut();
-        info.field_push(Param { name: "src", value: Some(ParamValue::Ipv4(Ipv4Addr::new(10, 0, 0, 1))) });
-        info.field_push(Param { name: "dst", value: Some(ParamValue::Ipv4(Ipv4Addr::new(10, 0, 0, 2))) });
+
+        info.proto_info = Some(ProtoInfo::Ipv4(ProtoIpv4Info {
+            src: Ipv4Addr::new(10, 0, 0, 1),
+            dst: Ipv4Addr::new(10, 0, 0, 2),
+            id: 0,
+            hdr_len: 0,
+            ttl: 0,
+            proto: 17,
+        }));
 
         infos.proto_push(Protocols::Tcp, None);
+
         info = infos.proto_last_mut();
-        info.field_push(Param { name: "sport", value: Some(ParamValue::U16(1234)) });
-        info.field_push(Param { name: "dport", value: Some(ParamValue::U16(80)) });
+
+        info.proto_info = Some(ProtoInfo::Tcp(ProtoTcpInfo {
+            sport: 1234,
+            dport: 80,
+            seq: 0,
+            ack: 0,
+            window: 0,
+            flags: 0,
+        }));
 
         infos.proto_push(Protocols::Http, None);
 

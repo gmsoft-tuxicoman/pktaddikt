@@ -1,6 +1,27 @@
-use crate::proto::{ProtoPktProcessor, Protocols, ProtoParseResult};
-use crate::param::{Param, ParamValue};
+use crate::proto::{ProtoPktProcessor, Protocols, ProtoParseResult, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
+
+
+#[derive(Debug, PartialEq)]
+pub struct EthernetMac(pub [u8;6]);
+
+impl From<&[u8]> for EthernetMac {
+
+    fn from(slice: &[u8]) -> Self {
+        assert_eq!(slice.len(), 6, "Slice must be 6 bytes long");
+        let mut bytes = [0u8; 6];
+        bytes.copy_from_slice(slice);
+        EthernetMac(bytes)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ProtoEthernetInfo {
+    pub src: EthernetMac,
+    pub dst: EthernetMac,
+    pub eth_type: u16,
+}
+
 
 pub struct ProtoEthernet {}
 
@@ -30,16 +51,20 @@ impl ProtoPktProcessor for ProtoEthernet {
             return ProtoParseResult::Invalid;
         }
 
-        let f_src = ParamValue::Mac(pkt.read_bytes(6).unwrap().try_into().unwrap());
-        let f_dst = ParamValue::Mac(pkt.read_bytes(6).unwrap().try_into().unwrap());
+        let src: EthernetMac = pkt.read_bytes(6).unwrap().try_into().unwrap();
+        let dst: EthernetMac = pkt.read_bytes(6).unwrap().try_into().unwrap();
         let eth_type = pkt.read_u16().unwrap();
-        let f_eth_type = ParamValue::U16(eth_type);
 
         let info = stack.proto_last_mut();
 
-        info.field_push(Param { name: "src", value: Some(f_src)});
-        info.field_push(Param { name: "dst", value: Some(f_dst)});
-        info.field_push(Param { name: "type", value: Some(f_eth_type)});
+        let proto_info = ProtoEthernetInfo {
+            src,
+            dst,
+            eth_type,
+        };
+
+
+        info.proto_info = Some(ProtoInfo::Ethernet(proto_info));
 
         stack.proto_push(ProtoEthernet::next_proto(eth_type), None);
 
@@ -54,7 +79,6 @@ impl ProtoPktProcessor for ProtoEthernet {
 mod tests {
 
     use super::*;
-    use crate::param::tests::param_assert_eq;
     use crate::packet::{PktTime, PktDataBorrowed};
 
     #[test]
@@ -69,15 +93,13 @@ mod tests {
 
         let info = infos.iter().next().unwrap();
 
-        let mut field_iter = info.iter_fields();
+        let expected = ProtoInfo::Ethernet(ProtoEthernetInfo {
+            src: EthernetMac([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            dst: EthernetMac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]),
+            eth_type: 0xBEEF,
+        });
 
-        let src = field_iter.next().unwrap();
-        param_assert_eq(src, "src", ParamValue::Mac([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]));
-        let dst = field_iter.next().unwrap();
-        param_assert_eq(dst, "dst", ParamValue::Mac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]));
-        let t = field_iter.next().unwrap();
-        param_assert_eq(t, "type", ParamValue::U16(0xBEEF));
-
+        assert_eq!(info.proto_info, Some(expected));
 
     }
 

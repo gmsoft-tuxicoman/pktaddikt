@@ -1,5 +1,4 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
-use crate::param::{Param, ParamValue};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackTimer, ConntrackRef};
 use crate::packet::{Packet, PktDataType, PktDataMultipart, PktInfoStack};
 use crate::config::ConfigRef;
@@ -14,6 +13,17 @@ use tracing::{debug, trace};
 const IP_DONT_FRAG: u16 = 0x4000;
 const IP_MORE_FRAG: u16 = 0x2000;
 const IP_OFFSET_MASK: u16 = 0x1FFF;
+
+
+#[derive(Debug, PartialEq)]
+pub struct ProtoIpv4Info {
+    pub src: Ipv4Addr,
+    pub dst: Ipv4Addr,
+    pub id: u16,
+    pub hdr_len: u16,
+    pub ttl: u8,
+    pub proto: u8,
+}
 
 pub struct ProtoIpv4 {
     cfg: ConfigRef,
@@ -94,6 +104,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
         let id = (hdr[4] as u16) << 8 | (hdr[5] as u16);
         let src = Ipv4Addr::new(hdr[12], hdr[13], hdr[14], hdr[15]);
         let dst = Ipv4Addr::new(hdr[16], hdr[17], hdr[18], hdr[19]);
+        let ttl = hdr[8];
         let proto = hdr[9];
         let frag_off = (hdr[6] as u16) << 8 | (hdr[7] as u16);
 
@@ -124,20 +135,21 @@ impl ProtoPktProcessor for ProtoIpv4 {
         }
 
 
-        let f_src = ParamValue::Ipv4(src);
-        let f_dst = ParamValue::Ipv4(dst);
-        let f_tot_len = ParamValue::U32(tot_len as u32);
-        let f_hdr_len = ParamValue::U16(hdr_len);
-        let f_proto = ParamValue::U8(proto);
-        let f_id = ParamValue::U16(id);
-
         let info = infos.proto_last_mut();
-        info.field_push(Param { name: "src", value: Some(f_src) });
-        info.field_push(Param { name: "dst", value: Some(f_dst) });
-        info.field_push(Param { name: "tot_len", value: Some(f_tot_len) });
-        info.field_push(Param { name: "hdr_len", value: Some(f_hdr_len) });
-        info.field_push(Param { name: "id", value: Some(f_id) });
-        info.field_push(Param { name: "proto", value: Some(f_proto) });
+
+        let proto_info = ProtoIpv4Info {
+            src,
+            dst,
+            id,
+            hdr_len,
+            ttl,
+            proto,
+        };
+
+        info.proto_info = Some(ProtoInfo::Ipv4(proto_info));
+        info.tot_len = tot_len as usize;
+        info.data_len = data_len;
+
 
         let next_proto = match proto {
             1 => Protocols::Icmp,
@@ -238,7 +250,6 @@ mod tests {
 
     use super::*;
     use crate::packet::PktDataBorrowed;
-    use crate::param::tests::param_assert_eq;
     use crate::packet::PktTime;
     use crate::config::Config;
     use tracing_test::traced_test;
@@ -262,22 +273,17 @@ mod tests {
         assert_eq!(ret, ProtoParseResult::Ok);
 
         let info = infos.iter().next().unwrap();
-        let mut field_iter = info.iter_fields();
 
-        let src = field_iter.next().unwrap();
-        param_assert_eq(src, "src", ParamValue::Ipv4(Ipv4Addr::new(0x01, 0x02, 0x03, 0x04)));
-        let dst = field_iter.next().unwrap();
-        param_assert_eq(dst, "dst", ParamValue::Ipv4(Ipv4Addr::new(0x10, 0x20, 0x30, 0x40)));
-        let tot_len = field_iter.next().unwrap();
-        param_assert_eq(tot_len, "tot_len", ParamValue::U32(data.len() as u32));
-        let hdr_len = field_iter.next().unwrap();
-        param_assert_eq(hdr_len, "hdr_len", ParamValue::U16(20));
-        let id = field_iter.next().unwrap();
-        param_assert_eq(id, "id", ParamValue::U16(48879));
-        let proto = field_iter.next().unwrap();
-        param_assert_eq(proto, "proto", ParamValue::U8(17));
+        let expected = ProtoInfo::Ipv4(ProtoIpv4Info {
+            src: Ipv4Addr::new(0x01, 0x02, 0x03, 0x04),
+            dst: Ipv4Addr::new(0x10, 0x20, 0x30, 0x40),
+            id: 48879,
+            hdr_len: 20,
+            ttl: 64,
+            proto: 17,
+        });
 
-
+        assert_eq!(info.proto_info, Some(expected));
     }
 
     #[test]
@@ -374,6 +380,5 @@ mod tests {
         let data = vec![ 0x45, 0x00, 0x00, 0x1b, 0x05, 0x39, 0x20, 0x01, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b ];
         let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_micros(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
-
     }
 }

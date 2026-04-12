@@ -1,5 +1,4 @@
-use crate::proto::Protocols;
-use crate::param::Param;
+use crate::proto::{Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackRef, ConntrackWeakRef, ConntrackDirection};
 use std::sync::Arc;
 use std::ops::Range;
@@ -83,8 +82,10 @@ pub struct PktInfoStack {
 // All info about a packet
 pub struct PktInfo {
     pub proto: Protocols,
+    pub proto_info: Option<ProtoInfo>,
     parent_ce: Option<(ConntrackRef, ConntrackDirection)>,
-    fields: Vec<Param>
+    pub tot_len: usize, // Total length of proto header + payload
+    pub data_len: usize, // Payload only length
 }
 
 impl PktInfoStack {
@@ -100,8 +101,10 @@ impl PktInfoStack {
     pub fn proto_push(&mut self, proto: Protocols, parent_ce: Option<(ConntrackRef, ConntrackDirection)>) {
         let info = PktInfo {
             proto: proto,
-            fields: Vec::with_capacity(6),
+            proto_info: None,
             parent_ce: parent_ce,
+            tot_len: 0,
+            data_len: 0,
         };
         self.infos.push(info);
     }
@@ -110,11 +113,11 @@ impl PktInfoStack {
         if id > self.infos.len() {
             return None;
         }
-        self.infos.get(self.infos.len() - id)
+        self.infos.get(self.infos.len() - id - 1)
     }
 
-    pub fn proto_id(&self, id: usize) -> Option<&PktInfo> {
-        self.infos.get(id)
+    pub fn proto_id(&mut self, id: usize) -> Option<&mut PktInfo> {
+        self.infos.get_mut(id)
     }
 
     pub fn proto_last(&self) -> &PktInfo {
@@ -133,14 +136,6 @@ impl PktInfoStack {
 
 impl PktInfo {
 
-    pub fn field_push(&mut self, param: Param) {
-        self.fields.push(param);
-    }
-
-    pub fn iter_fields(&self) -> impl Iterator<Item = &Param> {
-        self.fields.iter()
-    }
-
     pub fn parent_ce(&self) -> Option<(ConntrackWeakRef, ConntrackDirection)> {
 
         match self.parent_ce {
@@ -149,9 +144,6 @@ impl PktInfo {
         }
     }
 
-    pub fn get_field(&self, id: usize) -> &Param {
-        &self.fields[id]
-    }
 
 }
 

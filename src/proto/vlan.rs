@@ -1,7 +1,15 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult};
-use crate::param::{Param, ParamValue};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::ethernet::ProtoEthernet;
+
+
+#[derive(Debug, PartialEq)]
+pub struct ProtoVlanInfo {
+    pub priority: u8,
+    pub drop_eligible: u8,
+    pub id: u16,
+    pub eth_type: u16,
+}
 
 pub struct ProtoVlan {}
 
@@ -27,14 +35,20 @@ impl ProtoPktProcessor for ProtoVlan {
         let eth_type = pkt.read_u16().unwrap();
 
 
-        let priority = ParamValue::U8(((tci & 0xE000) >> 13) as u8);
-        let drop_eligible = ParamValue::U8(((tci & 0x1000) >> 12) as u8);
-        let id = ParamValue::U16(tci & 0x0FFF);
+        let priority = ((tci & 0xE000) >> 13) as u8;
+        let drop_eligible = ((tci & 0x1000) >> 12) as u8;
+        let id = tci & 0x0FFF;
 
         let info = infos.proto_last_mut();
-        info.field_push(Param { name: "priority", value: Some(priority) });
-        info.field_push(Param { name: "drop_eligible", value: Some(drop_eligible) });
-        info.field_push(Param { name: "id", value: Some(id) });
+
+        let proto_info = ProtoVlanInfo {
+            priority,
+            drop_eligible,
+            id,
+            eth_type,
+        };
+
+        info.proto_info = Some(ProtoInfo::Vlan(proto_info));
 
         infos.proto_push(ProtoEthernet::next_proto(eth_type), None);
 
@@ -48,7 +62,6 @@ mod tests {
     use super::*;
     use crate::packet::{PktDataBorrowed, PktTime};
     use crate::proto::Protocols;
-    use crate::param::tests::param_assert_eq;
 
     #[test]
     fn vlan_parse_basic() {
@@ -61,14 +74,15 @@ mod tests {
         assert_eq!(ret, ProtoParseResult::Ok);
 
         let info = infos.iter().next().unwrap();
-        let mut field_iter = info.iter_fields();
 
-        let priority = field_iter.next().unwrap();
-        param_assert_eq(priority, "priority", ParamValue::U8(0x02));
-        let drop_eligible = field_iter.next().unwrap();
-        param_assert_eq(drop_eligible, "drop_eligible", ParamValue::U8(0x01));
-        let id = field_iter.next().unwrap();
-        param_assert_eq(id, "id", ParamValue::U16(0x0a));
+        let expected = ProtoInfo::Vlan(ProtoVlanInfo {
+            priority: 0x02,
+            drop_eligible: 0x01,
+            id: 0x0a,
+            eth_type: 0x8100,
+        });
+
+        assert_eq!(info.proto_info, Some(expected));
     }
 
 }

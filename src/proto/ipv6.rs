@@ -1,5 +1,4 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
-use crate::param::{Param, ParamValue};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::packet::{Packet, PktInfoStack};
 use crate::config::ConfigRef;
@@ -8,6 +7,13 @@ use std::net::Ipv6Addr;
 use std::time::Duration;
 use serde::Deserialize;
 
+#[derive(Debug, PartialEq)]
+pub struct ProtoIpv6Info {
+    pub src: Ipv6Addr,
+    pub dst: Ipv6Addr,
+    pub hop_limit: u8,
+    pub proto: u8,
+}
 
 pub struct ProtoIpv6 {
     cfg: ConfigRef,
@@ -112,10 +118,16 @@ impl ProtoPktProcessor for ProtoIpv6 {
         }
 
         let info = infos.proto_last_mut();
-        info.field_push(Param { name: "src", value: Some(ParamValue::Ipv6(src)) });
-        info.field_push(Param { name: "dst", value: Some(ParamValue::Ipv6(dst)) });
-        info.field_push(Param { name: "tot_len", value: Some(ParamValue::U32(tot_len)) });
-        info.field_push(Param { name: "hop_limit", value: Some(ParamValue::U8(hop_limit)) });
+
+        let proto_info = ProtoIpv6Info {
+            src,
+            dst,
+            hop_limit,
+            proto: nhdr_type,
+        };
+
+        info.proto_info = Some(ProtoInfo::Ipv6(proto_info));
+        info.tot_len = tot_len as usize;
 
         let a = src.to_bits();
         let b = dst.to_bits();

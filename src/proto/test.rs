@@ -3,7 +3,6 @@
 use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
 use crate::stream::{PktStreamProcessor, PktStreamParser, StreamParseResult};
 use crate::packet::{Packet, PktData, PktDataOwned, PktTime, PktInfoStack};
-use crate::param::Param;
 use crate::conntrack::ConntrackDirection;
 use std::cell::RefCell;
 use std::ops::Range;

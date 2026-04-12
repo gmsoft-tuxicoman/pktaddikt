@@ -1,15 +1,22 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
-use crate::param::{Param, ParamValue};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection};
 use crate::packet::{Packet, PktInfoStack, PktTime};
 use crate::config::ConfigRef;
 use crate::event::{Event, EventPayload, EventId, EventKind, EventBus};
 
 use std::time::Duration;
+use std::net::IpAddr;
 use serde::{Serialize, Deserialize};
 
-type ConntrackKeyUdp = ConntrackKeyBidir<u16>;
 
+#[derive(Debug, PartialEq)]
+pub struct ProtoUdpInfo {
+    pub sport: u16,
+    pub dport: u16,
+}
+
+
+type ConntrackKeyUdp = ConntrackKeyBidir<u16>;
 
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -30,8 +37,8 @@ impl Default for UdpConfig {
 #[derive(Debug, Serialize)]
 pub struct NetUdpConnectionStart {
     pub conn_id: EventId,
-    pub src_host: Option<ParamValue>,
-    pub dst_host: Option<ParamValue>,
+    pub src_host: Option<IpAddr>,
+    pub dst_host: Option<IpAddr>,
     pub src_port: u16,
     pub dst_port: u16,
 }
@@ -40,8 +47,8 @@ pub struct NetUdpConnectionStart {
 pub struct NetUdpConnectionEnd {
     pub conn_id: EventId,
     pub duration: PktTime,
-    pub src_host: Option<ParamValue>,
-    pub dst_host: Option<ParamValue>,
+    pub src_host: Option<IpAddr>,
+    pub dst_host: Option<IpAddr>,
     pub src_port: u16,
     pub dst_port: u16,
     pub fwd_bytes: usize,
@@ -67,8 +74,8 @@ struct ConntrackUdp {
     last_ts: PktTime,
     src_port: u16,
     dst_port: u16,
-    src_host: Option<ParamValue>,
-    dst_host: Option<ParamValue>,
+    src_host: Option<IpAddr>,
+    dst_host: Option<IpAddr>,
 }
 
 pub struct ProtoUdp {
@@ -98,23 +105,30 @@ impl ProtoPktProcessor for ProtoUdp {
 
         let hdr = pkt.read_bytes(8).unwrap();
 
-        let sport : u16 = (hdr[0] as u16) << 8 | (hdr[1] as u16);
-        let dport : u16 = (hdr[2] as u16) << 8 | (hdr[3] as u16);
-        let len : u16 = (hdr[4] as u16) << 8 | (hdr[5] as u16);
+        let sport: u16 = (hdr[0] as u16) << 8 | (hdr[1] as u16);
+        let dport: u16 = (hdr[2] as u16) << 8 | (hdr[3] as u16);
+        let tot_len: u16 = (hdr[4] as u16) << 8 | (hdr[5] as u16);
 
 
-        let plen = (len as usize) - 8;
-        if plen > pkt.remaining_len() {
+        let data_len = (tot_len as usize) - 8;
+        if data_len > pkt.remaining_len() {
             // Stop processing if payload is not complete
             return ProtoParseResult::Stop;
-        } else if plen < pkt.remaining_len() {
+        } else if data_len < pkt.remaining_len() {
             // Shrink remaining payload to advertised size
-            pkt.shrink_remaining(plen);
+            pkt.shrink_remaining(data_len);
         }
 
         let info = infos.proto_last_mut();
-        info.field_push(Param { name: "sport", value: Some(ParamValue::U16(sport)) });
-        info.field_push(Param { name: "dport", value: Some(ParamValue::U16(dport)) });
+
+        let proto_info = ProtoUdpInfo {
+            sport,
+            dport,
+        };
+
+        info.proto_info = Some(ProtoInfo::Udp(proto_info));
+        info.tot_len = tot_len as usize;
+        info.data_len = data_len;
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
@@ -139,6 +153,13 @@ impl ProtoPktProcessor for ProtoUdp {
 
         let cd = ce_locked.get_or_insert_with(||
             {
+                let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
+                let (src_host, dst_host) = match ip_info {
+                    Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
+                    Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
+                    _ => (None, None),
+                };
+
                 let cd = Box::new(ConntrackUdp {
                     forward: ConntrackUdpDir {
                         tot_bytes: 0,
@@ -155,8 +176,8 @@ impl ProtoPktProcessor for ProtoUdp {
                     last_ts: PktTime::from_micros(0),
                     src_port: sport,
                     dst_port: dport,
-                    src_host: infos.proto_from_last(3).and_then(|p| p.get_field(0).value),
-                    dst_host: infos.proto_from_last(3).and_then(|p| p.get_field(1).value),
+                    src_host,
+                    dst_host,
                     }
                 );
 
@@ -177,19 +198,19 @@ impl ProtoPktProcessor for ProtoUdp {
 
         cd.last_ts = pkt.ts;
 
-        let ip_len = infos.proto_from_last(3).and_then(|p| p.get_field(2).value);
+        let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
 
 
         match dir {
             ConntrackDirection::Forward => {
                 cd.forward.tot_bytes += pkt.remaining_len();
                 cd.forward.tot_pkts += 1;
-                cd.forward.tot_ip_bytes += ip_len.unwrap_or(ParamValue::U32(0)).get_u32() as usize;
+                cd.forward.tot_ip_bytes += ip_len;
             },
             ConntrackDirection::Reverse => {
                 cd.reverse.tot_bytes += pkt.remaining_len();
                 cd.reverse.tot_pkts += 1;
-                cd.reverse.tot_ip_bytes += ip_len.unwrap_or(ParamValue::U32(0)).get_u32() as usize;
+                cd.reverse.tot_ip_bytes += ip_len;
             },
 
         }

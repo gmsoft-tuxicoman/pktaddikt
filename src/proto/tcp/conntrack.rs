@@ -4,21 +4,21 @@ use crate::proto::tcp::{TCP_TH_SYN, TCP_TH_ACK, TCP_TH_FIN, TCP_TH_RST};
 use crate::proto::tcp::seq::TcpSeq;
 use crate::packet::{Packet, PktTime, PktDataZero, PktInfoStack};
 use crate::stream::PktStream;
-use crate::proto::Protocols;
+use crate::proto::{Protocols, ProtoInfo};
 use crate::event::{Event, EventId, EventPayload};
-use crate::param::ParamValue;
 
 use std::collections::BTreeMap;
 use tracing::{debug, trace};
 use serde::Serialize;
+use std::net::IpAddr;
 
 const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionStart {
     pub conn_id: EventId,
-    pub src_host: Option<ParamValue>,
-    pub dst_host: Option<ParamValue>,
+    pub src_host: Option<IpAddr>,
+    pub dst_host: Option<IpAddr>,
     pub src_port: u16,
     pub dst_port: u16,
 }
@@ -27,8 +27,8 @@ pub struct NetTcpConnectionStart {
 pub struct NetTcpConnectionEnd {
     pub conn_id: EventId,
     pub duration: PktTime,
-    pub src_host: Option<ParamValue>,
-    pub dst_host: Option<ParamValue>,
+    pub src_host: Option<IpAddr>,
+    pub dst_host: Option<IpAddr>,
     pub src_port: u16,
     pub dst_port: u16,
     pub fwd_bytes: usize,
@@ -91,13 +91,25 @@ pub struct ConntrackTcp {
     flow_state: ConntrackTcpFlowState,
     src_port: u16,
     dst_port: u16,
-    src_host: Option<ParamValue>,
-    dst_host: Option<ParamValue>,
+    src_host: Option<IpAddr>,
+    dst_host: Option<IpAddr>,
 }
 
 impl ConntrackTcp {
 
     pub fn new(proto: Protocols, infos: &PktInfoStack) -> Self {
+
+        let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
+
+        let (src_host, dst_host) = match ip_info {
+            Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
+            Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
+            _ => (None, None),
+        };
+
+        let Some(ProtoInfo::Tcp(tcp_info)) = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap()) else {
+            unreachable!();
+        };
 
         let ct = ConntrackTcp {
             forward: ConntrackTcpDir {
@@ -126,10 +138,10 @@ impl ConntrackTcp {
             last_ts: PktTime::from_micros(0),
             conn_id: None,
             flow_state: ConntrackTcpFlowState::Probing,
-            src_port: infos.proto_from_last(2).unwrap().get_field(0).value.unwrap().get_u16(),
-            dst_port: infos.proto_from_last(2).unwrap().get_field(1).value.unwrap().get_u16(),
-            src_host: infos.proto_from_last(3).and_then(|p| p.get_field(0).value),
-            dst_host: infos.proto_from_last(3).and_then(|p| p.get_field(1).value),
+            src_port: tcp_info.sport,
+            dst_port: tcp_info.dport,
+            src_host,
+            dst_host,
         };
         ct
     }
@@ -281,7 +293,7 @@ impl ConntrackTcp {
         self.state
     }
 
-    pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, data: &mut Packet, ip_len: u32) {
+    pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, data: &mut Packet, ip_len: usize) {
 
         let mut seq = TcpSeq(seq_u32);
         let ack = TcpSeq(ack_u32);
@@ -291,7 +303,7 @@ impl ConntrackTcp {
             // Update stats
             let queue = self.get_dir_mut(dir);
             queue.tot_pkts += 1;
-            queue.tot_ip_bytes += ip_len as usize;
+            queue.tot_ip_bytes += ip_len;
         }
 
         // Send the start event
@@ -641,14 +653,36 @@ mod tests {
 
     use super::*;
     use crate::packet::PktDataOwned;
-    use crate::param::{Param,    ParamValue};
+    use crate::proto::tcp::ProtoTcpInfo;
+    use crate::proto::ipv4::ProtoIpv4Info;
     use tracing_test::traced_test;
+    use std::net::Ipv4Addr;
 
     fn dummy_infos() -> PktInfoStack {
-        let mut infos = PktInfoStack::new(Protocols::Tcp);
-        let info = infos.proto_last_mut();
-        info.field_push(Param { name: "sport", value: Some(ParamValue::U16(1234)) });
-        info.field_push(Param { name: "dport", value: Some(ParamValue::U16(80)) });
+        let mut infos = PktInfoStack::new(Protocols::Ipv4);
+        let mut info = infos.proto_last_mut();
+
+        info.proto_info = Some(ProtoInfo::Ipv4(ProtoIpv4Info {
+            src: Ipv4Addr::new(10, 0, 0, 1),
+            dst: Ipv4Addr::new(10, 0, 0, 2),
+            id: 0,
+            hdr_len: 0,
+            ttl: 0,
+            proto: 17,
+        }));
+
+        infos.proto_push(Protocols::Tcp, None);
+
+        info = infos.proto_last_mut();
+
+        info.proto_info = Some(ProtoInfo::Tcp(ProtoTcpInfo {
+            sport: 1234,
+            dport: 80,
+            seq: 0,
+            ack: 0,
+            window: 0,
+            flags: 0,
+        }));
         infos.proto_push(Protocols::Test, None);
         infos
 

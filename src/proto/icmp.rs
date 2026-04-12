@@ -1,6 +1,12 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult};
-use crate::param::{Param, ParamValue};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
+
+
+#[derive(Debug, PartialEq)]
+pub struct ProtoIcmpInfo {
+    r#type: u8,
+    code: u8,
+}
 
 pub struct ProtoIcmp {}
 
@@ -24,8 +30,13 @@ impl ProtoPktProcessor for ProtoIcmp {
         let icmp_code = pkt.read_u8().unwrap();
 
         let info = infos.proto_last_mut();
-        info.field_push(Param { name: "type", value: Some(ParamValue::U8(icmp_type)) });
-        info.field_push(Param { name: "code", value: Some(ParamValue::U8(icmp_code)) });
+
+        let proto_info = ProtoIcmpInfo {
+            r#type: icmp_type,
+            code: icmp_code,
+        };
+
+        info.proto_info = Some(ProtoInfo::Icmp(proto_info));
 
         return ProtoParseResult::Ok;
     }
@@ -38,7 +49,6 @@ mod tests {
     use super::*;
     use crate::packet::{PktDataBorrowed, PktTime};
     use crate::proto::Protocols;
-    use crate::param::tests::param_assert_eq;
 
     #[test]
     fn icmp_parse_basic() {
@@ -51,12 +61,13 @@ mod tests {
         assert_eq!(ret, ProtoParseResult::Ok);
 
         let info = infos.iter().next().unwrap();
-        let mut field_iter = info.iter_fields();
 
-        let icmp_type = field_iter.next().unwrap();
-        param_assert_eq(icmp_type, "type", ParamValue::U8(0x01));
-        let icmp_code = field_iter.next().unwrap();
-        param_assert_eq(icmp_code, "code", ParamValue::U8(0x02));
+        let expected = ProtoInfo::Icmp(ProtoIcmpInfo {
+            r#type: 0x01,
+            code: 0x02,
+        });
+
+        assert_eq!(info.proto_info, Some(expected));
     }
 
 }

@@ -1,13 +1,13 @@
 use crate::config::ConfigRef;
 use crate::output::Output;
 use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind, EventId, EventPayload};
-use crate::param::ParamValue;
 use crate::packet::PktTime;
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use serde::{Deserialize, Serialize};
 use serde_json::to_writer;
+use std::net::IpAddr;
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -38,11 +38,11 @@ struct ZeekConnLog {
     ts: PktTime,
     uid: EventId,
     #[serde(rename = "id.orig_h")]
-    orig_h: Option<ParamValue>,
+    orig_h: Option<IpAddr>,
     #[serde(rename = "id.orig_p")]
     orig_p: u16,
     #[serde(rename = "id.resp_h")]
-    resp_h: Option<ParamValue>,
+    resp_h: Option<IpAddr>,
     #[serde(rename = "id.resp_p")]
     resp_p: u16,
     proto: &'static str,

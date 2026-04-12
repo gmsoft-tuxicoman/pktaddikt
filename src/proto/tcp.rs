@@ -1,8 +1,7 @@
 mod seq;
 pub mod conntrack;
 
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols};
-use crate::param::{Param, ParamValue};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
@@ -11,6 +10,17 @@ use crate::config::ConfigRef;
 use std::time::Duration;
 use tracing::trace;
 use serde::Deserialize;
+
+
+#[derive(Debug, PartialEq)]
+pub struct ProtoTcpInfo {
+    pub sport: u16,
+    pub dport: u16,
+    pub seq: u32,
+    pub ack: u32,
+    pub window: u16,
+    pub flags: u8,
+}
 
 
 #[derive(Debug, Deserialize)]
@@ -126,12 +136,16 @@ impl ProtoPktProcessor for ProtoTcp {
 
 
         let info = infos.proto_last_mut();
-        info.field_push(Param { name: "sport", value: Some(ParamValue::U16(sport)) });
-        info.field_push(Param { name: "dport", value: Some(ParamValue::U16(dport)) });
-        info.field_push(Param { name: "seq", value: Some(ParamValue::U32(seq)) });
-        info.field_push(Param { name: "ack", value: Some(ParamValue::U32(ack)) });
-        info.field_push(Param { name: "win", value: Some(ParamValue::U16(window)) });
 
+        let proto_info = ProtoTcpInfo {
+            sport,
+            dport,
+            seq,
+            ack,
+            window,
+            flags,
+        };
+        info.proto_info = Some(ProtoInfo::Tcp(proto_info));
 
         // WIP, needs to be improved
         let next_proto = match ProtoTcp::next_proto(dport) {
@@ -150,8 +164,9 @@ impl ProtoPktProcessor for ProtoTcp {
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData)
                     .downcast_mut::<ConntrackTcp>().unwrap();
 
-        let ip_len = infos.proto_from_last(3).and_then(|p| p.get_field(2).value);
-        cd.process_packet(ce_dir, seq, ack, flags, pkt, ip_len.unwrap_or(ParamValue::U32(0)).get_u32());
+
+        let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
+        cd.process_packet(ce_dir, seq, ack, flags, pkt, ip_len);
 
 
         let timeout = match cd.get_state() {
@@ -184,10 +199,11 @@ mod tests {
 
     use super::*;
     use crate::packet::{PktTime, PktDataBorrowed};
-    use crate::param::tests::param_assert_eq;
     use crate::proto::ProtoTest;
     use crate::config::Config;
+    use crate::proto::ipv4::ProtoIpv4Info;
     use tracing_test::traced_test;
+    use std::net::Ipv4Addr;
 
     fn tcp_parse_test(proto: &mut ProtoTcp, data: &[u8]) -> ProtoParseResult {
         let pkt_data = PktDataBorrowed::new(&data);
@@ -203,24 +219,36 @@ mod tests {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
         let pkt_data = PktDataBorrowed::new(&data);
         let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
-        let mut infos = PktInfoStack::new(Protocols::Tcp);
+        let mut infos = PktInfoStack::new(Protocols::Ipv4);
+        let info = infos.proto_last_mut();
+
+        info.proto_info = Some(ProtoInfo::Ipv4(ProtoIpv4Info {
+            src: Ipv4Addr::new(10, 0, 0, 1),
+            dst: Ipv4Addr::new(10, 0, 0, 2),
+            id: 0,
+            hdr_len: 0,
+            ttl: 0,
+            proto: 17,
+        }));
+
+        infos.proto_push(Protocols::Tcp, None);
 
         let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);
         assert_eq!(ret, ProtoParseResult::Stop);
 
-        let info = infos.iter().next().unwrap();
-        let mut field_iter = info.iter_fields();
+        let check = infos.proto_from_last(1).unwrap();
 
-        let sport = field_iter.next().unwrap();
-        param_assert_eq(sport, "sport", ParamValue::U16(1));
-        let dport = field_iter.next().unwrap();
-        param_assert_eq(dport, "dport", ParamValue::U16(2));
-        let seq = field_iter.next().unwrap();
-        param_assert_eq(seq, "seq", ParamValue::U32(2863311530));
-        let ack = field_iter.next().unwrap();
-        param_assert_eq(ack, "ack", ParamValue::U32(3149642683));
-        let win = field_iter.next().unwrap();
-        param_assert_eq(win, "win", ParamValue::U16(16));
+        let expected = ProtoInfo::Tcp(ProtoTcpInfo {
+            sport: 1,
+            dport: 2,
+            seq: 2863311530,
+            ack: 3149642683,
+            flags: 0,
+            window: 16,
+        });
+
+        assert_eq!(check.proto_info, Some(expected));
+
     }
 
     #[test]

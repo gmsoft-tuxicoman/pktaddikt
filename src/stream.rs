@@ -162,7 +162,7 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
             off = memchr(b'\n', peek)?;
             skip = 1;
 
-            if off > 1 && peek[off - 1] == b'\r' {
+            if off > 0 && peek[off - 1] == b'\r' {
                 off -= 1;
                 skip += 1;
             }

@@ -34,6 +34,8 @@ impl ProtoHttp {
             None => return StreamParseResult::NeedData,
         };
 
+        trace!("Parsing first line : {}", String::from_utf8_lossy(line));
+
         // Both query and response have 3 tokens
         // FIXME add HTTP/0.9 suppport
         let end1 = match memchr(b' ', line) {
@@ -91,8 +93,7 @@ impl ProtoHttp {
                 self.parse_request(tok1, tok2, tok3)
             },
             true => {
-                // We got a response
-                StreamParseResult::Ok
+                self.parse_response(tok1, tok2, tok3)
             }
         }
 
@@ -120,19 +121,75 @@ impl ProtoHttp {
         }
 
         self.method = Some(String::from_utf8_lossy(method).into_owned());
+        trace!("HTTP Method: {}", self.method.as_ref().unwrap());
         self.uri = Some(String::from_utf8_lossy(uri).into_owned());
+        trace!("HTTP URI: {}", self.uri.as_ref().unwrap());
         self.version = Some(String::from_utf8_lossy(version).into_owned());
+        trace!("HTTP Version: {}", self.version.as_ref().unwrap());
 
         self.state = ProtoHttpState::Headers;
         StreamParseResult::Ok
     }
 
-    fn parse_headers(&self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
-        StreamParseResult::Done
+    fn parse_response(&mut self, _version: &[u8], status: &[u8], _reason: &[u8]) -> StreamParseResult {
+
+        // Parse status code
+
+        let mut status_code = 0usize;
+
+        for &b in status {
+            if b < b'0' || b > b'9' {
+                return StreamParseResult::Invalid;
+            }
+
+            status_code = status_code * 10 + (b - b'0') as usize;
+        }
+
+        trace!("HTTP Status code: {}", status_code);
+
+        self.state = ProtoHttpState::Headers;
+
+        StreamParseResult::Ok
+    }
+
+    fn parse_headers(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+        let line_opt = parser.readline();
+        let line = match line_opt {
+            Some(ref l) => l,
+            None => return StreamParseResult::NeedData,
+        };
+
+        if line.len() == 0 {
+            self.state = ProtoHttpState::Body;
+            return StreamParseResult::Ok;
+        }
+
+        let colon = match memchr(b':', line) {
+            Some(o) => o,
+            None => return StreamParseResult::Invalid,
+        };
+
+        let name = &line[..colon];
+
+
+        let mut value = colon + 1;
+        while value < line.len() {
+            if line[value] == b' ' {
+                value += 1;
+            } else {
+                break;
+            }
+        }
+
+        let value = &line[value..];
+
+        trace!("HTTP header: \"{}: {}\"",  String::from_utf8_lossy(name), String::from_utf8_lossy(value));
+
+        StreamParseResult::Ok
     }
 
     fn parse_body(&self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
-        StreamParseResult::Ok
+        StreamParseResult::Done
     }
 }
 

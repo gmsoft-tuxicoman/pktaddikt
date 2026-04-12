@@ -32,6 +32,10 @@ pub enum EventKind {
     NetUdpConnectionStart,
     #[strum(serialize = "net.udp.connection.end")]
     NetUdpConnectionEnd,
+    #[strum(serialize = "net.http.request.basic")]
+    NetHttpRequestBasic,
+    #[strum(serialize = "net.http.response.basic")]
+    NetHttpResponseBasic,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,7 +47,8 @@ pub enum EventPayload {
     NetTcpConnectionEnd(crate::proto::tcp::conntrack::NetTcpConnectionEnd),
     NetUdpConnectionStart(crate::proto::udp::NetUdpConnectionStart),
     NetUdpConnectionEnd(crate::proto::udp::NetUdpConnectionEnd),
-
+    NetHttpRequestBasic(crate::proto::http::NetHttpRequestBasic),
+    NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
 }
 
 impl EventPayload {
@@ -54,6 +59,8 @@ impl EventPayload {
             EventPayload::NetTcpConnectionEnd(_) => EventKind::NetTcpConnectionEnd,
             EventPayload::NetUdpConnectionStart(_) => EventKind::NetUdpConnectionStart,
             EventPayload::NetUdpConnectionEnd(_) => EventKind::NetUdpConnectionEnd,
+            EventPayload::NetHttpRequestBasic(_) => EventKind::NetHttpRequestBasic,
+            EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
         }
     }
 }

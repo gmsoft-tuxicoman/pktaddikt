@@ -6,6 +6,7 @@ use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
 use crate::config::ConfigRef;
+use crate::event::EventId;
 
 use std::time::Duration;
 use tracing::trace;
@@ -161,13 +162,18 @@ impl ProtoPktProcessor for ProtoTcp {
 
 
         let mut ce_locked = ce.lock().unwrap();
-        let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData)
-                    .downcast_mut::<ConntrackTcp>().unwrap();
+        let cd = ce_locked.get_or_insert_with(|| {
+            let conn_id = EventId::new(pkt.ts);
+            infos.set_conn_id(conn_id);
+            Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData })
+
+            .downcast_mut::<ConntrackTcp>().unwrap();
 
 
         let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
         cd.process_packet(ce_dir, seq, ack, flags, pkt, ip_len);
 
+        infos.set_conn_id(cd.get_conn_id().clone());
 
         let timeout = match cd.get_state() {
             TcpState::New => self.cfg.proto.tcp.timeout_syn_recv,

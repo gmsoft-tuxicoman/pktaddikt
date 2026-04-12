@@ -151,6 +151,7 @@ impl ProtoPktProcessor for ProtoUdp {
             return ProtoParseResult::Ok;
         }
 
+        let conn_id = EventId::new(pkt.ts);
         let cd = ce_locked.get_or_insert_with(||
             {
                 let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
@@ -171,7 +172,7 @@ impl ProtoPktProcessor for ProtoUdp {
                         tot_ip_bytes: 0,
                         tot_pkts: 0,
                     },
-                    conn_id: EventId::new(pkt.ts),
+                    conn_id: conn_id.clone(),
                     start_ts: pkt.ts,
                     last_ts: PktTime::from_micros(0),
                     src_port: sport,
@@ -182,7 +183,7 @@ impl ProtoPktProcessor for ProtoUdp {
                 );
 
                 let evt_pload = NetUdpConnectionStart {
-                    conn_id: cd.conn_id.clone(),
+                    conn_id: conn_id.clone(),
                     src_port: sport,
                     dst_port: dport,
                     src_host: cd.src_host,
@@ -197,6 +198,7 @@ impl ProtoPktProcessor for ProtoUdp {
         ).downcast_mut::<ConntrackUdp>().unwrap();
 
         cd.last_ts = pkt.ts;
+        infos.set_conn_id(conn_id);
 
         let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
 

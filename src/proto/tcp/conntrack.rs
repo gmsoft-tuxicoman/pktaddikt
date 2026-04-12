@@ -87,7 +87,7 @@ pub struct ConntrackTcp {
     state: TcpState,
     start_ts: Option<PktTime>,
     last_ts: PktTime,
-    conn_id: Option<EventId>,
+    conn_id: EventId,
     flow_state: ConntrackTcpFlowState,
     src_port: u16,
     dst_port: u16,
@@ -136,7 +136,7 @@ impl ConntrackTcp {
             state: TcpState::New,
             start_ts: None,
             last_ts: PktTime::from_micros(0),
-            conn_id: None,
+            conn_id: infos.get_conn_id().unwrap().clone(),
             flow_state: ConntrackTcpFlowState::Probing,
             src_port: tcp_info.sport,
             dst_port: tcp_info.dport,
@@ -269,7 +269,7 @@ impl ConntrackTcp {
     fn send_conn_end_evt(&self) {
         // Send the end event
         let evt_pload = NetTcpConnectionEnd {
-            conn_id: self.conn_id.clone().unwrap(),
+            conn_id: self.conn_id.clone(),
             duration: self.last_ts - self.start_ts.unwrap(),
             src_host: self.src_host,
             dst_host: self.dst_host,
@@ -309,9 +309,8 @@ impl ConntrackTcp {
         // Send the start event
         if self.start_ts.is_none() {
             self.start_ts = Some(data.ts);
-            self.conn_id = Some(EventId::new(data.ts));
             let evt_pload = NetTcpConnectionStart {
-                conn_id: self.conn_id.clone().unwrap(),
+                conn_id: self.conn_id.clone(),
                 src_host: self.src_host,
                 dst_host: self.dst_host,
                 src_port: self.src_port,
@@ -466,6 +465,10 @@ impl ConntrackTcp {
 
         // Check if this packet filled a gap
         self.process_more_packets();
+    }
+
+    pub fn get_conn_id(&self) -> &EventId {
+        &self.conn_id
     }
 
     fn process_more_packets(&mut self) {

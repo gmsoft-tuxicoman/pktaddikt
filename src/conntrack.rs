@@ -13,6 +13,7 @@ pub type ConntrackWeakRef = Weak<Mutex<Conntrack>>;
 pub type ConntrackTimerCb = Arc<dyn Fn(ConntrackRef) + Send + Sync>;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(usize)]
 pub enum ConntrackDirection {
     Forward,
     Reverse

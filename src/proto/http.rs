@@ -1,10 +1,54 @@
 
 use crate::stream::{PktStreamProcessor, PktStreamParser, StreamParseResult};
-use crate::packet::PktInfoStack;
+use crate::packet::{PktInfoStack, PktTime};
 use crate::conntrack::ConntrackDirection;
+use crate::event::{EventId, EventKind};
+use crate::proto::ProtoInfo;
+use crate::event::{Event, EventBus, EventPayload};
 
 use memchr::memchr;
 use tracing::trace;
+use serde::{Serialize};
+use std::net::IpAddr;
+
+#[derive(Debug, Serialize)]
+pub struct NetHttpRequestBasic {
+    pub conn_id: EventId,
+    pub src_host: Option<IpAddr>,
+    pub dst_host: Option<IpAddr>,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub ts: PktTime,
+    pub method: String,
+    pub version: String,
+    pub uri: Vec<u8>,
+}
+
+
+#[derive(Debug, Serialize)]
+pub struct NetHttpRequestFull {
+    pub base: NetHttpRequestBasic,
+    pub headers: Vec<(Vec<u8>, Vec<u8>)>
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetHttpResponseBasic {
+    pub conn_id: EventId,
+    pub src_host: Option<IpAddr>,
+    pub dst_host: Option<IpAddr>,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub ts: PktTime,
+    pub status: usize,
+    pub version: String,
+    pub reason: Vec<u8>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetHttpResponseFull {
+    pub base: NetHttpResponseBasic,
+    pub headers: Vec<(Vec<u8>, Vec<u8>)>,
+}
 
 #[derive(Debug)]
 enum ProtoHttpState {
@@ -13,20 +57,38 @@ enum ProtoHttpState {
     Body,
 }
 
+#[derive(Debug)]
+enum ProtoHttpEvent {
+    RequestBasic(NetHttpRequestBasic),
+    ResponseBasic(NetHttpResponseBasic),
+}
 
 #[derive(Debug)]
 pub struct ProtoHttp {
 
     state: ProtoHttpState,
     client_dir: Option<ConntrackDirection>,
-    method: Option<String>,
-    version: Option<String>,
-    uri: Option<String>,
+    conn_id: EventId,
+    events_basic: [Option<ProtoHttpEvent>;2],
+    pub src_host: Option<IpAddr>,
+    pub dst_host: Option<IpAddr>,
+    pub src_port: u16,
+    pub dst_port: u16,
 }
 
 impl ProtoHttp {
 
     fn parse_first_line(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+
+        // Check if there is any reason to parse Http stuff first
+        if ! (EventBus::has_subscribers(EventKind::NetHttpRequestBasic)
+            || EventBus::has_subscribers(EventKind::NetHttpResponseBasic)) {
+            // All done, nothing to parse
+            return StreamParseResult::Done;
+        }
+
+
+        let ts = parser.timestamp();
 
         let line_opt = parser.readline();
         let line = match line_opt {
@@ -90,16 +152,16 @@ impl ProtoHttp {
                         }
                     }
                 };
-                self.parse_request(tok1, tok2, tok3)
+                self.parse_request(tok1, tok2, tok3, dir, ts)
             },
             true => {
-                self.parse_response(tok1, tok2, tok3)
+                self.parse_response(tok1, tok2, tok3, dir, ts)
             }
         }
 
     }
 
-    fn parse_request(&mut self, method: &[u8], uri: &[u8], version: &[u8]) -> StreamParseResult {
+    fn parse_request(&mut self, method: &[u8], uri: &[u8], version: &[u8], dir: ConntrackDirection, ts: PktTime) -> StreamParseResult {
 
         // Make sure we got something that looks like a method
         for &b in method {
@@ -119,19 +181,34 @@ impl ProtoHttp {
                 // WEIRD
             }
         }
-
-        self.method = Some(String::from_utf8_lossy(method).into_owned());
-        trace!("HTTP Method: {}", self.method.as_ref().unwrap());
-        self.uri = Some(String::from_utf8_lossy(uri).into_owned());
-        trace!("HTTP URI: {}", self.uri.as_ref().unwrap());
-        self.version = Some(String::from_utf8_lossy(version).into_owned());
-        trace!("HTTP Version: {}", self.version.as_ref().unwrap());
-
         self.state = ProtoHttpState::Headers;
+
+        if ! EventBus::has_subscribers(EventKind::NetHttpRequestBasic) {
+            return StreamParseResult::Ok;
+        }
+
+        let evt = NetHttpRequestBasic {
+            conn_id: self.conn_id.clone(),
+            src_host: self.src_host,
+            dst_host: self.dst_host,
+            src_port: self.src_port,
+            dst_port: self.dst_port,
+            ts,
+            method: String::from_utf8_lossy(method).into_owned(),
+            version: String::from_utf8_lossy(version).into_owned(),
+            uri: uri.to_vec(),
+        };
+
+        trace!("HTTP Method: {}", evt.method);
+        trace!("HTTP URI: {}", String::from_utf8_lossy(&evt.uri));
+        trace!("HTTP Version: {}", evt.version);
+
+        self.events_basic[dir as usize] = Some(ProtoHttpEvent::RequestBasic(evt));
+
         StreamParseResult::Ok
     }
 
-    fn parse_response(&mut self, _version: &[u8], status: &[u8], _reason: &[u8]) -> StreamParseResult {
+    fn parse_response(&mut self, version: &[u8], status: &[u8], reason: &[u8], dir: ConntrackDirection, ts: PktTime) -> StreamParseResult {
 
         // Parse status code
 
@@ -145,9 +222,28 @@ impl ProtoHttp {
             status_code = status_code * 10 + (b - b'0') as usize;
         }
 
+        self.state = ProtoHttpState::Headers;
+
+        if ! EventBus::has_subscribers(EventKind::NetHttpResponseBasic) {
+            return StreamParseResult::Ok;
+        }
+
         trace!("HTTP Status code: {}", status_code);
 
-        self.state = ProtoHttpState::Headers;
+        let evt = NetHttpResponseBasic {
+            conn_id: self.conn_id.clone(),
+            src_host: self.src_host,
+            dst_host: self.dst_host,
+            src_port: self.src_port,
+            dst_port: self.dst_port,
+            ts,
+            version: String::from_utf8_lossy(version).into_owned(),
+            status: status_code,
+            reason: reason.to_vec(),
+
+        };
+
+        self.events_basic[dir as usize] = Some(ProtoHttpEvent::ResponseBasic(evt));
 
         StreamParseResult::Ok
     }
@@ -160,6 +256,17 @@ impl ProtoHttp {
         };
 
         if line.len() == 0 {
+
+            // Send the basic event here
+
+            if let Some(e) = self.events_basic[dir as usize].take() {
+                let evt = match e {
+                    ProtoHttpEvent::RequestBasic(p) => Event::new(p.ts, EventPayload::NetHttpRequestBasic(p)),
+                    ProtoHttpEvent::ResponseBasic(p) => Event::new(p.ts, EventPayload::NetHttpResponseBasic(p)),
+                };
+                evt.send();
+            }
+
             self.state = ProtoHttpState::Body;
             return StreamParseResult::Ok;
         }
@@ -196,16 +303,32 @@ impl ProtoHttp {
 impl PktStreamProcessor for ProtoHttp {
 
     fn new(infos: &PktInfoStack) -> Self {
+
+        let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
+        let (src_host, dst_host) = match ip_info {
+            Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
+            Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
+            _ => (None, None),
+        };
+
+        let ProtoInfo::Tcp(tcp_info) = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap()).unwrap() else {
+            unreachable!();
+        };
+
+
         ProtoHttp {
             state: ProtoHttpState::FirstLine,
+            conn_id: infos.get_conn_id().unwrap().clone(),
             client_dir: None,
-            method: None,
-            version: None,
-            uri: None,
+            src_host,
+            dst_host,
+            src_port: tcp_info.sport,
+            dst_port: tcp_info.dport,
+            events_basic: [ None, None ],
         }
     }
 
-    fn process(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> StreamParseResult {
 
         match self.state {
             ProtoHttpState::FirstLine => self.parse_first_line(dir, parser),

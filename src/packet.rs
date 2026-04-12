@@ -1,5 +1,6 @@
 use crate::proto::{Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackRef, ConntrackWeakRef, ConntrackDirection};
+use crate::event::EventId;
 use std::sync::Arc;
 use std::ops::Range;
 use tracing::trace;
@@ -76,7 +77,8 @@ impl Serialize for PktTime {
 
 // Stack of packet info
 pub struct PktInfoStack {
-    infos: Vec<PktInfo>
+    infos: Vec<PktInfo>,
+    conn_id: Option<EventId>,
 }
 
 // All info about a packet
@@ -92,7 +94,8 @@ impl PktInfoStack {
 
     pub fn new(datalink: Protocols) -> Self {
         let mut ret = PktInfoStack {
-            infos: Vec::with_capacity(7)
+            infos: Vec::with_capacity(7),
+            conn_id: None,
         };
         ret.proto_push(datalink, None);
         ret
@@ -130,6 +133,14 @@ impl PktInfoStack {
 
     pub fn iter(&self) -> impl Iterator<Item = &PktInfo> {
         self.infos.iter()
+    }
+
+    pub fn set_conn_id(&mut self, conn_id: EventId) {
+        self.conn_id = Some(conn_id);
+    }
+
+    pub fn get_conn_id(&self) -> Option<&EventId> {
+        self.conn_id.as_ref()
     }
 }
 

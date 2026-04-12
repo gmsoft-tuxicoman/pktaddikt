@@ -663,6 +663,8 @@ mod tests {
 
     fn dummy_infos() -> PktInfoStack {
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
+        infos.set_conn_id(EventId::new(PktTime::from_micros(0)));
+
         let mut info = infos.proto_last_mut();
 
         info.proto_info = Some(ProtoInfo::Ipv4(ProtoIpv4Info {

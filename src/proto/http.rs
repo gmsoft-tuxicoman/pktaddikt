@@ -348,6 +348,7 @@ mod tests {
     use crate::conntrack::ConntrackDirection;
     use crate::proto::ipv4::ProtoIpv4Info;
     use crate::proto::tcp::ProtoTcpInfo;
+    use crate::event::EventId;
     use std::net::Ipv4Addr;
 
 
@@ -355,6 +356,8 @@ mod tests {
     fn http_parse_basic() {
 
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
+        infos.set_conn_id(EventId::new(PktTime::from_micros(0)));
+
         let mut info = infos.proto_last_mut();
 
         info.proto_info = Some(ProtoInfo::Ipv4(ProtoIpv4Info {

@@ -169,7 +169,11 @@ impl EventBus {
 
     pub fn has_subscribers(evt_kind: EventKind) -> bool {
         let id = evt_kind as usize;
-        let evt_bus = EVENT_BUS.get().unwrap();
+        let Some(evt_bus) = EVENT_BUS.get() else {
+            // Happens during test when event bus is not initialized
+            // So pretend there is a subscriber so that parsing etc is done
+            return true;
+        };
 
         evt_bus.subscribers[id].len() > 0
     }

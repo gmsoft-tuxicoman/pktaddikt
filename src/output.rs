@@ -47,7 +47,7 @@ impl OutputBuilder {
 
         let mut outputs: Vec<OutputRunner> = Vec::new();
 
-        for (output_name, output_cfg) in &cfg.outputs {
+        for (output_name, _) in &cfg.outputs {
 
             let (tx, rx) = crossbeam_channel::unbounded();
 

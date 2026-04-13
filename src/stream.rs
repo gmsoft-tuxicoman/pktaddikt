@@ -6,6 +6,7 @@ use crate::proto::http::ProtoHttp;
 
 use std::borrow::Cow;
 use memchr::memchr;
+use smallvec::SmallVec;
 
 pub trait PktStreamProcessor {
     fn new(infos: &PktInfoStack) -> Self;
@@ -21,8 +22,8 @@ pub enum PktStreamProto {
 pub struct PktStream {
 
     proto: PktStreamProto,
-    pkt_buff_fwd: Vec<Packet<'static>>,
-    pkt_buff_rev: Vec<Packet<'static>>,
+    pkt_buff_fwd: SmallVec<[Packet<'static>; 1]>,
+    pkt_buff_rev: SmallVec<[Packet<'static>; 1]>,
     is_active: bool,
 
 }
@@ -37,7 +38,7 @@ pub enum StreamParseResult {
 
 pub struct PktStreamParser<'a, 'b> {
     pkt: &'a mut Packet<'b>,
-    pkt_buff: &'a mut Vec<Packet<'static>>
+    pkt_buff: &'a mut SmallVec<[Packet<'static>; 1]>
 }
 
 impl PktStream {
@@ -49,8 +50,8 @@ impl PktStream {
                 Protocols::Http => PktStreamProto::Http(ProtoHttp::new(infos)),
                 _ => return None
             },
-            pkt_buff_fwd: Vec::new(),
-            pkt_buff_rev: Vec::new(),
+            pkt_buff_fwd: SmallVec::new(),
+            pkt_buff_rev: SmallVec::new(),
             is_active: true,
         })
     }
@@ -113,7 +114,7 @@ impl PktStream {
 
 impl<'a, 'b> PktStreamParser<'a, 'b> {
 
-    fn new(pkt: &'a mut Packet<'b>, pkt_buff: &'a mut Vec<Packet<'static>>) -> PktStreamParser<'a, 'b> {
+    fn new(pkt: &'a mut Packet<'b>, pkt_buff: &'a mut SmallVec<[Packet<'static>; 1]>) -> PktStreamParser<'a, 'b> {
         PktStreamParser {
             pkt: pkt,
             pkt_buff: pkt_buff
@@ -152,8 +153,52 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
     }
 
 
+    // Read up to len of data. Could return less if there is less
+    pub fn read(&mut self, len: usize) -> Cow<'_, [u8]> {
+
+        if self.pkt_buff.len() > 0 {
+            if self.pkt_buff[0].remaining_len() < len {
+                let Some(data) = self.pkt_buff[0].read_bytes(len) else {
+                    unreachable!();
+                };
+                return Cow::Borrowed(data);
+            }
+
+            let mut pkt = self.pkt_buff.remove(0);
+            // FIXME, implement take() or something to get the actual data instead of copying
+            return Cow::Owned(pkt.remaining_data().to_vec());
+        }
+
+        // No packet in the buffer, no need to own anything
+        if self.pkt.remaining_len() <= len {
+            return Cow::Borrowed(self.pkt.remaining_data());
+        }
+
+        // There is more in the packet than what we need
+        let Some(data) = self.pkt.read_bytes(len) else {
+            unreachable!();
+        };
+
+        Cow::Borrowed(data)
+
+    }
+
+    pub fn peek(&self) -> Cow<'_, [u8]> {
+        if self.pkt_buff.len() == 0 {
+            return Cow::Borrowed(self.pkt.peek());
+        }
+
+        let mut data = Vec::with_capacity(self.remaining_len());
+        for buf in self.pkt_buff.iter() {
+            data.extend_from_slice(buf.peek());
+        }
+        data.extend_from_slice(self.pkt.peek());
+        Cow::Owned(data)
+    }
+
+
     pub fn readline(&mut self) -> Option<Cow<'_, [u8]>> {
-        // Assume the line is not in the buffered packets
+        // Assume the line return is not in the buffered packets
         let mut off;
         let mut skip;
 

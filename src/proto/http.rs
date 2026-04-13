@@ -63,13 +63,44 @@ enum ProtoHttpEvent {
     ResponseBasic(NetHttpResponseBasic),
 }
 
+
+#[derive(Debug)]
+struct ProtoHttpStateInfo {
+
+    state: ProtoHttpState,
+    content_len: Option<usize>,
+    content_pos: usize,
+    status: usize,
+    chunked: bool,
+    event_basic: Option<ProtoHttpEvent>,
+}
+
+impl ProtoHttpStateInfo {
+
+    fn reset(&mut self) {
+        self.state = ProtoHttpState::FirstLine;
+        self.content_len = None;
+        self.content_pos = 0;
+        self.status = 0;
+        self.chunked = false;
+
+        if let Some(e) = self.event_basic.take() {
+            let evt = match e {
+                ProtoHttpEvent::RequestBasic(p) => Event::new(p.ts, EventPayload::NetHttpRequestBasic(p)),
+                ProtoHttpEvent::ResponseBasic(p) => Event::new(p.ts, EventPayload::NetHttpResponseBasic(p)),
+            };
+            evt.send();
+        }
+        self.event_basic = None;
+    }
+}
+
 #[derive(Debug)]
 pub struct ProtoHttp {
 
-    state: ProtoHttpState,
     client_dir: Option<ConntrackDirection>,
+    info: [ProtoHttpStateInfo;2],
     conn_id: EventId,
-    events_basic: [Option<ProtoHttpEvent>;2],
     pub src_host: Option<IpAddr>,
     pub dst_host: Option<IpAddr>,
     pub src_port: u16,
@@ -181,7 +212,7 @@ impl ProtoHttp {
                 // WEIRD
             }
         }
-        self.state = ProtoHttpState::Headers;
+        self.info[dir as usize].state = ProtoHttpState::Headers;
 
         if ! EventBus::has_subscribers(EventKind::NetHttpRequestBasic) {
             return StreamParseResult::Ok;
@@ -203,7 +234,7 @@ impl ProtoHttp {
         trace!("HTTP URI: {}", String::from_utf8_lossy(&evt.uri));
         trace!("HTTP Version: {}", evt.version);
 
-        self.events_basic[dir as usize] = Some(ProtoHttpEvent::RequestBasic(evt));
+        self.info[dir as usize].event_basic = Some(ProtoHttpEvent::RequestBasic(evt));
 
         StreamParseResult::Ok
     }
@@ -212,17 +243,12 @@ impl ProtoHttp {
 
         // Parse status code
 
-        let mut status_code = 0usize;
+        let Some(status_code) = atoi(status) else {
+            return StreamParseResult::Invalid;
+        };
 
-        for &b in status {
-            if b < b'0' || b > b'9' {
-                return StreamParseResult::Invalid;
-            }
-
-            status_code = status_code * 10 + (b - b'0') as usize;
-        }
-
-        self.state = ProtoHttpState::Headers;
+        self.info[dir as usize].state = ProtoHttpState::Headers;
+        self.info[dir as usize].status = status_code;
 
         if ! EventBus::has_subscribers(EventKind::NetHttpResponseBasic) {
             return StreamParseResult::Ok;
@@ -243,7 +269,7 @@ impl ProtoHttp {
 
         };
 
-        self.events_basic[dir as usize] = Some(ProtoHttpEvent::ResponseBasic(evt));
+        self.info[dir as usize].event_basic = Some(ProtoHttpEvent::ResponseBasic(evt));
 
         StreamParseResult::Ok
     }
@@ -259,7 +285,7 @@ impl ProtoHttp {
 
             // Send the basic event here
 
-            if let Some(e) = self.events_basic[dir as usize].take() {
+            if let Some(e) = self.info[dir as usize].event_basic.take() {
                 let evt = match e {
                     ProtoHttpEvent::RequestBasic(p) => Event::new(p.ts, EventPayload::NetHttpRequestBasic(p)),
                     ProtoHttpEvent::ResponseBasic(p) => Event::new(p.ts, EventPayload::NetHttpResponseBasic(p)),
@@ -267,7 +293,7 @@ impl ProtoHttp {
                 evt.send();
             }
 
-            self.state = ProtoHttpState::Body;
+            self.info[dir as usize].state = ProtoHttpState::Body;
             return StreamParseResult::Ok;
         }
 
@@ -290,12 +316,57 @@ impl ProtoHttp {
 
         let value = &line[value..];
 
+        if self.info[dir as usize].content_len.is_none() {
+            if name.eq_ignore_ascii_case(b"Content-Length") {
+                self.info[dir as usize].content_len = atoi(value);
+                if self.info[dir as usize].content_len.is_none() {
+                    return StreamParseResult::Invalid;
+                }
+            }
+        }
+
+        if ! self.info[dir as usize].chunked {
+            if name.eq_ignore_ascii_case(b"Transfer-Encoding") && value.eq_ignore_ascii_case(b"chunked") {
+                self.info[dir as usize].chunked = true;
+            }
+        }
+
         trace!("HTTP header: \"{}: {}\"",  String::from_utf8_lossy(name), String::from_utf8_lossy(value));
 
         StreamParseResult::Ok
     }
 
-    fn parse_body(&self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn parse_body(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+
+        if let Some(content_len) = self.info[dir as usize].content_len {
+            let remaining_len = content_len - self.info[dir as usize].content_pos;
+
+            // FIXME This data should be sent to Blob interface
+            let data = parser.read(remaining_len);
+
+            self.info[dir as usize].content_pos += data.len();
+            trace!("Got {} bytes of payload ({}/{})", data.len(), self.info[dir as usize].content_pos, content_len);
+
+            if remaining_len == 0 {
+                // Payload done
+                trace!("Payload complete");
+                self.info[dir as usize].reset();
+
+            }
+        } else {
+            // No Content-Lenght, must be a HTTP/1.0 response containing the whole body
+            let data = parser.remaining_data();
+            trace!("Got {} bytes of payload", data.len());
+            self.info[dir as usize].content_pos += data.len();
+
+        }
+
+
+        StreamParseResult::Done
+    }
+
+    fn parse_body_chunked(&self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+
         StreamParseResult::Done
     }
 }
@@ -317,26 +388,71 @@ impl PktStreamProcessor for ProtoHttp {
 
 
         ProtoHttp {
-            state: ProtoHttpState::FirstLine,
             conn_id: infos.get_conn_id().unwrap().clone(),
+            info:  [ ProtoHttpStateInfo {
+                state: ProtoHttpState::FirstLine,
+                content_len: None,
+                content_pos: 0,
+                chunked: false,
+                status: 0,
+                event_basic: None,
+            },
+             ProtoHttpStateInfo {
+                state: ProtoHttpState::FirstLine,
+                content_len: None,
+                content_pos: 0,
+                chunked: false,
+                status: 0,
+                event_basic: None,
+            } ],
             client_dir: None,
             src_host,
             dst_host,
             src_port: tcp_info.sport,
             dst_port: tcp_info.dport,
-            events_basic: [ None, None ],
         }
     }
 
     fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> StreamParseResult {
 
-        match self.state {
+        match self.info[dir as usize].state {
             ProtoHttpState::FirstLine => self.parse_first_line(dir, parser),
             ProtoHttpState::Headers => self.parse_headers(dir, parser),
-            ProtoHttpState::Body => self.parse_body(dir, parser),
+            ProtoHttpState::Body => {
+
+                if Some(dir.opposite()) == self.client_dir  && self.info[dir as usize].content_pos == 0 {
+                    // We need to check if the body looks like a reply
+                    // If it does, then we assume it's a reply to a HEAD request
+                    let data = parser.peek();
+                    if data.len() > 5 && data[0..5].eq_ignore_ascii_case(b"HTTP/") {
+                        trace!("Found reply to HEAD request");
+                        self.info[dir as usize].reset();
+                        return StreamParseResult::Ok;
+                    }
+                }
+
+                match self.info[dir as usize].chunked {
+                    false => self.parse_body(dir, parser),
+                    true => self.parse_body_chunked(dir, parser),
+                }
+            }
         }
     }
 
+}
+
+
+fn atoi(val: &[u8]) -> Option<usize> {
+    let mut ret = 0usize;
+
+    for &b in val {
+        if b < b'0' || b > b'9' {
+            return None;
+        }
+
+        ret = ret * 10 + (b - b'0') as usize;
+    }
+    Some(ret)
 }
 
 #[cfg(test)]

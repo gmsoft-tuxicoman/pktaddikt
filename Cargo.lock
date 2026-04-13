@@ -669,6 +669,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slab",
+ "smallvec",
  "strum",
  "strum_macros",
  "tracing",

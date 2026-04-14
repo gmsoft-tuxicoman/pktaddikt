@@ -68,9 +68,8 @@ enum ProtoHttpEvent {
 struct ProtoHttpStateInfo {
 
     state: ProtoHttpState,
-    content_len: Option<usize>,
+    content_len: Option<usize>, // Either full Content-Length or chunk length
     content_pos: usize,
-    status: usize,
     chunked: bool,
     event_basic: Option<ProtoHttpEvent>,
 }
@@ -81,7 +80,6 @@ impl ProtoHttpStateInfo {
         self.state = ProtoHttpState::FirstLine;
         self.content_len = None;
         self.content_pos = 0;
-        self.status = 0;
         self.chunked = false;
 
         if let Some(e) = self.event_basic.take() {
@@ -101,6 +99,7 @@ pub struct ProtoHttp {
     client_dir: Option<ConntrackDirection>,
     info: [ProtoHttpStateInfo;2],
     conn_id: EventId,
+    last_status: usize,
     pub src_host: Option<IpAddr>,
     pub dst_host: Option<IpAddr>,
     pub src_port: u16,
@@ -248,7 +247,7 @@ impl ProtoHttp {
         };
 
         self.info[dir as usize].state = ProtoHttpState::Headers;
-        self.info[dir as usize].status = status_code;
+        self.last_status = status_code;
 
         if ! EventBus::has_subscribers(EventKind::NetHttpResponseBasic) {
             return StreamParseResult::Ok;
@@ -282,6 +281,7 @@ impl ProtoHttp {
         };
 
         if line.len() == 0 {
+            // All headers are processed
 
             // Send the basic event here
 
@@ -291,6 +291,36 @@ impl ProtoHttp {
                     ProtoHttpEvent::ResponseBasic(p) => Event::new(p.ts, EventPayload::NetHttpResponseBasic(p)),
                 };
                 evt.send();
+            }
+
+            if self.info[dir as usize].chunked && self.info[dir as usize].content_len.is_some() {
+                // Ignore Content-Length for chunked transfers
+                self.info[dir as usize].content_len = None;
+            }
+
+
+            if let Some(clen) = self.info[dir as usize].content_len {
+
+                if clen == 0 {
+                    // Content length is 0, no body
+                    self.info[dir as usize].reset();
+                    return StreamParseResult::Ok;
+                }
+
+            } else if Some(dir) == self.client_dir {
+                // It's a query and no Content-Length was provided
+                if ! self.info[dir as usize].chunked {
+                    // No body expected
+                    self.info[dir as usize].reset();
+                    return StreamParseResult::Ok;
+                }
+            }
+
+            // Some status code should not contain any body
+            if Some(dir.opposite()) == self.client_dir && ((self.last_status >= 100 && self.last_status < 200) || self.last_status == 204 || self.last_status == 304) {
+                    // No body expected
+                    self.info[dir as usize].reset();
+                    return StreamParseResult::Ok;
             }
 
             self.info[dir as usize].state = ProtoHttpState::Body;
@@ -339,13 +369,14 @@ impl ProtoHttp {
     fn parse_body(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
 
         if let Some(content_len) = self.info[dir as usize].content_len {
-            let remaining_len = content_len - self.info[dir as usize].content_pos;
+            let mut remaining_len = content_len - self.info[dir as usize].content_pos;
 
             // FIXME This data should be sent to Blob interface
             let data = parser.read(remaining_len);
 
             self.info[dir as usize].content_pos += data.len();
             trace!("Got {} bytes of payload ({}/{})", data.len(), self.info[dir as usize].content_pos, content_len);
+            remaining_len -= data.len();
 
             if remaining_len == 0 {
                 // Payload done
@@ -361,13 +392,71 @@ impl ProtoHttp {
 
         }
 
-
-        StreamParseResult::Done
+        StreamParseResult::Ok
     }
 
-    fn parse_body_chunked(&self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn parse_body_chunked(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
 
-        StreamParseResult::Done
+
+        if let Some(chunk_len) = self.info[dir as usize].content_len {
+
+            // We already have a chunk len, let's see what remains to be parsed
+
+            let remaining_len = chunk_len - self.info[dir as usize].content_pos;
+
+            if remaining_len > 0 {
+                // remaining_len will be 0 if we go the content but not the CRLF
+                let data = parser.read(remaining_len);
+                self.info[dir as usize].content_pos += data.len();
+                trace!("Got {} of chunked payload ({}/{})", data.len(), self.info[dir as usize].content_pos, chunk_len);
+            }
+
+            let line_opt = parser.readline();
+            let line = match line_opt {
+                Some(ref l) => l,
+                None => return StreamParseResult::NeedData,
+            };
+
+            if line.len() > 0 {
+                // Line is supposed to be empty
+                return StreamParseResult::Invalid;
+            }
+
+            self.info[dir as usize].content_len = None;
+            if chunk_len == 0 {
+                self.info[dir as usize].reset();
+                trace!("End of chunked content");
+            } else {
+                trace!("End of chunk");
+            }
+
+        } else {
+
+            // First, read the chunk length
+
+            let line_opt = parser.readline();
+            let line = match line_opt {
+                Some(ref l) => l,
+                None => return StreamParseResult::NeedData,
+            };
+
+            if line.len() > 10 {
+                // Chunk is wayy too big
+                return StreamParseResult::Invalid;
+            }
+
+            self.info[dir as usize].content_len = htoi(line);
+            if self.info[dir as usize].content_len.is_none() {
+                // Unable to parse chunk length
+                return StreamParseResult::Invalid;
+            }
+
+            trace!("Got chunk of {} bytes", self.info[dir as usize].content_len.unwrap());
+            self.info[dir as usize].content_pos = 0;
+
+        }
+
+        StreamParseResult::Ok
     }
 }
 
@@ -394,7 +483,6 @@ impl PktStreamProcessor for ProtoHttp {
                 content_len: None,
                 content_pos: 0,
                 chunked: false,
-                status: 0,
                 event_basic: None,
             },
              ProtoHttpStateInfo {
@@ -402,10 +490,10 @@ impl PktStreamProcessor for ProtoHttp {
                 content_len: None,
                 content_pos: 0,
                 chunked: false,
-                status: 0,
                 event_basic: None,
             } ],
             client_dir: None,
+            last_status: 0,
             src_host,
             dst_host,
             src_port: tcp_info.sport,
@@ -451,6 +539,23 @@ fn atoi(val: &[u8]) -> Option<usize> {
         }
 
         ret = ret * 10 + (b - b'0') as usize;
+    }
+    Some(ret)
+}
+
+fn htoi(val: &[u8]) -> Option<usize> {
+    let mut ret = 0usize;
+
+    for &b in val {
+        if b >= b'0' && b  <= b'9' {
+            ret = (ret << 4 ) + (b - b'0') as usize;
+        } else if b >= b'a' && b <= b'f' {
+            ret = (ret << 4) + (b - b'a' + 10) as usize;
+        } else if b >= b'A' && b <= b'F' {
+            ret = (ret << 4) + (b - b'A' + 10) as usize;
+        } else {
+            return None;
+        }
     }
     Some(ret)
 }

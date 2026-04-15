@@ -155,6 +155,13 @@ impl PktInfo {
         }
     }
 
+    pub fn ce_dir(&self) -> Option<ConntrackDirection> {
+
+        match self.parent_ce {
+            Some((_, d)) => Some(d),
+            None => None,
+        }
+    }
 
 }
 
@@ -252,7 +259,7 @@ impl<'a> Packet<'a> {
 
     pub fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
 
-        trace!("Reading {} bytes from pkt {} (off: {}, len: {})", size, self.ts, self.data_range.start, self.data_range.end - self.data_range.end);
+        trace!("Reading {} bytes from pkt {} (off: {}, remaining len: {})", size, self.ts, self.data_range.start, self.data_range.end - self.data_range.start);
         let data = self.data.data();
         debug_assert!(data.len() >= self.data_range.end - self.data_range.start);
         if self.data_range.start + size > self.data_range.end {

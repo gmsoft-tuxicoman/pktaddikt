@@ -8,6 +8,7 @@ pub mod http;
 pub mod arp;
 pub mod vlan;
 pub mod icmp;
+pub mod dns;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::{ProtoEthernet, ProtoEthernetInfo};
@@ -18,6 +19,7 @@ use crate::proto::tcp::{ProtoTcp, ProtoTcpInfo, TcpConfig};
 use crate::proto::arp::{ProtoArp, ProtoArpInfo};
 use crate::proto::vlan::{ProtoVlan, ProtoVlanInfo};
 use crate::proto::icmp::{ProtoIcmp, ProtoIcmpInfo};
+use crate::proto::dns::ProtoDns;
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 use crate::config::ConfigRef;
@@ -62,6 +64,7 @@ pub enum Protocols {
     Arp,
     Vlan,
     Icmp,
+    Dns,
 }
 
 pub enum ProtoParseResult {
@@ -133,6 +136,7 @@ pub struct Proto {
     arp: ProtoArp,
     vlan: ProtoVlan,
     icmp: ProtoIcmp,
+    dns: ProtoDns,
 }
 
 impl Proto {
@@ -148,6 +152,7 @@ impl Proto {
             arp: ProtoArp::new(),
             vlan: ProtoVlan::new(),
             icmp: ProtoIcmp::new(),
+            dns: ProtoDns::new(),
 
         }
     }
@@ -186,6 +191,7 @@ impl Proto {
                 Protocols::Arp => self.arp.process(pkt, infos),
                 Protocols::Vlan => self.vlan.process(pkt, infos),
                 Protocols::Icmp => self.icmp.process(pkt, infos),
+                Protocols::Dns => self.dns.process(pkt, infos),
                 _ => break,
             };
 
@@ -199,7 +205,10 @@ impl Proto {
                 info.data_len = pkt.remaining_len();
             }
 
-            if let ProtoParseResult::New(new_pkt) = mem::replace(&mut ret, ProtoParseResult::Ok) {
+            if let ProtoParseResult::New(_) = ret {
+                let ProtoParseResult::New(new_pkt) = mem::replace(&mut ret, ProtoParseResult::Ok) else {
+                    unreachable!();
+                };
                 pkt_holder = Some(new_pkt);
                 continue;
             }

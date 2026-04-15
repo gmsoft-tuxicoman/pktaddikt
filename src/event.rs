@@ -37,6 +37,8 @@ pub enum EventKind {
     NetHttpRequestBasic,
     #[strum(serialize = "net.http.response.basic")]
     NetHttpResponseBasic,
+    #[strum(serialize = "net.dns.message")]
+    NetDnsMessage
 }
 
 #[derive(Debug, Serialize)]
@@ -50,6 +52,7 @@ pub enum EventPayload {
     NetUdpConnectionEnd(crate::proto::udp::NetUdpConnectionEnd),
     NetHttpRequestBasic(crate::proto::http::NetHttpRequestBasic),
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
+    NetDnsMessage(crate::proto::dns::NetDnsMessage),
 }
 
 impl EventPayload {
@@ -62,6 +65,7 @@ impl EventPayload {
             EventPayload::NetUdpConnectionEnd(_) => EventKind::NetUdpConnectionEnd,
             EventPayload::NetHttpRequestBasic(_) => EventKind::NetHttpRequestBasic,
             EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
+            EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
         }
     }
 }

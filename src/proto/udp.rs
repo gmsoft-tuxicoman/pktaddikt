@@ -92,6 +92,13 @@ impl ProtoUdp {
             ct: ConntrackTable::new(cfg.proto.udp.conntrack_size),
         }
     }
+
+    fn next_proto(port: u16) -> Protocols {
+        match port {
+            53 => Protocols::Dns,
+            _ => Protocols::None
+        }
+    }
 }
 
 impl ProtoPktProcessor for ProtoUdp {
@@ -132,10 +139,15 @@ impl ProtoPktProcessor for ProtoUdp {
 
 
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
-        let (ce, dir) = self.ct.get(ct_key, info.parent_ce());
+        let (ce, ce_dir) = self.ct.get(ct_key, info.parent_ce());
 
         // WIP
-        infos.proto_push(Protocols::None, None);
+        let next_proto = match ProtoUdp::next_proto(dport) {
+            Protocols::None => ProtoUdp::next_proto(sport),
+            proto => proto,
+        };
+
+        infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
 
         let mut ce_locked = ce.lock().unwrap();
 
@@ -144,12 +156,6 @@ impl ProtoPktProcessor for ProtoUdp {
             false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.udp.conntrack_timeout), pkt.ts)
         }
 
-        if ! (EventBus::has_subscribers(EventKind::NetUdpConnectionStart)
-                || EventBus::has_subscribers(EventKind::NetUdpConnectionEnd))
-        {
-            // Don't bother creating conntrack data if there is no subscriber
-            return ProtoParseResult::Ok;
-        }
 
         let conn_id = EventId::new(pkt.ts);
         let cd = ce_locked.get_or_insert_with(||
@@ -182,15 +188,18 @@ impl ProtoPktProcessor for ProtoUdp {
                     }
                 );
 
-                let evt_pload = NetUdpConnectionStart {
-                    conn_id: conn_id.clone(),
-                    src_port: sport,
-                    dst_port: dport,
-                    src_host: cd.src_host,
-                    dst_host: cd.dst_host,
-                };
-                let evt = Event::new(cd.start_ts, EventPayload::NetUdpConnectionStart(evt_pload));
-                evt.send();
+                if EventBus::has_subscribers(EventKind::NetUdpConnectionStart) {
+
+                    let evt_pload = NetUdpConnectionStart {
+                        conn_id: conn_id.clone(),
+                        src_port: sport,
+                        dst_port: dport,
+                        src_host: cd.src_host,
+                        dst_host: cd.dst_host,
+                    };
+                    let evt = Event::new(cd.start_ts, EventPayload::NetUdpConnectionStart(evt_pload));
+                    evt.send();
+                }
                 cd
 
             }
@@ -203,7 +212,7 @@ impl ProtoPktProcessor for ProtoUdp {
         let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
 
 
-        match dir {
+        match ce_dir {
             ConntrackDirection::Forward => {
                 cd.forward.tot_bytes += pkt.remaining_len();
                 cd.forward.tot_pkts += 1;
@@ -226,6 +235,10 @@ impl ProtoPktProcessor for ProtoUdp {
 impl Drop for ConntrackUdp {
 
     fn drop(&mut self) {
+        if ! (EventBus::has_subscribers(EventKind::NetUdpConnectionEnd)) {
+            return;
+        }
+
         let evt_pload = NetUdpConnectionEnd {
             conn_id: self.conn_id.clone(),
             src_port: self.src_port,

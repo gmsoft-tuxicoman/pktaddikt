@@ -3,16 +3,17 @@ use std::any::Any;
 use tracing::{debug, trace};
 use std::time::Duration;
 use std::sync::atomic::{AtomicU64, Ordering};
-
+use serde::Serialize;
 
 use crate::timer::{TimerManager, TimerId, TimerCb};
 use crate::packet::PktTime;
+
 
 pub type ConntrackRef = Arc<Mutex<Conntrack>>;
 pub type ConntrackWeakRef = Weak<Mutex<Conntrack>>;
 pub type ConntrackTimerCb = Arc<dyn Fn(ConntrackRef) + Send + Sync>;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize)]
 #[repr(usize)]
 pub enum ConntrackDirection {
     Forward,

@@ -3,6 +3,7 @@ use crate::proto::Protocols;
 use crate::conntrack::ConntrackDirection;
 use crate::proto::test::ProtoTest;
 use crate::proto::http::ProtoHttp;
+use crate::proto::dns::ProtoDns;
 
 use std::borrow::Cow;
 use memchr::memchr;
@@ -17,6 +18,7 @@ pub trait PktStreamProcessor {
 pub enum PktStreamProto {
     Test(ProtoTest),
     Http(ProtoHttp),
+    Dns(ProtoDns),
 }
 
 pub struct PktStream {
@@ -48,6 +50,7 @@ impl PktStream {
             proto: match proto {
                 Protocols::Test => PktStreamProto::Test(<ProtoTest as PktStreamProcessor>::new(infos)),
                 Protocols::Http => PktStreamProto::Http(ProtoHttp::new(infos)),
+                Protocols::Dns => PktStreamProto::Dns(<ProtoDns as PktStreamProcessor>::new(infos)),
                 _ => return None
             },
             pkt_buff_fwd: SmallVec::new(),
@@ -85,6 +88,7 @@ impl PktStream {
             let ret = match &mut self.proto {
                 PktStreamProto::Test(p) => p.process(dir, parser),
                 PktStreamProto::Http(p) => p.process(dir, parser),
+                PktStreamProto::Dns(p) => p.process(dir, parser),
             };
 
             if ret != StreamParseResult::Ok {
@@ -154,7 +158,7 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
 
 
     // Read up to len of data. Could return less if there is less
-    pub fn read(&mut self, len: usize) -> Cow<'_, [u8]> {
+    pub fn read_some(&mut self, len: usize) -> Cow<'_, [u8]> {
 
         if self.pkt_buff.len() > 0 {
             if self.pkt_buff[0].remaining_len() < len {
@@ -180,6 +184,46 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
         };
 
         Cow::Borrowed(data)
+
+    }
+
+    // Read exact number of bytes or nothing
+    pub fn read(&mut self, mut len: usize) -> Option<Cow<'_, [u8]>> {
+
+        if self.remaining_len() < len {
+            // Not enough bytes
+            return None;
+        }
+
+        if self.pkt_buff.len() == 0 {
+            // No packet in the buffer
+            let data = self.pkt.read_bytes(len).unwrap();
+            return Some(Cow::Borrowed(data));
+        }
+
+        let mut data = Vec::with_capacity(len);
+
+        while let Some(p) = self.pkt_buff.first_mut() {
+            if p.remaining_len() < len {
+                // The whole packet will be used
+                let mut p = self.pkt_buff.remove(0);
+                len -= p.remaining_len();
+                data.extend_from_slice(p.remaining_data());
+            } else {
+                // Use only what we need
+                data.extend_from_slice(p.read_bytes(len).unwrap());
+                len = 0;
+                break;
+            }
+        }
+
+        if self.pkt.remaining_len() == len {
+            data.extend_from_slice(self.pkt.remaining_data());
+        } else if len > 0 {
+            data.extend_from_slice(self.pkt.read_bytes(len).unwrap());
+        }
+
+        Some(Cow::Owned(data))
 
     }
 

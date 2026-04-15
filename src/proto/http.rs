@@ -372,7 +372,7 @@ impl ProtoHttp {
             let mut remaining_len = content_len - self.info[dir as usize].content_pos;
 
             // FIXME This data should be sent to Blob interface
-            let data = parser.read(remaining_len);
+            let data = parser.read_some(remaining_len);
 
             self.info[dir as usize].content_pos += data.len();
             trace!("Got {} bytes of payload ({}/{})", data.len(), self.info[dir as usize].content_pos, content_len);
@@ -406,7 +406,7 @@ impl ProtoHttp {
 
             if remaining_len > 0 {
                 // remaining_len will be 0 if we go the content but not the CRLF
-                let data = parser.read(remaining_len);
+                let data = parser.read_some(remaining_len);
                 self.info[dir as usize].content_pos += data.len();
                 trace!("Got {} of chunked payload ({}/{})", data.len(), self.info[dir as usize].content_pos, chunk_len);
             }

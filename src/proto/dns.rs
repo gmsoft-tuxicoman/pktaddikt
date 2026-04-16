@@ -9,6 +9,33 @@ use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
 use smallvec::SmallVec;
 use tracing::trace;
 
+#[derive(Debug, Serialize)]
+pub struct NetDnsRecordDataSoa {
+    pub mname: EventStr,
+    pub rname: EventStr,
+    pub serial: u32,
+    pub refresh: u32,
+    pub retry: u32,
+    pub expire: u32,
+    pub minimum: u32,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetDnsRecordDataMx {
+    pub pref: u16,
+    pub mx: EventStr,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetDnsRecord {
+    pub name: EventStr,
+    pub r#type: NetDnsRecordType,
+    pub class: NetDnsRecordClass,
+    pub ttl: u32,
+    pub data: NetDnsRecordData,
+}
+
 #[repr(u8)]
 #[derive(Debug, Serialize)]
 pub enum NetDnsResponseCode {
@@ -34,7 +61,6 @@ pub enum NetDnsRecordType {
     Other(u16),
 
 }
-
 #[derive(Debug, Serialize)]
 pub enum NetDnsRecordClass {
     IN,
@@ -45,23 +71,17 @@ pub enum NetDnsRecordClass {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(untagged)]
 pub enum NetDnsRecordData {
+    None,
     A(Ipv4Addr),
     AAAA(Ipv6Addr),
     CNAME(EventStr),
+    SOA(NetDnsRecordDataSoa),
     PTR(EventStr),
-    MX((u16, EventStr)),
+    MX(NetDnsRecordDataMx),
     TXT(EventStr),
     Other(Vec<u8>),
-}
-
-#[derive(Debug, Serialize)]
-pub struct NetDnsRecord {
-    pub name: EventStr,
-    pub r#type: u16,
-    pub class: u16,
-    pub ttl: u32,
-
 }
 
 #[derive(Debug, Serialize)]
@@ -83,6 +103,9 @@ pub struct NetDnsMessage {
     pub qname: EventStr,
     pub qtype: NetDnsRecordType,
     pub qclass: NetDnsRecordClass,
+    pub answers: Option<Vec<NetDnsRecord>>,
+    pub authorities: Option<Vec<NetDnsRecord>>,
+    pub additionals: Option<Vec<NetDnsRecord>>,
 }
 
 #[derive(Debug)]
@@ -147,6 +170,113 @@ impl ProtoDns {
         }
     }
 
+    fn parse_rr(data: &[u8], offset: usize) -> Option<(NetDnsRecord, usize)> {
+        let (name, mut offset) = ProtoDns::parse_name(data, offset)?;
+
+        if data.len() < offset + 10 {
+            trace!("Record truncated");
+            return None;
+        }
+
+        let qtype = ((data[offset] as u16) << 8) + (data[offset + 1] as u16);
+        offset += 2;
+        let qclass = ((data[offset] as u16) << 8) + (data[offset + 1] as u16);
+        offset += 2;
+        let ttl = ((data[offset] as u32) << 24) + ((data[offset + 1] as u32) << 16) + ((data[offset + 2] as u32) << 8) + (data[offset + 3] as u32);
+        offset += 4;
+        let rlen = ((data[offset] as u16) << 8) + (data[offset + 1] as u16);
+        offset += 2;
+
+        if data.len() < offset + rlen as usize {
+            trace!("Rdata truncated");
+            return None;
+        }
+
+        let data = match qtype {
+            1 => {
+                NetDnsRecordData::A(Ipv4Addr::new(data[offset], data[offset + 1], data[offset + 2], data[offset + 3]))
+            }
+            5 => {
+                let (cname, _) = ProtoDns::parse_name(data, offset)?;
+                NetDnsRecordData::CNAME(cname.to_vec().into())
+            }
+            6 => {
+                let (mname, new_offset) = ProtoDns::parse_name(data, offset)?;
+                offset = new_offset;
+                let (rname, new_offset) = ProtoDns::parse_name(data, offset)?;
+                offset = new_offset;
+                let serial = ((data[offset] as u32) << 24) + ((data[offset + 1] as u32) << 16) + ((data[offset + 2] as u32) << 8) + (data[offset + 3] as u32);
+                offset += 4;
+                let refresh = ((data[offset] as u32) << 24) + ((data[offset + 1] as u32) << 16) + ((data[offset + 2] as u32) << 8) + (data[offset + 3] as u32);
+                offset += 4;
+                let retry = ((data[offset] as u32) << 24) + ((data[offset + 1] as u32) << 16) + ((data[offset + 2] as u32) << 8) + (data[offset + 3] as u32);
+                offset += 4;
+                let expire = ((data[offset] as u32) << 24) + ((data[offset + 1] as u32) << 16) + ((data[offset + 2] as u32) << 8) + (data[offset + 3] as u32);
+                offset += 4;
+                let minimum = ((data[offset] as u32) << 24) + ((data[offset + 1] as u32) << 16) + ((data[offset + 2] as u32) << 8) + (data[offset + 3] as u32);
+
+                NetDnsRecordData::SOA(NetDnsRecordDataSoa {
+                    mname: mname.to_vec().into(),
+                    rname: rname.to_vec().into(),
+                    serial,
+                    refresh,
+                    retry,
+                    expire,
+                    minimum,
+                })
+            }
+            12 => {
+                let (ptr, _) = ProtoDns::parse_name(data, offset)?;
+                NetDnsRecordData::PTR(ptr.to_vec().into())
+            }
+            15 => {
+                let pref = ((data[offset] as u16) << 8) + (data[offset + 1] as u16);
+                let (mx, _) = ProtoDns::parse_name(data, offset + 2)?;
+                NetDnsRecordData::MX( NetDnsRecordDataMx {
+                    pref,
+                    mx: mx.to_vec().into()
+                })
+            },
+            16 => {
+                let txt = &data[offset..offset + rlen as usize];
+                let mut value = Vec::new();
+                let mut pos = 0;
+                while pos < txt.len() {
+                    let len = txt[pos] as usize;
+                    let cstring = &txt[pos + 1..pos + 1 + len];
+                    value.extend_from_slice(cstring);
+                    pos += len + 1;
+                }
+                NetDnsRecordData::TXT(value.into())
+            }
+            28 => {
+                let ipv6 = Ipv6Addr::new(   (data[offset] as u16) << 8 | data[offset + 1] as u16,
+                                            (data[offset + 2] as u16) << 8 | data[offset + 3] as u16,
+                                            (data[offset + 4] as u16) << 8 | data[offset + 5] as u16,
+                                            (data[offset + 6] as u16) << 8 | data[offset + 7] as u16,
+                                            (data[offset + 8] as u16) << 8 | data[offset + 9] as u16,
+                                            (data[offset + 10] as u16) << 8 | data[offset + 11] as u16,
+                                            (data[offset + 12] as u16) << 8 | data[offset + 13] as u16,
+                                            (data[offset + 14] as u16) << 8 | data[offset + 15] as u16);
+                NetDnsRecordData::AAAA(ipv6)
+
+            }
+            _ => NetDnsRecordData::Other(data[offset..offset + rlen as usize].to_vec())
+        };
+
+        let rr = NetDnsRecord {
+            name: name.to_vec().into(),
+            r#type: ProtoDns::rr_type_to_enum(qtype),
+            class: ProtoDns::rr_class_to_enum(qclass),
+            ttl,
+            data,
+        };
+
+
+        Some((rr, offset + rlen as usize))
+
+    }
+
     fn parse_message(&mut self, data: &[u8], ts: PktTime, dir: ConntrackDirection) -> ProtoParseResult {
 
         // Parse DNS headers
@@ -182,7 +312,7 @@ impl ProtoDns {
         offset += 2;
 
 
-        let evt_pload = NetDnsMessage {
+        let mut evt_pload = NetDnsMessage {
             conn_id: self.conn_id.clone().unwrap(),
             proto: self.proto,
             src_host: self.src_host,
@@ -200,8 +330,46 @@ impl ProtoDns {
             qname: qname.to_vec().into(),
             qtype: ProtoDns::rr_type_to_enum(qtype),
             qclass: ProtoDns::rr_class_to_enum(qclass),
+            answers: None,
+            authorities: None,
+            additionals: None,
         };
 
+        if answer_count > 0 {
+            let mut answers = Vec::with_capacity(answer_count as usize);
+            for _i in 0..answer_count {
+                let Some((rr, new_offset)) = ProtoDns::parse_rr(data, offset) else {
+                    return ProtoParseResult::Invalid;
+                };
+                offset = new_offset;
+                answers.push(rr);
+            }
+            evt_pload.answers = Some(answers);
+        }
+
+        if authority_count > 0 {
+            let mut authorities = Vec::with_capacity(authority_count as usize);
+            for _i in 0..authority_count {
+                let Some((rr, new_offset)) = ProtoDns::parse_rr(data, offset) else {
+                    return ProtoParseResult::Invalid;
+                };
+                offset = new_offset;
+                authorities.push(rr);
+            }
+            evt_pload.authorities= Some(authorities);
+        }
+
+        if additional_count > 0 {
+            let mut additionals = Vec::with_capacity(additional_count as usize);
+            for _i in 0..additional_count {
+                let Some((rr, new_offset)) = ProtoDns::parse_rr(data, offset) else {
+                    return ProtoParseResult::Invalid;
+                };
+                offset = new_offset;
+                additionals.push(rr);
+            }
+            evt_pload.additionals = Some(additionals);
+        }
         let evt = Event::new(ts, EventPayload::NetDnsMessage(evt_pload));
         evt.send();
         ProtoParseResult::Ok
@@ -225,11 +393,6 @@ impl ProtoDns {
 
         while label_len > 0 {
             if label_len > 63 {
-                if name.len() == 0 {
-                    // Pointer not allowed as first label
-                    trace!("Pointer found in first label of DNS name");
-                    return None;
-                }
 
                 if (label_len & 0xC0) != 0xC0 {
                     // Pointers must start with 11XXXXXX
@@ -244,7 +407,7 @@ impl ProtoDns {
 
                 // Return parsing the header after the pointer
                 if data_offset == 0 {
-                    data_offset = off + 1;
+                    data_offset = off + 2;
                 }
 
                 // Pointer seems valid

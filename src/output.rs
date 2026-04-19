@@ -1,6 +1,8 @@
 
 use crate::output::logjson::{OutputLogJson, LogJsonConfig};
 use crate::output::logzeek::{OutputLogZeek, LogZeekConfig};
+#[cfg(feature = "with_nftables")]
+use crate::output::dns2nftset::{OutputDns2NftSet, Dns2NftSetConfig};
 use crate::config::ConfigRef;
 use crate::event::{EventRxChannel, EventTxChannel, EventBus, Event, EventPayload, SysShutdown};
 use crate::packet::PktTime;
@@ -8,10 +10,12 @@ use crate::packet::PktTime;
 use serde::Deserialize;
 use crossbeam_channel;
 use std::sync::Arc;
-use tracing::debug;
 
 pub mod logjson;
 pub mod logzeek;
+
+#[cfg(feature = "with_nftables")]
+pub mod dns2nftset;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type" )]
@@ -21,6 +25,9 @@ pub enum OutputConfig {
     LogJson(LogJsonConfig),
     #[serde(rename = "logzeek")]
     LogZeek(LogZeekConfig),
+    #[serde(rename = "dns2nftset")]
+    #[cfg(feature = "with_nftables")]
+    Dns2NftSet(Dns2NftSetConfig),
 }
 
 pub trait Output: Send + 'static {
@@ -75,11 +82,12 @@ impl OutputBuilder {
             None => panic!("Invalid output type"),
         };
 
-        debug!("Creating output {} ...", name);
+        println!("Adding output {} ...", name);
 
         match &output_cfg {
-            OutputConfig::LogJson(c) => OutputLogJson::new(cfg.clone(), c, evt_bus, tx),
-            OutputConfig::LogZeek(c) => OutputLogZeek::new(cfg.clone(), c, evt_bus, tx),
+            OutputConfig::LogJson(c) => OutputLogJson::new(c, evt_bus, tx),
+            OutputConfig::LogZeek(c) => OutputLogZeek::new(c, evt_bus, tx),
+            OutputConfig::Dns2NftSet(c) => OutputDns2NftSet::new(c, evt_bus, tx),
         }
 
     }

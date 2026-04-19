@@ -1,4 +1,3 @@
-use crate::config::ConfigRef;
 use crate::output::Output;
 use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind, EventId, EventPayload};
 use crate::packet::PktTime;
@@ -63,7 +62,7 @@ struct ZeekConnLog {
 
 impl OutputLogZeek {
 
-    pub fn new(_cfg: ConfigRef, output_cfg: &LogZeekConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
+    pub fn new(output_cfg: &LogZeekConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
 
         let mut path = output_cfg.path.clone();
         if path.len() > 0 && ! path.ends_with('/') {

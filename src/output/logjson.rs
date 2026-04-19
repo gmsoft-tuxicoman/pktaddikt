@@ -1,4 +1,3 @@
-use crate::config::ConfigRef;
 use crate::output::Output;
 use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind};
 
@@ -34,7 +33,7 @@ pub struct OutputLogJson {
 
 impl OutputLogJson {
 
-    pub fn new(_cfg: ConfigRef, output_cfg: &LogJsonConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
+    pub fn new(output_cfg: &LogJsonConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
         let file = OpenOptions::new().create(true).write(true).append(true).open(&output_cfg.file).expect(&format!("Unable to open file {} for output logjson", &output_cfg.file));
         let writer = BufWriter::new(file);
 

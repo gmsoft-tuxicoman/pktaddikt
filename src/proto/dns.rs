@@ -563,10 +563,10 @@ mod test {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0xC0, 26, 0, 0, 0, 0 ];
 
-        let (name, off) = ProtoDns::parse_name(&msg, 20).unwrap();
+        let (name, _off) = ProtoDns::parse_name(&msg, 20).unwrap();
         assert!(name.eq_ignore_ascii_case(b"F.ISI.ARPA"));
 
-        let (name, off) = ProtoDns::parse_name(&msg, 40).unwrap();
+        let (name, _off) = ProtoDns::parse_name(&msg, 40).unwrap();
         assert!(name.eq_ignore_ascii_case(b"FOO.F.ISI.ARPA"));
 
     }

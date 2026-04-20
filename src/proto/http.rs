@@ -100,10 +100,10 @@ pub struct ProtoHttp {
     info: [ProtoHttpStateInfo;2],
     conn_id: EventId,
     last_status: usize,
-    pub src_host: Option<IpAddr>,
-    pub dst_host: Option<IpAddr>,
-    pub src_port: u16,
-    pub dst_port: u16,
+    src_host: Option<IpAddr>,
+    dst_host: Option<IpAddr>,
+    src_port: u16,
+    dst_port: u16,
 }
 
 impl ProtoHttp {

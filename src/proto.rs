@@ -32,19 +32,39 @@ use std::mem;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub struct ProtoConfig {
+    #[serde(default)]
+    core: CoreConfig,
+    #[serde(default)]
     ipv4: Ipv4Config,
+    #[serde(default)]
     ipv6: Ipv6Config,
+    #[serde(default)]
     tcp: TcpConfig,
+    #[serde(default)]
     udp: UdpConfig,
 }
 
 impl Default for ProtoConfig {
     fn default() -> Self {
         Self {
+            core: CoreConfig::default(),
             ipv4: Ipv4Config::default(),
             ipv6: Ipv6Config::default(),
             tcp: TcpConfig::default(),
             udp: UdpConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CoreConfig {
+    debug: bool
+}
+
+impl Default for CoreConfig {
+    fn default() -> Self {
+        Self {
+            debug: false,
         }
     }
 }
@@ -137,6 +157,8 @@ pub struct Proto {
     vlan: ProtoVlan,
     icmp: ProtoIcmp,
     dns: ProtoDns,
+
+    debug: bool,
 }
 
 impl Proto {
@@ -154,6 +176,7 @@ impl Proto {
             icmp: ProtoIcmp::new(),
             dns: ProtoDns::new(),
 
+            debug: cfg.proto.core.debug,
         }
     }
 
@@ -220,17 +243,19 @@ impl Proto {
 
         }
 
-        let processing_time = start.elapsed();
+        if self.debug {
+            let processing_time = start.elapsed();
 
-        print!("{} ", orig_pkt.ts);
-        for i in infos.iter() {
-            if i.proto == Protocols::None {
-                break;
+            print!("{} ", orig_pkt.ts);
+            for i in infos.iter() {
+                if i.proto == Protocols::None {
+                    break;
+                }
+                print!("{:?} {{ {:?} }}; ", i.proto, i.proto_info );
             }
-            print!("{:?} {{ {:?} }}; ", i.proto, i.proto_info );
-        }
 
-        println!("[{:?} {}ns]", ret, processing_time.as_nanos());
+            println!("[{:?} {}ns]", ret, processing_time.as_nanos());
+        }
     }
 
 }

@@ -109,6 +109,21 @@ impl Output for OutputDns2NftSet {
 
             let mut ips: SmallVec<[(IpAddr, u32); 10]> = SmallVec::new();
 
+
+            let qname = String::from_utf8_lossy(&msg.qname);
+
+            let mut matched = false;
+            for m in &self.matches {
+                if qname.contains(m) {
+                    matched = true;
+                    break;
+                }
+            }
+
+            if ! matched {
+                continue;
+            }
+
             for a in msg.answers.as_ref().unwrap() {
 
                 let ip = match a.data {
@@ -117,15 +132,8 @@ impl Output for OutputDns2NftSet {
                     _ => continue
                 };
 
-                let name = String::from_utf8_lossy(&a.name);
-            
-                for m in &self.matches {
-                    if name.contains(m) {
-                        trace!("Adding ip from matched hostname: {} -> {} (ttl: {})", name, ip.0, ip.1);
-                        ips.push(ip);
-                        break;
-                    }
-                }
+                trace!("Adding ip from matched hostname: {} -> {} (ttl: {})", qname, ip.0, ip.1);
+                ips.push(ip);
             }
 
             if ips.len() == 0 {

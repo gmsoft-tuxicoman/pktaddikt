@@ -204,16 +204,21 @@ impl ConntrackTcp {
         });
 
         if let Some(old_pkt) = old_pkt_opt {
-            if old_pkt.data.remaining_len() > new_size {
+            let old_size = old_pkt.data.remaining_len();
+            if old_size > new_size {
                 // Another packet with the same sequence but bigger was already present
                 // Put it back in the queue
                 queue.pkts.insert(seq, old_pkt);
+            } else {
+                // We dequeued a packet but added a new one, adjust the size
+                queue.buff_size += new_size - old_size;
             }
         } else {
             queue.buff_size += new_size;
-            if queue.buff_size > CONNTRACK_TCP_MAX_BUFFER {
-                self.force_dequeue();
-            }
+        }
+
+        if queue.buff_size > CONNTRACK_TCP_MAX_BUFFER {
+            self.force_dequeue();
         }
     }
 

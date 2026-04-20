@@ -116,8 +116,6 @@ impl InputPcap {
             PcapCapture::Interface(cap) => cap.next_packet(),
         } {
 
-            println!("Got packet");
-
             let ts = PktTime::from_timeval(pcap_pkt.header.ts.tv_sec, pcap_pkt.header.ts.tv_usec);
             let pkt_data = PktDataBorrowed::new(pcap_pkt.data);
 

@@ -65,7 +65,8 @@ fn main() {
                     iface: cli_cfg.pcap_interface.unwrap().clone(),
                     buffer_size: 65535,
                     promisc: true,
-                    snaplen: 1550
+                    snaplen: 1550,
+                    filter: None,
                 })
             },
             InputConfig::PcapInterface(ref mut c) => {

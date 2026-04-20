@@ -14,6 +14,7 @@ pub struct PcapInterfaceConfig {
     pub promisc: bool,
     pub snaplen: i32,
     pub buffer_size: i32,
+    pub filter: Option<String>,
 }
 
 impl Default for PcapInterfaceConfig {
@@ -23,6 +24,7 @@ impl Default for PcapInterfaceConfig {
             promisc: true,
             snaplen: 1550,
             buffer_size: 16777216,
+            filter: None,
         }
     }
 }
@@ -75,13 +77,20 @@ impl InputPcap {
             panic!("Unexpected config");
         };
 
+        let mut capture = Capture::from_device(&*c.iface).unwrap()
+            .timeout(1)
+            .promisc(c.promisc)
+            .snaplen(c.snaplen)
+            .buffer_size(c.buffer_size)
+            .open().unwrap();
+
+        if c.filter.is_some() {
+            capture.filter(c.filter.as_ref().unwrap(), true).unwrap();
+        }
+
         InputPcap {
             cfg: cfg.clone(),
-            capture: PcapCapture::Interface(Capture::from_device(&*c.iface).unwrap()
-                .promisc(c.promisc)
-                .snaplen(c.snaplen)
-                .buffer_size(c.buffer_size)
-                .open().unwrap())
+            capture: PcapCapture::Interface(capture),
         }
     }
 
@@ -106,6 +115,8 @@ impl InputPcap {
             PcapCapture::File(cap) => cap.next_packet(),
             PcapCapture::Interface(cap) => cap.next_packet(),
         } {
+
+            println!("Got packet");
 
             let ts = PktTime::from_timeval(pcap_pkt.header.ts.tv_sec, pcap_pkt.header.ts.tv_usec);
             let pkt_data = PktDataBorrowed::new(pcap_pkt.data);

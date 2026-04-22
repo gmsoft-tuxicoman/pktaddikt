@@ -211,7 +211,7 @@ pub type EventRef = Arc<Event>;
 #[derive(Debug, Serialize)]
 pub struct Event {
 
-    pub id: EventId,
+    pub event_id: EventId,
     pub ts: PktTime,
     pub kind: &'static str,
 
@@ -226,7 +226,7 @@ impl Event {
     pub fn new(ts: PktTime, payload: EventPayload) -> Self {
         let kind = payload.kind();
         Event {
-            id: EventId::new(ts),
+            event_id: EventId::new(ts),
             ts: ts,
             kind: kind.into(),
             payload: payload,

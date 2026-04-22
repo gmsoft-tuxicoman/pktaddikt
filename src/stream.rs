@@ -4,6 +4,7 @@ use crate::conntrack::ConntrackDirection;
 use crate::proto::test::ProtoTest;
 use crate::proto::http::ProtoHttp;
 use crate::proto::dns::ProtoDns;
+use crate::proto::tls::ProtoTls;
 
 use std::borrow::Cow;
 use memchr::memchr;
@@ -19,6 +20,7 @@ pub enum PktStreamProto {
     Test(ProtoTest),
     Http(ProtoHttp),
     Dns(ProtoDns),
+    Tls(ProtoTls),
 }
 
 pub struct PktStream {
@@ -34,7 +36,7 @@ pub struct PktStream {
 pub enum StreamParseResult {
     Ok, // Some item was parsed, waiting for more stuff to parse
     NeedData, // Tried to parse something but there was not enough data
-    Done, // WIP Done parsing
+    Done, // Done parsing
     Invalid, // Parsing failed
 }
 
@@ -51,6 +53,7 @@ impl PktStream {
                 Protocols::Test => PktStreamProto::Test(<ProtoTest as PktStreamProcessor>::new(infos)),
                 Protocols::Http => PktStreamProto::Http(ProtoHttp::new(infos)),
                 Protocols::Dns => PktStreamProto::Dns(<ProtoDns as PktStreamProcessor>::new(infos)),
+                Protocols::Tls => PktStreamProto::Tls(ProtoTls::new(infos)),
                 _ => return None
             },
             pkt_buff_fwd: SmallVec::new(),
@@ -89,6 +92,7 @@ impl PktStream {
                 PktStreamProto::Test(p) => p.process(dir, parser),
                 PktStreamProto::Http(p) => p.process(dir, parser),
                 PktStreamProto::Dns(p) => p.process(dir, parser),
+                PktStreamProto::Tls(p) => p.process(dir, parser),
             };
 
             if ret != StreamParseResult::Ok {
@@ -271,4 +275,104 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
         Some(Cow::Owned(data))
     }
 
+}
+
+#[derive(Debug)]
+pub struct PktSubStream {
+
+    buff: SmallVec<[Vec<u8>; 2]>,
+}
+
+impl PktSubStream {
+
+    pub fn new() -> Self {
+
+        Self {
+            buff: SmallVec::new(),
+        }
+    }
+
+    pub fn add_data<'a>(&'a mut self, data: &'a [u8]) -> PktSubStreamData<'a> {
+        PktSubStreamData {
+            buff: &mut self.buff,
+            data: &data
+        }
+    }
+
+}
+
+#[derive(Debug)]
+pub struct PktSubStreamData<'a> {
+
+    buff: &'a mut SmallVec<[Vec<u8>; 2]>,
+    data: &'a [u8],
+}
+
+impl<'a> PktSubStreamData<'a> {
+
+    fn buffered_len(&self) -> usize {
+        let mut len :usize = 0;
+        for buf in self.buff.iter() {
+            len += buf.len();
+        }
+        len
+    }
+
+    pub fn remaining_len(&self) -> usize {
+        self.data.len() + self.buffered_len()
+    }
+
+    // Read exact number of bytes or nothing
+    pub fn read(&mut self, mut len: usize) -> Option<Cow<'_, [u8]>> {
+
+        if self.remaining_len() < len {
+            // Not enough bytes
+            return None;
+        }
+
+        if self.buff.len() == 0 {
+            // No packet in the buffer
+            let data = &self.data[0..len];
+            self.data = &self.data[len..];
+            return Some(Cow::Borrowed(data));
+        }
+
+        let mut data = Vec::with_capacity(len);
+
+        while let Some(b) = self.buff.first_mut() {
+            if b.len() < len {
+                // The whole packet will be used
+                let mut b = self.buff.remove(0);
+                len -= b.len();
+                data.append(&mut b);
+            } else {
+                // Use only what we need
+                data.extend_from_slice(&b[0..len]);
+                b.drain(0..len);
+                len = 0;
+                break;
+            }
+        }
+
+        if self.data.len() == len {
+            data.extend_from_slice(&self.data);
+        } else if len > 0 {
+            data.extend_from_slice(&self.data[0..len]);
+            self.data = &self.data[len..];
+        }
+
+        Some(Cow::Owned(data))
+
+    }
+
+}
+
+impl Drop for PktSubStreamData<'_> {
+
+    fn drop(&mut self) {
+
+        if self.data.len() > 0 {
+            self.buff.push(self.data.to_vec())
+        }
+    }
 }

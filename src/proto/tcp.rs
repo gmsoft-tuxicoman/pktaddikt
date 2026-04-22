@@ -67,6 +67,7 @@ impl ProtoTcp {
             0 => Protocols::Test,
             53 => Protocols::Dns,
             80 => Protocols::Http,
+            443 => Protocols::Tls,
             _ => Protocols::None
         }
     }

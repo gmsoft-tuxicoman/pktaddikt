@@ -9,6 +9,7 @@ pub mod arp;
 pub mod vlan;
 pub mod icmp;
 pub mod dns;
+pub mod tls;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::{ProtoEthernet, ProtoEthernetInfo};
@@ -85,6 +86,7 @@ pub enum Protocols {
     Vlan,
     Icmp,
     Dns,
+    Tls,
 }
 
 pub enum ProtoParseResult {

@@ -1,23 +1,19 @@
 
 use crate::stream::{PktStreamProcessor, PktStreamParser, StreamParseResult};
-use crate::packet::{PktInfoStack, PktTime};
+use crate::packet::{PktInfoStack, PktTime, PktConnInfo};
 use crate::conntrack::ConntrackDirection;
 use crate::event::{EventId, EventKind};
-use crate::proto::ProtoInfo;
 use crate::event::{Event, EventBus, EventPayload, EventStr};
 
 use memchr::memchr;
 use tracing::trace;
-use serde::{Serialize};
-use std::net::IpAddr;
+use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct NetHttpRequestBasic {
     pub conn_id: EventId,
-    pub src_host: Option<IpAddr>,
-    pub dst_host: Option<IpAddr>,
-    pub src_port: u16,
-    pub dst_port: u16,
+    #[serde(flatten)]
+    pub conn_info: PktConnInfo,
     pub ts: PktTime,
     pub method: String,
     pub version: String,
@@ -34,10 +30,8 @@ pub struct NetHttpRequestFull {
 #[derive(Debug, Serialize)]
 pub struct NetHttpResponseBasic {
     pub conn_id: EventId,
-    pub src_host: Option<IpAddr>,
-    pub dst_host: Option<IpAddr>,
-    pub src_port: u16,
-    pub dst_port: u16,
+    #[serde(flatten)]
+    pub conn_info: PktConnInfo,
     pub ts: PktTime,
     pub status: usize,
     pub version: String,
@@ -99,11 +93,8 @@ pub struct ProtoHttp {
     client_dir: Option<ConntrackDirection>,
     info: [ProtoHttpStateInfo;2],
     conn_id: EventId,
+    conn_info: PktConnInfo,
     last_status: usize,
-    src_host: Option<IpAddr>,
-    dst_host: Option<IpAddr>,
-    src_port: u16,
-    dst_port: u16,
 }
 
 impl ProtoHttp {
@@ -219,10 +210,7 @@ impl ProtoHttp {
 
         let evt = NetHttpRequestBasic {
             conn_id: self.conn_id.clone(),
-            src_host: self.src_host,
-            dst_host: self.dst_host,
-            src_port: self.src_port,
-            dst_port: self.dst_port,
+            conn_info: self.conn_info,
             ts,
             method: String::from_utf8_lossy(method).into_owned(),
             version: String::from_utf8_lossy(version).into_owned(),
@@ -257,10 +245,7 @@ impl ProtoHttp {
 
         let evt = NetHttpResponseBasic {
             conn_id: self.conn_id.clone(),
-            src_host: self.src_host,
-            dst_host: self.dst_host,
-            src_port: self.src_port,
-            dst_port: self.dst_port,
+            conn_info: self.conn_info,
             ts,
             version: String::from_utf8_lossy(version).into_owned(),
             status: status_code,
@@ -464,20 +449,10 @@ impl PktStreamProcessor for ProtoHttp {
 
     fn new(infos: &PktInfoStack) -> Self {
 
-        let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
-        let (src_host, dst_host) = match ip_info {
-            Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
-            Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
-            _ => (None, None),
-        };
-
-        let ProtoInfo::Tcp(tcp_info) = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap()).unwrap() else {
-            unreachable!();
-        };
-
 
         ProtoHttp {
             conn_id: infos.get_conn_id().unwrap().clone(),
+            conn_info: infos.get_conn_info(),
             info:  [ ProtoHttpStateInfo {
                 state: ProtoHttpState::FirstLine,
                 content_len: None,
@@ -494,10 +469,6 @@ impl PktStreamProcessor for ProtoHttp {
             } ],
             client_dir: None,
             last_status: 0,
-            src_host,
-            dst_host,
-            src_port: tcp_info.sport,
-            dst_port: tcp_info.dport,
         }
     }
 

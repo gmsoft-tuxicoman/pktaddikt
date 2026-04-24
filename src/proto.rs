@@ -57,17 +57,9 @@ impl Default for ProtoConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct CoreConfig {
     debug: bool
-}
-
-impl Default for CoreConfig {
-    fn default() -> Self {
-        Self {
-            debug: false,
-        }
-    }
 }
 
 

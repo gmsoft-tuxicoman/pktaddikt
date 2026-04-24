@@ -1,11 +1,11 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, ProtoInfo};
-use crate::packet::{Packet, PktInfoStack, PktTime};
+use crate::proto::{ProtoPktProcessor, ProtoParseResult};
+use crate::packet::{Packet, PktInfoStack, PktTime, PktConnInfo};
 use crate::event::{Event, EventId, EventStr, EventPayload, EventBus, EventKind};
 use crate::stream::{PktStreamProcessor, PktStreamParser, StreamParseResult};
 use crate::conntrack::ConntrackDirection;
 
 use serde::Serialize;
-use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use smallvec::SmallVec;
 use tracing::trace;
 
@@ -88,10 +88,8 @@ pub enum NetDnsRecordData {
 pub struct NetDnsMessage {
     pub conn_id: EventId,
     pub proto: &'static str,
-    pub src_host: Option<IpAddr>,
-    pub dst_host: Option<IpAddr>,
-    pub src_port: u16,
-    pub dst_port: u16,
+    #[serde(flatten)]
+    pub conn_info: PktConnInfo,
     pub direction: ConntrackDirection,
     pub id: u16,
     pub response_code: NetDnsResponseCode,
@@ -112,10 +110,7 @@ pub struct NetDnsMessage {
 pub struct ProtoDns {
     tcp_bytes: Option<usize>,
     conn_id: Option<EventId>,
-    src_host: Option<IpAddr>,
-    dst_host: Option<IpAddr>,
-    src_port: u16,
-    dst_port: u16,
+    conn_info: PktConnInfo,
     proto: &'static str,
 }
 
@@ -125,10 +120,7 @@ impl ProtoDns {
         Self {
             tcp_bytes: None,
             conn_id: None,
-            src_host: None,
-            dst_host: None,
-            src_port: 0,
-            dst_port: 0,
+            conn_info: Default::default(),
             proto: "udp",
 
         }
@@ -315,10 +307,7 @@ impl ProtoDns {
         let mut evt_pload = NetDnsMessage {
             conn_id: self.conn_id.clone().unwrap(),
             proto: self.proto,
-            src_host: self.src_host,
-            dst_host: self.dst_host,
-            src_port: self.src_port,
-            dst_port: self.dst_port,
+            conn_info: self.conn_info.clone(),
             direction: dir,
             id,
             response_code: ProtoDns::rcode_to_enum(rcode),
@@ -459,23 +448,7 @@ impl ProtoPktProcessor for ProtoDns {
         let info = infos.proto_from_last(1).unwrap();
         if self.conn_id.is_none() {
             self.conn_id = Some(infos.get_conn_id().unwrap().clone());
-
-            let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
-            let (src_host, dst_host) = match ip_info {
-                Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
-                Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
-                _ => (None, None),
-            };
-
-            let ProtoInfo::Udp(udp_info) = info.proto_info.as_ref().unwrap() else {
-                unreachable!();
-            };
-    
-
-            self.src_host = src_host;
-            self.dst_host = dst_host;
-            self.src_port = udp_info.sport;
-            self.dst_port = udp_info.dport;
+            self.conn_info = infos.get_conn_info();
         }
 
         let plen = pkt.remaining_len();
@@ -494,24 +467,11 @@ impl PktStreamProcessor for ProtoDns {
 
     fn new(infos: &PktInfoStack) -> Self {
 
-        let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
-        let (src_host, dst_host) = match ip_info {
-            Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
-            Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
-            _ => (None, None),
-        };
-
-        let ProtoInfo::Tcp(tcp_info) = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap()).unwrap() else {
-            unreachable!();
-        };
 
         Self {
             tcp_bytes: None,
             conn_id: Some(infos.get_conn_id().unwrap().clone()),
-            src_host,
-            dst_host,
-            src_port: tcp_info.sport,
-            dst_port: tcp_info.dport,
+            conn_info: infos.get_conn_info(),
             proto: "tcp",
 
         }

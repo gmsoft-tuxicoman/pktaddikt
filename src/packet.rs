@@ -9,6 +9,7 @@ use std::fmt;
 use std::time::Duration;
 use std::ops::{Add, Sub};
 use serde::{Serialize, Serializer};
+use std::net::IpAddr;
 
 
 // Time in microsecond
@@ -73,6 +74,15 @@ impl Serialize for PktTime {
     {
         serializer.serialize_str(&self.to_string())
     }
+}
+
+// Connection info
+#[derive(Debug, Default, Copy, Clone, Serialize)]
+pub struct PktConnInfo {
+    pub src_host: Option<IpAddr>,
+    pub dst_host: Option<IpAddr>,
+    pub src_port: Option<u16>,
+    pub dst_port: Option<u16>,
 }
 
 // Stack of packet info
@@ -141,6 +151,40 @@ impl PktInfoStack {
 
     pub fn get_conn_id(&self) -> Option<&EventId> {
         self.conn_id.as_ref()
+    }
+
+    pub fn get_conn_info(&self) -> PktConnInfo {
+        let mut conn_info = PktConnInfo {
+            src_host: None,
+            dst_host: None,
+            src_port: None,
+            dst_port: None,
+        };
+        for info in self.infos.iter().rev() {
+            match &info.proto_info {
+                Some(ProtoInfo::Udp(u)) => {
+                    conn_info.src_port = Some(u.sport);
+                    conn_info.dst_port = Some(u.dport);
+                },
+                Some(ProtoInfo::Tcp(t)) => {
+                    conn_info.src_port = Some(t.sport);
+                    conn_info.dst_port = Some(t.dport);
+                },
+                Some(ProtoInfo::Ipv4(v4)) => {
+                    conn_info.src_host = Some(IpAddr::V4(v4.src));
+                    conn_info.dst_host = Some(IpAddr::V4(v4.dst));
+                    break;
+                },
+                Some(ProtoInfo::Ipv6(v6)) => {
+                    conn_info.src_host = Some(IpAddr::V6(v6.src));
+                    conn_info.dst_host = Some(IpAddr::V6(v6.dst));
+                    break;
+                }
+                _ => ()
+
+            }
+        }
+        conn_info
     }
 }
 

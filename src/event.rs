@@ -38,7 +38,9 @@ pub enum EventKind {
     #[strum(serialize = "net.http.response.basic")]
     NetHttpResponseBasic,
     #[strum(serialize = "net.dns.message")]
-    NetDnsMessage
+    NetDnsMessage,
+    #[strum(serialize = "net.tls.clienthello")]
+    NetTlsClientHello,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,6 +55,7 @@ pub enum EventPayload {
     NetHttpRequestBasic(crate::proto::http::NetHttpRequestBasic),
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
+    NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
 }
 
 impl EventPayload {
@@ -66,6 +69,7 @@ impl EventPayload {
             EventPayload::NetHttpRequestBasic(_) => EventKind::NetHttpRequestBasic,
             EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
+            EventPayload::NetTlsClientHello(_) => EventKind::NetTlsClientHello,
         }
     }
 }

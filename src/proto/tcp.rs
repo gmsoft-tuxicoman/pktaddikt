@@ -68,6 +68,7 @@ impl ProtoTcp {
             53 => Protocols::Dns,
             80 => Protocols::Http,
             443 => Protocols::Tls,
+            2049 => Protocols::SunRpc,
             _ => Protocols::None
         }
     }

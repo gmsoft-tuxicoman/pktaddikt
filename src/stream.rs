@@ -5,6 +5,7 @@ use crate::proto::test::ProtoTest;
 use crate::proto::http::ProtoHttp;
 use crate::proto::dns::ProtoDns;
 use crate::proto::tls::ProtoTls;
+use crate::proto::sunrpc::ProtoSunRpc;
 
 use std::borrow::Cow;
 use memchr::memchr;
@@ -21,6 +22,7 @@ pub enum PktStreamProto {
     Http(ProtoHttp),
     Dns(ProtoDns),
     Tls(ProtoTls),
+    SunRpc(ProtoSunRpc),
 }
 
 pub struct PktStream {
@@ -54,6 +56,7 @@ impl PktStream {
                 Protocols::Http => PktStreamProto::Http(ProtoHttp::new(infos)),
                 Protocols::Dns => PktStreamProto::Dns(<ProtoDns as PktStreamProcessor>::new(infos)),
                 Protocols::Tls => PktStreamProto::Tls(ProtoTls::new(infos)),
+                Protocols::SunRpc => PktStreamProto::SunRpc(ProtoSunRpc::new(infos)),
                 _ => return None
             },
             pkt_buff_fwd: SmallVec::new(),
@@ -93,6 +96,7 @@ impl PktStream {
                 PktStreamProto::Http(p) => p.process(dir, parser),
                 PktStreamProto::Dns(p) => p.process(dir, parser),
                 PktStreamProto::Tls(p) => p.process(dir, parser),
+                PktStreamProto::SunRpc(p) => p.process(dir, parser),
             };
 
             if ret != StreamParseResult::Ok {

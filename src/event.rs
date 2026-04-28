@@ -41,6 +41,12 @@ pub enum EventKind {
     NetDnsMessage,
     #[strum(serialize = "net.tls.clienthello")]
     NetTlsClientHello,
+    #[strum(serialize = "net.nfs.exchange_id.call")]
+    NetNfsExchangeIdCall,
+    #[strum(serialize = "net.nfs.exchange_id.reply")]
+    NetNfsExchangeIdReply,
+    #[strum(serialize = "net.nfs.create_session.call")]
+    NetNfsCreateSessionCall,
 }
 
 #[derive(Debug, Serialize)]
@@ -56,6 +62,9 @@ pub enum EventPayload {
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
+    NetNfsExchangeIdCall(crate::proto::nfs::NetNfsExchangeIdCall),
+    NetNfsExchangeIdReply(crate::proto::nfs::NetNfsExchangeIdReply),
+    NetNfsCreateSessionCall(crate::proto::nfs::NetNfsCreateSessionCall),
 }
 
 impl EventPayload {
@@ -70,6 +79,9 @@ impl EventPayload {
             EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
             EventPayload::NetTlsClientHello(_) => EventKind::NetTlsClientHello,
+            EventPayload::NetNfsExchangeIdCall(_) => EventKind::NetNfsExchangeIdCall,
+            EventPayload::NetNfsExchangeIdReply(_) => EventKind::NetNfsExchangeIdReply,
+            EventPayload::NetNfsCreateSessionCall(_) => EventKind::NetNfsCreateSessionCall,
         }
     }
 }

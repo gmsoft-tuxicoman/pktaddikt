@@ -15,11 +15,19 @@ struct ProtoSunRpcCall {
     proc: u32,
 }
 
+#[derive(Debug, PartialEq)]
+enum ProtoSunRpcState {
+    Header,
+    Body,
+}
+
 #[derive(Debug)]
 pub struct ProtoSunRpc {
 
     conn_id: EventId,
     conn_info: PktConnInfo,
+    state: ProtoSunRpcState,
+    frag_len: usize,
     prog_nfs: Option<ProtoNfs>,
     nfs_version: Option<u32>,
     nfs_calls: SmallVec<[ProtoSunRpcCall; 8]>,
@@ -182,6 +190,8 @@ impl PktStreamProcessor for ProtoSunRpc {
             nfs_calls: SmallVec::new(),
             conn_id: infos.get_conn_id().unwrap().clone(),
             conn_info: infos.get_conn_info(),
+            state: ProtoSunRpcState::Header,
+            frag_len: 0,
         }
     }
 
@@ -190,32 +200,35 @@ impl PktStreamProcessor for ProtoSunRpc {
         
         let ts = parser.timestamp();
 
-        let Some(hdr) = parser.read(12) else {
+        if self.state == ProtoSunRpcState::Header {
+            let Some(hdr) = parser.read(4) else {
+                return StreamParseResult::NeedData;
+            };
+            let frag = u32::from_be_bytes(hdr[0..4].try_into().unwrap());
+            self.frag_len = (frag & 0x7fffffff) as usize;
+
+            self.state = ProtoSunRpcState::Body;
+        }
+
+        // Read the body of the fragment
+        let Some(data) = parser.read(self.frag_len) else {
             return StreamParseResult::NeedData;
         };
 
-        let frag = u32::from_be_bytes(hdr[0..4].try_into().unwrap());
+        self.state = ProtoSunRpcState::Header;
+        self.frag_len = 0;
 
-        let last_frag = frag & 0x80000000 != 0;
-        let frag_len = (frag & 0x7fffffff) as usize;
-
-        if frag_len < 8 { // FIXME
-            // Must be 8 bytes long to contain XID and msg_type
+        if data.len() < 8 {
             return StreamParseResult::Invalid;
         }
+        let xid = u32::from_be_bytes(data[0..4].try_into().unwrap());
+        let msg_type = u32::from_be_bytes(data[4..8].try_into().unwrap());
 
-        let xid = u32::from_be_bytes(hdr[4..8].try_into().unwrap());
-
-        let msg_type = u32::from_be_bytes(hdr[8..12].try_into().unwrap());
-
-        let Some(data) = parser.read(frag_len - 8) else {
-            return StreamParseResult::Invalid;
-        };
 
 
         match msg_type {
-            0 => { self.parse_call(ts, xid, &data) },
-            1 => { self.parse_reply(ts, xid, &data) },
+            0 => { self.parse_call(ts, xid, &data[8..]) },
+            1 => { self.parse_reply(ts, xid, &data[8..]) },
             _ => {
                 trace!("Unknown RPC message type");
                 StreamParseResult::Invalid

@@ -292,7 +292,7 @@ mod tests {
         let data = vec![ 0x45, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02 ];
         let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_micros(0));
         assert_eq!(ret, ProtoParseResult::Invalid);
-        assert!(logs_contain("Payload lenght smaller than IP header"));
+        assert!(logs_contain("Payload length smaller than IP header"));
     }
 
     #[test]

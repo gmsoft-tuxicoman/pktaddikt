@@ -9,7 +9,7 @@ use crate::config::ConfigRef;
 use crate::event::EventId;
 
 use std::time::Duration;
-use tracing::trace;
+use tracing:: debug;
 use serde::Deserialize;
 
 
@@ -90,7 +90,7 @@ impl ProtoPktProcessor for ProtoTcp {
 
         let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than TCP header
-            trace!("Payload length smaller than TCP header in packet {:p}", pkt);
+            debug!("Payload length smaller than TCP header in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
@@ -106,7 +106,7 @@ impl ProtoPktProcessor for ProtoTcp {
         // Check if flags are somewhat valid
         let f_syn_fin_rst = flags & (TCP_TH_SYN | TCP_TH_FIN | TCP_TH_RST);
         if f_syn_fin_rst.count_ones() > 1 {
-            trace!("More than one SYN/FIN/RST at the same time in packet {:p}", pkt);
+            debug!("More than one SYN/FIN/RST at the same time in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
@@ -114,13 +114,13 @@ impl ProtoPktProcessor for ProtoTcp {
 
         if hdr_len < 20 {
             // Header length too small
-            trace!("Header length too small in packet {:p}", pkt);
+            debug!("Header length too small in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
         if hdr_len > plen {
             // Header length bigger than payload size
-            trace!("Header length bigger than payload size in packet {:p}", pkt);
+            debug!("Header length bigger than payload size in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 

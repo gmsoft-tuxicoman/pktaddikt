@@ -75,7 +75,7 @@ impl ProtoIpv4 {
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
                     .downcast_mut::<ConntrackIpv4>()
                     .unwrap();
-        debug!("Fragment cleaned up with conntrack {:p} and id {}", Arc::as_ptr(&ce), frag_id);
+        trace!("Fragment cleaned up with conntrack {:p} and id {}", Arc::as_ptr(&ce), frag_id);
         cd.fragments.remove(&frag_id);
     }
 }
@@ -87,7 +87,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         let plen = pkt.remaining_len();
         if plen < 20 { // length smaller than IP header
-            trace!("Payload lenght smaller than IP header in packet {:p}", pkt);
+            debug!("Payload length smaller than IP header in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
@@ -95,7 +95,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         let ip_version = hdr[0] >> 4;
         if ip_version != 4 { // not IP version 4
-            trace!("Invalid protocol version : {} in packet {:p}", ip_version, pkt);
+            debug!("Invalid protocol version : {} in packet {:p}", ip_version, pkt);
             return ProtoParseResult::Invalid;
         }
 
@@ -109,15 +109,15 @@ impl ProtoPktProcessor for ProtoIpv4 {
         let frag_off = (hdr[6] as u16) << 8 | (hdr[7] as u16);
 
         if hdr_len < 20 { // header length smaller than minimum IP header
-            trace!("Header length too small for packet {:p}", pkt);
+            debug!("Header length too small for packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         }
 
         if tot_len <= hdr_len { // Total length <= header length
-            trace!("Total length shorter than header size in packet {:p}", pkt);
+            debug!("Total length shorter than header size in packet {:p}", pkt);
             return ProtoParseResult::Invalid;
         } else if (tot_len as usize) > plen { // Truncated packet
-            trace!("Truncated packet {:p}", pkt);
+            debug!("Truncated packet {:p}", pkt);
             return ProtoParseResult::Stop;
         }
 
@@ -206,11 +206,11 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         let frags = frags_entry
             .and_modify(|v| {
-                debug!("Fragment data with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
+                trace!("Fragment data with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
                 ConntrackTimer::requeue(&v.timer, Duration::from_secs(self.cfg.proto.ipv4.fragment_timeout), pkt.ts);
             })
             .or_insert_with( || {
-                    debug!("Fragment created with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
+                    trace!("Fragment created with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
                     Ipv4Fragment {
                         pkt: Some(PktDataMultipart::new_raw(1500)),
                         timer: ConntrackTimer::new(&ce, Duration::from_secs(self.cfg.proto.ipv4.fragment_timeout), pkt.ts, Arc::new(move |x| ProtoIpv4::frag_cleanup(x, id))),

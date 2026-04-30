@@ -7,7 +7,7 @@ use crate::conntrack::ConntrackDirection;
 use serde::Serialize;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use smallvec::SmallVec;
-use tracing::trace;
+use tracing::{debug, trace};
 
 #[derive(Debug, Serialize)]
 pub struct NetDnsRecordDataSoa {
@@ -166,7 +166,7 @@ impl ProtoDns {
         let (name, mut offset) = ProtoDns::parse_name(data, offset)?;
 
         if data.len() < offset + 10 {
-            trace!("Record truncated");
+            debug!("Record truncated");
             return None;
         }
 
@@ -180,7 +180,7 @@ impl ProtoDns {
         offset += 2;
 
         if data.len() < offset + rlen as usize {
-            trace!("Rdata truncated");
+            debug!("Rdata truncated");
             return None;
         }
 
@@ -287,12 +287,12 @@ impl ProtoDns {
 
         // Parse query section
         let Some((qname, mut offset)) = ProtoDns::parse_name(data, 12) else {
-            trace!("Unable to parse QNAME");
+            debug!("Unable to parse QNAME");
             return ProtoParseResult::Invalid;
         };
 
         if data.len() < offset + 4 {
-            trace!("Query header truncated");
+            debug!("Query header truncated");
             return ProtoParseResult::Invalid;
         }
 
@@ -385,12 +385,12 @@ impl ProtoDns {
 
                 if (label_len & 0xC0) != 0xC0 {
                     // Pointers must start with 11XXXXXX
-                    trace!("Invalid label pointer start");
+                    debug!("Invalid label pointer start");
                     return None;
                 }
 
                 if off + 1 > msg.len() {
-                    trace!("Pointer goes after end of msg");
+                    debug!("Pointer goes after end of msg");
                     return None;
                 }
 
@@ -403,7 +403,7 @@ impl ProtoDns {
                 off = (((msg[off] & 0x3F) as usize) << 8) + (msg[off + 1] as usize);
 
                 if off > msg.len() {
-                    trace!("Pointer points after the message");
+                    debug!("Pointer points after the message");
                     return None;
                 }
 
@@ -412,7 +412,7 @@ impl ProtoDns {
             }
 
             if label_len as usize + 1 + off > msg.len() {
-                trace!("Label lenght overflow message size");
+                debug!("Label lenght overflow message size");
                 return None;
             }
 

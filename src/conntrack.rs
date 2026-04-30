@@ -1,6 +1,6 @@
 use std::sync::{Arc, Weak, Mutex};
 use std::any::Any;
-use tracing::{debug, trace};
+use tracing::trace;
 use std::time::Duration;
 use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
@@ -172,7 +172,7 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
         let hash_key = key.key();
         let ct_index : usize = (((hash_key >> 32) as u32 ^ hash_key as u32)) as usize % self.entries.capacity();
 
-        debug!("Searching for conntrack with key {} and parent {:?}", hash_key, parent);
+        trace!("Searching for conntrack with key {} and parent {:?}", hash_key, parent);
 
         let mut ct_list = self.entries[ct_index].lock().unwrap();
 
@@ -186,10 +186,10 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
             if let Some((ref parent_weak, parent_dir_tmp)) = parent { // If we were provided a parent
                 parent_dir = parent_dir_tmp;
                 if let Some(ct_parent_weak) = &ct_entry.parent { // Check the parent of the conntrack entry
-                    debug!("Comparing ct_entry {:p} with parent {:p}", Weak::as_ptr(&ct_parent_weak), Weak::as_ptr(&parent_weak));
+                    trace!("Comparing ct_entry {:p} with parent {:p}", Weak::as_ptr(&ct_parent_weak), Weak::as_ptr(&parent_weak));
                     // Make sure the parent is the same
                     if !Weak::ptr_eq(&ct_parent_weak, &parent_weak) {
-                        debug!("Parent did not match");
+                        trace!("Parent did not match");
                         continue;
                     }
                 } else {
@@ -210,12 +210,12 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
                 if ct_entry.key.is_both_dir() {
                     direction = parent_dir;
                 }
-                debug!("Conntrack found in {:?} direction", direction);
+                trace!("Conntrack found in {:?} direction", direction);
                 found = Some(ct_entry);
                 break;
             } else if ct_entry.key.rev_eq(&key) {
                 // Conntrack found, reverse direction
-                debug!("Conntrack found in reverse direction");
+                trace!("Conntrack found in reverse direction");
                 found = Some(ct_entry);
                 direction = ConntrackDirection::Reverse;
                 break;
@@ -247,7 +247,7 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
             ce: ce.clone(),
             id: next_id,
         };
-        debug!("Created new conntrack {:p}", Arc::as_ptr(&ct_entry.ce));
+        trace!("Created new conntrack {:p}", Arc::as_ptr(&ct_entry.ce));
         ct_list.push(ct_entry);
 
         if let Some((ref parent_weak, _)) = parent {

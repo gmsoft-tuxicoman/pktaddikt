@@ -179,7 +179,7 @@ impl ConntrackTcp {
             // Discard empty FIN or RST packet
             return;
         }
-        debug!("Sending packet with ts {}", data.ts);
+        trace!("Sending packet with ts {}", data.ts);
         if self.stream.is_some() {
             self.stream.as_mut().unwrap().process_packet(dir, data);
         }
@@ -548,7 +548,7 @@ impl ConntrackTcp {
 
             if pkt.is_some() {
                 let mut pkt = pkt.unwrap();
-                debug!("Sending additional packet with ts {}, seq {:?} and ack {:?}", pkt.data.ts, pkt.seq, pkt.ack);
+                trace!("Sending additional packet with ts {}, seq {:?} and ack {:?}", pkt.data.ts, pkt.seq, pkt.ack);
                 self.send_packet(dir, pkt.flags, &mut pkt.data, false);
                 tries = 2; // We unblocked some packets, let's keep trying in both directions
             }

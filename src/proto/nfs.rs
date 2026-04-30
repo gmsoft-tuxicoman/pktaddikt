@@ -202,24 +202,24 @@ impl ProtoNfs {
 
             let opcode = data.read_u32()?;
             match opcode {
-                3 => self.access_call(ts, xid, data),
-                8 => self.delegreturn_call(ts, xid, data),
-                9 => self.getattr_call(ts, xid, data),
-                10 => self.getfh_call(ts, xid, data),
-                15 => self.lookup_call(ts, xid, data),
-                18 => self.open_call(ts, xid, data),
-                22 => self.putfh_call(ts, xid, data),
-                24 => self.putrootfh_call(ts, xid, data),
-                26 => self.readdir_call(ts, xid, data),
-                42 => self.exchange_id_call(ts, xid, data),
-                43 => self.create_session_call(ts, xid, data),
-                44 => self.destroy_session_call(ts, xid, data),
-                46 => self.get_dir_delegation_call(ts, xid, data),
-                52 => self.secinfo_no_name_call(ts, xid, data),
-                53 => self.sequence_call(ts, xid, data),
-                57 => self.destroy_client_id_call(ts, xid, data),
-                58 => self.reclaim_complete_call(ts, xid, data),
-                68 => self.read_plus_call(ts, xid, data),
+                3 => self.v4_access_call(ts, xid, data),
+                8 => self.v4_delegreturn_call(ts, xid, data),
+                9 => self.v4_getattr_call(ts, xid, data),
+                10 => self.v4_getfh_call(ts, xid, data),
+                15 => self.v4_lookup_call(ts, xid, data),
+                18 => self.v4_open_call(ts, xid, data),
+                22 => self.v4_putfh_call(ts, xid, data),
+                24 => self.v4_putrootfh_call(ts, xid, data),
+                26 => self.v4_readdir_call(ts, xid, data),
+                42 => self.v4_exchange_id_call(ts, xid, data),
+                43 => self.v4_create_session_call(ts, xid, data),
+                44 => self.v4_destroy_session_call(ts, xid, data),
+                46 => self.v4_get_dir_delegation_call(ts, xid, data),
+                52 => self.v4_secinfo_no_name_call(ts, xid, data),
+                53 => self.v4_sequence_call(ts, xid, data),
+                57 => self.v4_destroy_client_id_call(ts, xid, data),
+                58 => self.v4_reclaim_complete_call(ts, xid, data),
+                68 => self.v4_read_plus_call(ts, xid, data),
                 _ => {
                     debug!("Unknown NFS opcode {}", opcode);
                     return None;
@@ -245,24 +245,24 @@ impl ProtoNfs {
             let opcode = data.read_u32()?;
             let status = data.read_u32()?;
             match opcode {
-                3 => self.access_reply(ts, xid, status, data),
-                8 => self.delegreturn_reply(ts, xid, status, data),
-                9 => self.getattr_reply(ts, xid, status, data),
-                10 => self.getfh_reply(ts, xid, status, data),
-                15 => self.lookup_reply(ts, xid, status, data),
-                18 => self.open_reply(ts, xid, status, data),
-                22 => self.putfh_reply(ts, xid, status, data),
-                24 => self.putrootfh_reply(ts, xid, status, data),
-                26 => self.readdir_reply(ts, xid, status, data),
-                42 => self.exchange_id_reply(ts, xid, status, data),
-                43 => self.create_session_reply(ts, xid, status, data),
-                44 => self.destroy_session_reply(ts, xid, status, data),
-                46 => self.get_dir_delegation_reply(ts, xid, status, data),
-                52 => self.secinfo_no_name_reply(ts, xid, status, data),
-                53 => self.sequence_reply(ts, xid, status, data),
-                57 => self.destroy_client_id_reply(ts, xid, status, data),
-                58 => self.reclaim_complete_reply(ts, xid, status, data),
-                68 => self.read_plus_reply(ts, xid, status, data),
+                3 => self.v4_access_reply(ts, xid, status, data),
+                8 => self.v4_delegreturn_reply(ts, xid, status, data),
+                9 => self.v4_getattr_reply(ts, xid, status, data),
+                10 => self.v4_getfh_reply(ts, xid, status, data),
+                15 => self.v4_lookup_reply(ts, xid, status, data),
+                18 => self.v4_open_reply(ts, xid, status, data),
+                22 => self.v4_putfh_reply(ts, xid, status, data),
+                24 => self.v4_putrootfh_reply(ts, xid, status, data),
+                26 => self.v4_readdir_reply(ts, xid, status, data),
+                42 => self.v4_exchange_id_reply(ts, xid, status, data),
+                43 => self.v4_create_session_reply(ts, xid, status, data),
+                44 => self.v4_destroy_session_reply(ts, xid, status, data),
+                46 => self.v4_get_dir_delegation_reply(ts, xid, status, data),
+                52 => self.v4_secinfo_no_name_reply(ts, xid, status, data),
+                53 => self.v4_sequence_reply(ts, xid, status, data),
+                57 => self.v4_destroy_client_id_reply(ts, xid, status, data),
+                58 => self.v4_reclaim_complete_reply(ts, xid, status, data),
+                68 => self.v4_read_plus_reply(ts, xid, status, data),
                 _ => {
                     debug!("Unknown NFS opcode {}", opcode);
                     return None;
@@ -274,7 +274,7 @@ impl ProtoNfs {
 
     }
 
-    fn exchange_id_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_exchange_id_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("EXCHANGE_ID CALL");
 
@@ -348,7 +348,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn exchange_id_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_exchange_id_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("EXCHANGE_ID REPLY");
 
@@ -425,7 +425,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn create_session_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_create_session_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("CREATE_SESSION CALL");
 
@@ -513,7 +513,7 @@ impl ProtoNfs {
 
     }
 
-    fn create_session_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_create_session_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("CREATE_SESSION REPLY");
 
@@ -548,7 +548,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn sequence_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_sequence_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("SEQUENCE CALL");
 
@@ -558,7 +558,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn sequence_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_sequence_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("SEQUENCE REPLY");
 
@@ -573,7 +573,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn reclaim_complete_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_reclaim_complete_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
         trace!("RECLAIM_COMPLETE CALL");
 
         data.skip_u32(1)?; // rca_one_fs
@@ -581,31 +581,31 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn reclaim_complete_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_reclaim_complete_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("RECLAIM_COMPLETE REPLY");
         Some(())
     }
 
-    fn putrootfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_putrootfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("PUTROOTFH CALL");
         Some(())
     }
 
-    fn putrootfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_putrootfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("PUTROOTFH REPLY");
         Some(())
     }
 
-    fn getfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_getfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("GETFH CALL");
         Some(())
     }
 
-    fn getfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_getfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("GETFH REPLY");
 
@@ -617,7 +617,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn getattr_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_getattr_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("GETATTR CALL");
 
@@ -626,7 +626,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn getattr_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_getattr_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("GETATTR REPLY");
 
@@ -642,7 +642,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn secinfo_no_name_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_secinfo_no_name_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("SECINFO_NO_NAME CALL");
 
@@ -650,14 +650,14 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn secinfo_no_name_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_secinfo_no_name_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("SECINFO_NO_NAME REPLY");
         data.skip_opaque()?; // SECINFO4res<>
         Some(())
     }
 
-    fn putfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_putfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("PUTFH CALL");
 
@@ -665,40 +665,40 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn putfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_putfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("PUTFH REPLY");
         Some(())
     }
 
-    fn access_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_access_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("ACCESS CALL");
         data.skip_u32(1)?;
         Some(())
     }
 
-    fn access_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_access_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("ACCESS REPLY");
         data.skip_u32(2)?; // supported, access
         Some(())
     }
 
-    fn lookup_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_lookup_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("LOOKUP CALL");
         data.skip_opaque()?; // objname
         Some(())
     }
 
-    fn lookup_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_lookup_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("LOOKUP REPLY");
         Some(())
     }
 
-    fn get_dir_delegation_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_get_dir_delegation_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("GET_DIR_DELEGATION CALL");
         data.skip_u32(1); // gdda_signal_deleg_avail
@@ -712,7 +712,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn get_dir_delegation_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_get_dir_delegation_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("GET_DIR_DELEGATION REPLY");
 
@@ -734,7 +734,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn readdir_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_readdir_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("READDIR CALL");
         data.skip_u64(2)?; // cookie, cookieverf
@@ -744,7 +744,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn readdir_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_readdir_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("READDIR REPLY");
 
@@ -777,7 +777,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn open_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_open_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("OPEN CALL");
         data.skip_u32(3)?; // seqid, share_access, share_deny
@@ -788,7 +788,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn open_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_open_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("OPEN REPLY");
 
@@ -840,7 +840,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn read_plus_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_read_plus_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("READ_PLUS CALL");
 
@@ -850,7 +850,7 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn read_plus_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_read_plus_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("READ_PLUS REPLY");
 
@@ -883,40 +883,40 @@ impl ProtoNfs {
         Some(())
     }
 
-    fn delegreturn_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_delegreturn_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("DELEGRETURN CALL");
         data.skip(16)?;
         Some(())
     }
 
-    fn delegreturn_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_delegreturn_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("DELEGRETURN REPLY");
         Some(())
     }
 
-    fn destroy_session_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_destroy_session_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("DESTROY_SESSION CALL");
         data.skip(NfsData::NFS4_SESSIONID_SIZE)?;
         Some(())
     }
 
-    fn destroy_session_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_destroy_session_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("DESTROY_SESSION REPLY");
         Some(())
     }
 
-    fn destroy_client_id_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_destroy_client_id_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("DESTROY_CLIENT_ID CALL");
         data.skip_u64(1)?;
         Some(())
     }
 
-    fn destroy_client_id_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_destroy_client_id_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
 
         trace!("DESTROY_CLIENT_ID REPLY");
         Some(())

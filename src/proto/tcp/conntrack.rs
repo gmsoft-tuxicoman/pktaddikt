@@ -191,9 +191,9 @@ impl ConntrackTcp {
         let new_data = match self.stream {
             Some(ref s) =>  match s.is_active() {
                 true => data.clone(),
-                false => data.clone_zero(),
+                false => data.clone_empty(),
             },
-            None => data.clone_zero(),
+            None => data.clone_empty(),
         };
         let queue = self.get_dir_mut(dir);
         let old_pkt_opt = queue.pkts.insert(seq, TcpPacket {

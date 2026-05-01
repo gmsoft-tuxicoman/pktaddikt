@@ -222,6 +222,7 @@ pub enum PktDataType<'a> {
     Owned(PktDataOwned),
     Zero(PktDataZero),
     Multipart(PktDataMultipart),
+    Empty,
 }
 
 impl<'a> PktData for PktDataType<'a> {
@@ -231,7 +232,8 @@ impl<'a> PktData for PktDataType<'a> {
             Self::Borrowed(d) => d.data(),
             Self::Owned(d) => d.data(),
             Self::Zero(d) => d.data(),
-            Self::Multipart(d) => d.data()
+            Self::Multipart(d) => d.data(),
+            Self::Empty => { panic!("Tried to get data from empty packet"); },
         }
     }
 
@@ -240,7 +242,8 @@ impl<'a> PktData for PktDataType<'a> {
             Self::Borrowed(d) => d.copy_or_clone(),
             Self::Owned(d) => d.copy_or_clone(),
             Self::Zero(d) => d.copy_or_clone(),
-            Self::Multipart(d) => d.copy_or_clone()
+            Self::Multipart(d) => d.copy_or_clone(),
+            Self::Empty => { panic!("Tried to copy data from empty packet"); },
         }
     }
 
@@ -325,10 +328,10 @@ impl<'a> Packet<'a> {
     }
 
     /// Clone the packet metadata only. The actualy payload is replaced with PktDataZero
-    pub fn clone_zero(&self) -> Packet<'static> {
+    pub fn clone_empty(&self) -> Packet<'static> {
         Packet {
             ts: self.ts,
-            data: PktDataZero::new(self.data.data().len()),
+            data: PktDataType::Empty,
             data_range: self.data_range.clone(),
         }
     }

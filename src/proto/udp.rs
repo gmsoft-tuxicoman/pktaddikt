@@ -255,3 +255,46 @@ impl Drop for ConntrackUdp {
     }
 
 }
+
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    use crate::Config;
+    use crate::proto::ipv4::ProtoIpv4Info;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn udp_parse_basic() {
+        let data = vec![ 0xde, 0xad, 0xbe, 0xef, 0x00, 0x09, 0xff, 0xff, 0xa ];
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
+        let mut infos = PktInfoStack::new(Protocols::Ipv4);
+
+        let info = infos.proto_last_mut();
+        info.proto_info = Some(ProtoInfo::Ipv4(ProtoIpv4Info {
+            src: Ipv4Addr::new(10, 0, 0, 1),
+            dst: Ipv4Addr::new(10, 0, 0, 2),
+            id: 0,
+            hdr_len: 0,
+            ttl: 0,
+            proto: 17,
+        }));
+	infos.proto_push(Protocols::Udp, None);
+
+
+        let ret = ProtoUdp::new(Config::new()).process(&mut pkt, &mut infos);
+        assert_eq!(ret, Ok(()));
+
+        let check = infos.proto_from_last(1).unwrap();
+
+        let expected = ProtoInfo::Udp(ProtoUdpInfo {
+            sport: 57005,
+            dport: 48879,
+        });
+
+        assert_eq!(check.proto_info, Some(expected));
+
+    }
+
+}

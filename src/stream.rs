@@ -1,3 +1,4 @@
+use crate::base::{Parser, ParseErr};
 use crate::packet::{Packet, PktInfoStack, PktTime};
 use crate::proto::Protocols;
 use crate::conntrack::ConntrackDirection;
@@ -10,10 +11,11 @@ use crate::proto::sunrpc::ProtoSunRpc;
 use std::borrow::Cow;
 use memchr::memchr;
 use smallvec::SmallVec;
+use std::sync::Arc;
 
 pub trait PktStreamProcessor {
     fn new(infos: &PktInfoStack) -> Self;
-    fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> StreamParseResult;
+    fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> Result<(), ParseErr>;
 }
 
 #[derive(Debug)]
@@ -34,19 +36,6 @@ pub struct PktStream {
 
 }
 
-#[derive(PartialEq, Debug)]
-pub enum StreamParseResult {
-    Ok, // Some item was parsed, waiting for more stuff to parse
-    NeedData, // Tried to parse something but there was not enough data
-    Done, // Done parsing
-    Invalid, // Parsing failed
-}
-
-pub struct PktStreamParser<'a, 'b> {
-    pkt: &'a mut Packet<'b>,
-    pkt_buff: &'a mut SmallVec<[Packet<'static>; 1]>
-}
-
 impl PktStream {
 
     pub fn new(proto: Protocols, infos: &PktInfoStack) -> Option<PktStream> {
@@ -56,7 +45,7 @@ impl PktStream {
                 Protocols::Http => PktStreamProto::Http(ProtoHttp::new(infos)),
                 Protocols::Dns => PktStreamProto::Dns(<ProtoDns as PktStreamProcessor>::new(infos)),
                 Protocols::Tls => PktStreamProto::Tls(ProtoTls::new(infos)),
-                Protocols::SunRpc => PktStreamProto::SunRpc(ProtoSunRpc::new(infos)),
+                Protocols::SunRpc => PktStreamProto::SunRpc(<ProtoSunRpc as PktStreamProcessor>::new(infos)),
                 _ => return None
             },
             pkt_buff_fwd: SmallVec::new(),
@@ -90,7 +79,7 @@ impl PktStream {
 
 
         let ret = loop {
-            let parser = PktStreamParser::new(pkt, pkt_buff);
+            let parser = PktStreamParser::new(pkt, pkt_buff, false);
             let ret = match &mut self.proto {
                 PktStreamProto::Test(p) => p.process(dir, parser),
                 PktStreamProto::Http(p) => p.process(dir, parser),
@@ -99,23 +88,32 @@ impl PktStream {
                 PktStreamProto::SunRpc(p) => p.process(dir, parser),
             };
 
-            if ret != StreamParseResult::Ok {
+            if ret.is_err() {
                 // Parsing cannot continue
                 break ret;
             }
 
             if pkt.remaining_len() == 0 {
                 // No more data to parse
-                break StreamParseResult::Ok;
+                break Ok(());
             }
         };
 
-        if ret == StreamParseResult::NeedData && pkt.remaining_len() > 0 {
-            pkt_buff.push(pkt.clone());
-        } else if ret == StreamParseResult::Invalid || ret == StreamParseResult::Done {
-            self.is_active = false;
-            return;
+        match ret {
+            Ok(_) => return,
+            Err(e) => match e {
+                ParseErr::Truncated => {
+                    if pkt.remaining_len() > 0 {
+                        pkt_buff.push(pkt.to_owned());
+                    }
+                },
+                _ => {
+                    self.is_active = false;
+                    return;
+                }
+            }
         }
+
     }
 
     #[cfg(test)]
@@ -124,15 +122,23 @@ impl PktStream {
     }
 }
 
+pub struct PktStreamParser<'a, 'b> {
+    pkt: &'a mut Packet<'b>,
+    pkt_buff: &'a mut SmallVec<[Packet<'static>; 1]>,
+    save_on_drop: bool,
+}
+
 impl<'a, 'b> PktStreamParser<'a, 'b> {
 
-    fn new(pkt: &'a mut Packet<'b>, pkt_buff: &'a mut SmallVec<[Packet<'static>; 1]>) -> PktStreamParser<'a, 'b> {
+    fn new(pkt: &'a mut Packet<'b>, pkt_buff: &'a mut SmallVec<[Packet<'static>; 1]>, save_on_drop: bool) -> PktStreamParser<'a, 'b> {
         PktStreamParser {
             pkt: pkt,
-            pkt_buff: pkt_buff
+            pkt_buff: pkt_buff,
+            save_on_drop,
         }
     }
 
+    #[inline]
     fn buffered_len(&self) -> usize {
         let mut len :usize = 0;
         for buf in self.pkt_buff.iter() {
@@ -141,73 +147,80 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
         len
     }
 
-    pub fn timestamp(&self) -> PktTime {
-        self.pkt.ts
-    }
-
-    pub fn remaining_len(&self) -> usize {
-        self.pkt.remaining_len() + self.buffered_len()
-    }
-
-    pub fn remaining_data(&mut self) -> Cow<'_, [u8]> {
-        if self.pkt_buff.len() == 0 {
-            return Cow::Borrowed(self.pkt.remaining_data());
+    #[cold]
+    #[inline(never)]
+    pub fn readline_slow(&mut self) -> Result<Cow<'_, [u8]>, ParseErr> {
+        let mut newline: Option<(usize, usize)> = None;
+        let fake_id = self.pkt_buff.len();
+        for (pkt_id, pkt) in self.pkt_buff.iter().enumerate().chain(std::iter::once((fake_id, & *self.pkt))) {
+            let peek = pkt.peek();
+            if let Some(off) = memchr(b'\n', peek) {
+                newline = Some((pkt_id, off));
+                break;
+            }
         }
 
-        let mut data = Vec::with_capacity(self.remaining_len());
-        for buf in self.pkt_buff.iter_mut() {
-            data.extend_from_slice(buf.remaining_data());
+        let (pkt_id, off) = newline.ok_or(ParseErr::Truncated)?;
+
+        let mut ret = Vec::new();
+
+        if pkt_id > 1 {
+            // Consume all the buffers
+            for _ in 0 .. pkt_id - 1 {
+                let p = self.pkt_buff.remove(0);
+                ret.extend_from_slice(p.peek());
+            }
         }
-        data.extend_from_slice(self.pkt.remaining_data());
-        self.pkt_buff.clear();
-        Cow::Owned(data)
 
-    }
-
-
-    // Read up to len of data. Could return less if there is less
-    pub fn read_some(&mut self, len: usize) -> Cow<'_, [u8]> {
-
-        if self.pkt_buff.len() > 0 {
-            if self.pkt_buff[0].remaining_len() < len {
-                let Some(data) = self.pkt_buff[0].read_bytes(len) else {
-                    unreachable!();
-                };
-                return Cow::Borrowed(data);
+        if pkt_id == fake_id {
+            // Use self.pkt for last data
+            ret.extend_from_slice(&self.pkt.read(off).unwrap());
+        } else {
+            // Use first packet left in the buffer
+            ret.extend_from_slice(&self.pkt_buff[0].read(off).unwrap());
+            if self.pkt_buff[0].remaining_len() == 0 {
+                self.pkt_buff.remove(0);
             }
 
-            let mut pkt = self.pkt_buff.remove(0);
-            // FIXME, implement take() or something to get the actual data instead of copying
-            return Cow::Owned(pkt.remaining_data().to_vec());
         }
 
-        // No packet in the buffer, no need to own anything
-        if self.pkt.remaining_len() <= len {
-            return Cow::Borrowed(self.pkt.remaining_data());
+        ret.pop(); // Remove \n
+
+        if ret.len() > 1 && ret[ret.len() - 1] == b'\r' {
+            ret.pop(); // Remove \r
         }
 
-        // There is more in the packet than what we need
-        let Some(data) = self.pkt.read_bytes(len) else {
-            unreachable!();
-        };
+        Ok(Cow::Owned(ret))
+    }
 
-        Cow::Borrowed(data)
+    #[inline]
+    pub fn readline(&mut self) -> Result<Cow<'_, [u8]>, ParseErr> {
+        if self.pkt_buff.is_empty() {
+            let peek = self.pkt.peek();
+            let Some(mut off) = memchr(b'\n', peek) else {
+                return Err(ParseErr::Truncated);
+            };
+            let mut skip = 1;
+            if off > 0 && peek[off - 1] == b'\r' {
+                off -= 1;
+                skip += 1;
+            }
 
+            let ret = self.pkt.read_skip(off, skip).unwrap();
+            Ok(ret)
+
+        } else {
+            self.readline_slow()
+        }
     }
 
     // Read exact number of bytes or nothing
-    pub fn read(&mut self, mut len: usize) -> Option<Cow<'_, [u8]>> {
+    #[cold]
+    #[inline(never)]
+    fn read_slow(&mut self, mut len: usize) -> Result<Vec<u8>, ParseErr> {
+        // Only called when there is something in the buffer
 
-        if self.remaining_len() < len {
-            // Not enough bytes
-            return None;
-        }
-
-        if self.pkt_buff.len() == 0 {
-            // No packet in the buffer
-            let data = self.pkt.read_bytes(len).unwrap();
-            return Some(Cow::Borrowed(data));
-        }
+        self.has_len(len)?;
 
         let mut data = Vec::with_capacity(len);
 
@@ -219,7 +232,7 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
                 data.extend_from_slice(p.remaining_data());
             } else {
                 // Use only what we need
-                data.extend_from_slice(p.read_bytes(len).unwrap());
+                data.extend_from_slice(&p.read(len).unwrap());
                 len = 0;
                 break;
             }
@@ -228,63 +241,162 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
         if self.pkt.remaining_len() == len {
             data.extend_from_slice(self.pkt.remaining_data());
         } else if len > 0 {
-            data.extend_from_slice(self.pkt.read_bytes(len).unwrap());
+            data.extend_from_slice(&self.pkt.read(len).unwrap());
         }
 
-        Some(Cow::Owned(data))
+        Ok(data)
 
     }
+    #[cold]
+    #[inline(never)]
+    fn read_fixed_slow<const N: usize>(&mut self) -> Result<[u8; N], ParseErr> {
+        // Only called when there is something in the buffer
+        let mut tmp = [0u8; N];
+        let mut offset = 0;
 
-    pub fn peek(&self) -> Cow<'_, [u8]> {
-        if self.pkt_buff.len() == 0 {
-            return Cow::Borrowed(self.pkt.peek());
-        }
+        self.has_len(N)?;
 
-        let mut data = Vec::with_capacity(self.remaining_len());
-        for buf in self.pkt_buff.iter() {
-            data.extend_from_slice(buf.peek());
-        }
-        data.extend_from_slice(self.pkt.peek());
-        Cow::Owned(data)
-    }
-
-
-    pub fn readline(&mut self) -> Option<Cow<'_, [u8]>> {
-        // Assume the line return is not in the buffered packets
-        let mut off;
-        let mut skip;
-
-        {
-            let peek = self.pkt.peek();
-            off = memchr(b'\n', peek)?;
-            skip = 1;
-
-            if off > 0 && peek[off - 1] == b'\r' {
-                off -= 1;
-                skip += 1;
+        while let Some(p) = self.pkt_buff.first_mut() {
+            if p.remaining_len() < N - offset {
+                // The whole packet will be used
+                let mut p = self.pkt_buff.remove(0);
+                let data = p.remaining_data();
+                tmp[offset .. offset + data.len()].copy_from_slice(data);
+                offset += data.len();
+            } else {
+                // Use only what we need
+                tmp[offset .. N].copy_from_slice(&p.read(N - offset).unwrap());
+                return Ok(tmp);
             }
         }
 
-        if self.pkt_buff.len() == 0 {
-            return Some(Cow::Borrowed(&self.pkt.read_bytes(off + skip).as_ref().unwrap()[..off]));
-        }
-
-        let mut data = Vec::with_capacity(self.buffered_len() + off);
-        for buf in self.pkt_buff.iter_mut() {
-            data.extend_from_slice(buf.remaining_data());
-        }
-        data.extend_from_slice(self.pkt.read_bytes(off)?);
-        let _ = self.pkt.skip_bytes(skip);
-        self.pkt_buff.clear();
-        Some(Cow::Owned(data))
+        tmp[offset .. N].copy_from_slice(&self.pkt.read(N - offset).unwrap());
+        Ok(tmp)
     }
 
+    #[cold]
+    #[inline(never)]
+    fn skip_slow(&mut self, mut size: usize) -> Result<(), ParseErr> {
+
+        self.has_len(size)?;
+        while let Some(p) = self.pkt_buff.first_mut() {
+            if p.remaining_len() < size {
+                size -= p.remaining_len();
+                self.pkt_buff.remove(0);
+            } else {
+                p.skip(size).unwrap();
+                return Ok(());
+            }
+        }
+
+        self.pkt.skip(size).unwrap();
+        Ok(())
+    }
+
+    #[inline]
+    pub fn sub_packet(&mut self, size: usize) -> Result<Packet<'_>, ParseErr> {
+        if self.pkt_buff.is_empty() {
+            self.pkt.sub_packet(size)
+        } else {
+            Ok(Packet::from_vec(self.pkt.timestamp(), Arc::new(self.read_slow(size)?)))
+        }
+
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn peek_slow(&self, min_size: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+        if self.pkt_buff[0].remaining_len() >= min_size {
+            return Ok(Cow::Borrowed(self.pkt_buff[0].peek()));
+        }
+
+        let mut ret = Vec::with_capacity(min_size);
+
+        for pkt in self.pkt_buff.iter().chain(std::iter::once(& *self.pkt)) {
+            ret.extend_from_slice(pkt.peek());
+            if ret.len() >= min_size {
+                break;
+            }
+        }
+
+        Ok(Cow::Owned(ret))
+
+    }
+
+    #[inline]
+    pub fn peek(&self, min_size: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+        if self.pkt_buff.is_empty() {
+            self.pkt.has_len(min_size)?;
+            Ok(Cow::Borrowed(self.pkt.peek()))
+        } else {
+            if self.pkt.remaining_len() + self.buffered_len() < min_size {
+                return Err(ParseErr::Truncated);
+            }
+            self.peek_slow(min_size)
+        }
+    }
+}
+
+impl Parser for PktStreamParser<'_, '_> {
+
+
+    #[inline]
+    fn read(&mut self, size: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+        if self.pkt_buff.is_empty() {
+            self.pkt.read(size)
+        } else {
+            Ok(Cow::Owned(self.read_slow(size)?))
+        }
+    }
+
+    #[inline]
+    fn read_fixed<const N: usize>(&mut self) -> Result<[u8; N], ParseErr> {
+        if self.pkt_buff.is_empty() {
+            self.pkt.read_fixed::<N>()
+        } else {
+            self.read_fixed_slow::<N>()
+        }
+    }
+
+    #[inline]
+    fn remaining_len(&self) -> usize {
+        if self.pkt_buff.is_empty() {
+            self.pkt.remaining_len()
+        } else {
+            self.pkt.remaining_len() + self.buffered_len()
+        }
+    }
+
+    #[inline]
+    fn skip(&mut self, size: usize) -> Result<(), ParseErr> {
+        if self.pkt_buff.is_empty() {
+            self.pkt.skip(size)
+        } else {
+            self.skip_slow(size)
+        }
+    }
+
+    #[inline]
+    fn timestamp(&self) -> PktTime {
+        self.pkt.timestamp()
+    }
+
+}
+
+impl Drop for PktStreamParser<'_, '_> {
+
+    fn drop(&mut self) {
+
+        if self.save_on_drop && self.pkt.remaining_len() > 0 {
+            self.pkt_buff.push(self.pkt.to_owned());
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct PktSubStream {
 
-    buff: SmallVec<[Vec<u8>; 2]>,
+    buff: SmallVec<[Packet<'static>; 1]>,
 }
 
 impl PktSubStream {
@@ -296,87 +408,9 @@ impl PktSubStream {
         }
     }
 
-    pub fn add_data<'a>(&'a mut self, data: &'a [u8]) -> PktSubStreamData<'a> {
-        PktSubStreamData {
-            buff: &mut self.buff,
-            data: &data
-        }
+    pub fn add_packet<'a, 'b>(&'a mut self, pkt: &'b mut Packet<'b>) -> PktStreamParser<'a, 'b> {
+            PktStreamParser::new(pkt, &mut self.buff, true)
     }
 
 }
 
-#[derive(Debug)]
-pub struct PktSubStreamData<'a> {
-
-    buff: &'a mut SmallVec<[Vec<u8>; 2]>,
-    data: &'a [u8],
-}
-
-impl<'a> PktSubStreamData<'a> {
-
-    fn buffered_len(&self) -> usize {
-        let mut len :usize = 0;
-        for buf in self.buff.iter() {
-            len += buf.len();
-        }
-        len
-    }
-
-    pub fn remaining_len(&self) -> usize {
-        self.data.len() + self.buffered_len()
-    }
-
-    // Read exact number of bytes or nothing
-    pub fn read(&mut self, mut len: usize) -> Option<Cow<'_, [u8]>> {
-
-        if self.remaining_len() < len {
-            // Not enough bytes
-            return None;
-        }
-
-        if self.buff.len() == 0 {
-            // No packet in the buffer
-            let data = &self.data[0..len];
-            self.data = &self.data[len..];
-            return Some(Cow::Borrowed(data));
-        }
-
-        let mut data = Vec::with_capacity(len);
-
-        while let Some(b) = self.buff.first_mut() {
-            if b.len() < len {
-                // The whole packet will be used
-                let mut b = self.buff.remove(0);
-                len -= b.len();
-                data.append(&mut b);
-            } else {
-                // Use only what we need
-                data.extend_from_slice(&b[0..len]);
-                b.drain(0..len);
-                len = 0;
-                break;
-            }
-        }
-
-        if self.data.len() == len {
-            data.extend_from_slice(&self.data);
-        } else if len > 0 {
-            data.extend_from_slice(&self.data[0..len]);
-            self.data = &self.data[len..];
-        }
-
-        Some(Cow::Owned(data))
-
-    }
-
-}
-
-impl Drop for PktSubStreamData<'_> {
-
-    fn drop(&mut self) {
-
-        if self.data.len() > 0 {
-            self.buff.push(self.data.to_vec())
-        }
-    }
-}

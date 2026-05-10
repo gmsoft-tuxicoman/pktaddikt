@@ -1,7 +1,9 @@
-use crate::stream::{PktStreamProcessor, PktStreamParser, StreamParseResult, PktSubStream, PktSubStreamData};
-use crate::packet::{PktInfoStack, PktConnInfo, PktTime};
+use crate::base::{Parser, ParseErr};
+use crate::stream::{PktStreamProcessor, PktStreamParser, PktSubStream};
+use crate::packet::{PktInfoStack, PktConnInfo};
 use crate::conntrack::ConntrackDirection;
 use crate::event::{EventId, EventStr, EventPayload, Event};
+use crate::packet::Packet;
 
 
 use tracing::trace;
@@ -15,7 +17,7 @@ pub struct NetTlsClientHello {
     pub conn_info: PktConnInfo,
     pub version: TlsVersion,
     pub server_name: Option<EventStr>,
-    pub next_proto: Option<EventStr>,
+    pub next_proto: Vec<EventStr>,
 }
 
 
@@ -72,20 +74,19 @@ pub struct ProtoTls {
 
 impl ProtoTls {
 
-    fn read_record(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
-        let Some(data) = parser.read(5) else {
-            return StreamParseResult::NeedData;
-        };
+    fn read_record(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
+
+        let ctype = parser.read_u8()?;
+        parser.skip_u16()?; // version
 
         let status = &mut self.dir[dir as usize];
-        
-        status.rlen = ((data[3] as usize) << 8) + (data[4] as usize);
+        status.rlen = parser.read_u16_be()? as usize;
 
         if status.rlen > 16384 {
-            return StreamParseResult::Invalid;
+            return Err(ParseErr::Invalid("TLS Record length > 16384"));
         }
 
-        status.state = match data[0] {
+        status.state = match ctype {
             20 => ProtoTlsState::ChangeCipher,
             21 => ProtoTlsState::Alert,
             22 => ProtoTlsState::Handshake,
@@ -96,7 +97,7 @@ impl ProtoTls {
 
         trace!("Got TLS record of type {:?} and length {}", status.state, status.rlen);
 
-        StreamParseResult::Ok
+        Ok(())
 
     }
 }
@@ -111,32 +112,31 @@ impl PktStreamProcessor for ProtoTls {
         }
     }
 
-    fn process(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn process(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
 
-        let ts = parser.timestamp();
         let status = &mut self.dir[dir as usize];
 
         if status.state == ProtoTlsState::RecordHeader {
             return self.read_record(dir, parser);
         }
 
-        let Some(data) = parser.read(status.rlen) else {
-            return StreamParseResult::NeedData;
-        };
+        parser.has_len(status.rlen)?;
+
+        let mut pkt = parser.sub_packet(status.rlen)?;
 
         let ret = match status.state {
             ProtoTlsState::Handshake => {
-                let mut stream_data = status.handshake_stream.add_data(&data);
-                status.handshake_proto.process(dir, &mut stream_data, ts, &self.conn_id, self.conn_info)
+                let mut stream_data = status.handshake_stream.add_packet(&mut pkt);
+                status.handshake_proto.process(dir, &mut stream_data, &self.conn_id, self.conn_info)
             }
             ProtoTlsState::ChangeCipher => {
-                if data[0] != 1 {
-                    return StreamParseResult::Invalid;
+                if pkt.read_u8()? != 1 {
+                    return Err(ParseErr::Invalid("Invalid TLS ChangeCipher content, expected 1"));
                 }
                 // Stop trying to process the stream for now
-                StreamParseResult::Done
+                Err(ParseErr::Stop)
             }
-            _ => StreamParseResult::Done,
+            _ => Err(ParseErr::Stop),
         };
 
         status.state = ProtoTlsState::RecordHeader;
@@ -180,13 +180,10 @@ impl ProtoTlsHandshake {
         }
     }
 
-    fn process(&mut self, _dir: ConntrackDirection, stream: &mut PktSubStreamData, ts: PktTime, conn_id: &EventId, conn_info: PktConnInfo) -> StreamParseResult {
+    fn process(&mut self, _dir: ConntrackDirection, parser: &mut PktStreamParser, conn_id: &EventId, conn_info: PktConnInfo) -> Result<(), ParseErr> {
             
         if self.ctype.is_none() {
-            let Some(data) = stream.read(4) else {
-                return StreamParseResult::NeedData;
-            };
-            let ctype = match data[0] {
+            let ctype = match parser.read_u8()? {
                 0 => ProtoTlsHandshakeType::HelloRequest,
                 1 => ProtoTlsHandshakeType::ClientHello,
                 2 => ProtoTlsHandshakeType::ServerHello,
@@ -197,13 +194,13 @@ impl ProtoTlsHandshake {
                 15 => ProtoTlsHandshakeType::CertificateVerify,
                 16 => ProtoTlsHandshakeType::ClientKeyExchange,
                 20 => ProtoTlsHandshakeType::Finished,
-                _ => return StreamParseResult::Invalid,
+                _ => return Err(ParseErr::Invalid("Invalid TLS Handshake content type")),
             };
-            self.clen = ((data[1] as usize) << 16) + ((data[2] as usize) << 8) + (data[3] as usize);
+            self.clen = parser.read_u24_be()? as usize;
 
             if self.clen > 16384 {
                 // According to RFC, record len should be less than 16k (2^14)
-                return StreamParseResult::Invalid;
+                return Err(ParseErr::Invalid("Content length > 16384 for TLS Handshake record"));
             }
 
             trace!("Got handshake of type {:?} and len {}", ctype, self.clen);
@@ -211,138 +208,112 @@ impl ProtoTlsHandshake {
             self.ctype = Some(ctype);
         }
 
-        let Some(data) = stream.read(self.clen) else {
-            return StreamParseResult::NeedData;
-        };
+
+        // Make sure we have enough data to continue
+        let mut pkt = parser.sub_packet(self.clen)?;
 
         let ret = match self.ctype {
-            Some(ProtoTlsHandshakeType::ClientHello) => self.parse_client_hello(&data, ts, conn_id, conn_info),
-            _ => StreamParseResult::Ok,
+            Some(ProtoTlsHandshakeType::ClientHello) => self.parse_client_hello(&mut pkt, conn_id, conn_info),
+            _ => Ok(())
         };
 
         self.ctype = None;
         self.clen = 0;
 
+        if ret == Err(ParseErr::Truncated) {
+            return Err(ParseErr::Invalid("Unable to parse TLS Handshake message as it appeared truncated"));
+        }
         ret
     }
 
-    fn parse_client_hello(&self, data: &[u8], ts: PktTime, conn_id: &EventId, conn_info: PktConnInfo) -> StreamParseResult {
+    fn parse_client_hello(&self, parser: &mut Packet, conn_id: &EventId, conn_info: PktConnInfo) -> Result<(), ParseErr> {
 
-        if data.len() < 34 {
-            return StreamParseResult::Invalid;
-        }
+        let mut version = parser.read_u16_be()?;
 
-        let mut version = ((data[0] as usize) << 8) + (data[1] as usize);
+        // Skip random
+        parser.skip(32)?;
 
-        // Skip over random (32 bytes)
-
-        let session_id_len = data[34] as usize;
+        let session_id_len = parser.read_u8()? as usize;
 
         if session_id_len > 32 {
-            return StreamParseResult::Invalid;
+            return Err(ParseErr::Invalid("TLS Client Hello session ID lenght > 32"));
         }
 
-        let mut pos = 34 + 1 + session_id_len;
+        parser.skip(session_id_len)?;
 
 
         // Parse and validate cipher suite length
-        if data.len() < pos + 2 {
-            return StreamParseResult::Invalid;
-        }
-        let cipher_suite_len = ((data[pos] as usize) << 8) + (data[pos + 1] as usize);
-
-        pos += 2 + cipher_suite_len;
-
+        let cipher_suite_len = parser.read_u16_be()? as usize;
+        parser.skip(cipher_suite_len)?;
 
         // Parse and validate compression method len
-        if data.len() < pos + 1 {
-            return StreamParseResult::Invalid;
-        }
-        let compression_method_len = data[pos] as usize;
-        pos += 1 + compression_method_len;
+        let compression_method_len = parser.read_u8()? as usize;
+        parser.skip(compression_method_len)?;
 
-        // Check for presense of extensions
-        if data.len() < pos {
-            return StreamParseResult::Invalid;
-        } else if data.len() == pos {
+        // Check for presence of extensions
+
+        if parser.remaining_len() == 0 {
             // No extension
-            return StreamParseResult::Ok
+            return Ok(());
         }
 
         // Parse and validate extensions}
-        if data.len() < pos + 2 {
-            return StreamParseResult::Invalid;
-        }
-        let extensions_len = ((data[pos] as usize) << 8) + (data[pos + 1] as usize);
-        pos += 2;
-        if data.len() < pos + extensions_len {
-            return StreamParseResult::Invalid;
+        let extensions_len = parser.read_u16_be()? as usize;
+
+        if extensions_len > parser.remaining_len() {
+            return Err(ParseErr::Invalid("Extensions length bigger than TLS Client Hello remaining length"));
+        } else if extensions_len < parser.remaining_len() {
+            parser.shrink(extensions_len);
+            // WEIRD should be equal
         }
 
-        let extensions = &data[pos..pos+extensions_len];
+
 
         let mut server_name: Option<EventStr> = None;
-        let mut next_proto: Option<EventStr> = None;
+        let mut next_proto: Vec<EventStr> = Vec::with_capacity(1);
 
-        let mut ep = 0;
-        while ep < extensions.len() {
+        while parser.remaining_len() > 0 {
 
-            if ep + 4 > extensions.len() {
-                return StreamParseResult::Invalid;
-            }
+            let etype = parser.read_u16_be()?;
+            let elen =  parser.read_u16_be()? as usize;
 
-            let etype = ((extensions[ep] as usize) << 8) + (extensions[ep + 1] as usize);
-            let elen = ((extensions[ep + 2] as usize) << 8) + (extensions[ep + 3] as usize);
-            ep += 4;
+            let mut epkt = parser.sub_packet(elen)?;
 
-            if ep + elen > extensions.len() {
-                return StreamParseResult::Invalid;
-            }
-            let ext = &extensions[ep .. ep + elen];
-
-            ep += elen;
             match etype {
                 0 => { // Server Name Indication
-                    if ext.len() < 5 {
-                        return StreamParseResult::Invalid;
-                    }
-                    let name_list_len = ((ext[0] as usize) << 8) + (ext[1] as usize);
-                    if ext[2] != 0 {
+                    epkt.skip_u16()?; // Name list length
+                    let name_list_type = epkt.read_u8()?;
+                    if name_list_type != 0 {
                         // Should be 0 for HostName type
-                        return StreamParseResult::Invalid;
+                        return Err(ParseErr::Invalid("TLS SNI ServerNameType should be 0"));
                     }
-                    let name_len = ((ext[3] as usize) << 8) + (ext[4] as usize);
-                    if name_len + 5 > ext.len() {
-                        return StreamParseResult::Invalid;
-                    }
-                    let hostname = &ext[5..5+name_len];
-                    trace!("Found SNI with hostname: {}", String::from_utf8_lossy(hostname));
-                    server_name = Some(hostname.to_vec().into());
+                    let name_len = epkt.read_u16_be()? as usize;
+                    let hostname = epkt.read(name_len)?;
+                    trace!("Found SNI with hostname: {}", String::from_utf8_lossy(&hostname));
+                    server_name = Some(hostname.into());
 
-                    if name_list_len > name_len + 3 {
+                    if epkt.remaining_len() > 0 {
                         trace!("SNI with multiple hostnames found");
                     }
                 },
+
                 43 => { // Supported version
-                    if ext.len() < 2 {
-                        return StreamParseResult::Invalid;
-                    }
-                    version = ((ext[0] as usize) << 8) + (ext[1] as usize);
+                    version = epkt.read_u16_be()?;
 
                 }
 
-                17513 | 17613 => { // draft-vvv-tls-alps-01
-                    if ext.len() < 5 {
-                        return StreamParseResult::Invalid;
+                16 | 17513 | 17613 => { // ALPS | draft-vvv-tls-alps-01
+                    let alpn_len = epkt.read_u16_be()? as usize;
+                    if alpn_len > epkt.remaining_len() {
+                        return Err(ParseErr::Invalid("TLS ClientHello ALPN extension len > than advertised extension len"));
                     }
-                    // Skip over ALPS Extension lenght and check the proto name directly
-                    let alpn_len = ext[3] as usize;
-                    if alpn_len + 2 < ext.len() {
-                        return StreamParseResult::Invalid;
+                    epkt.shrink(alpn_len);
+                    while epkt.remaining_len() > 0 {
+                        let proto_len = epkt.read_u8()? as usize;
+                        let proto = epkt.read(proto_len)?;
+                        trace!("Found next protocol: {}", String::from_utf8_lossy(&proto));
+                        next_proto.push(proto.into());
                     }
-                    let proto = &ext[3 .. 3 + alpn_len];
-                    trace!("Found next protocol: {}", String::from_utf8_lossy(proto));
-                    next_proto = Some(proto.to_vec().into());
 
                 }
                 _ => ()
@@ -367,10 +338,10 @@ impl ProtoTlsHandshake {
         };
 
 
-        let evt = Event::new(ts, EventPayload::NetTlsClientHello(evt_pload));
+        let evt = Event::new(parser.timestamp(), EventPayload::NetTlsClientHello(evt_pload));
         evt.send();
 
 
-        StreamParseResult::Ok
+        Ok(())
     }
 }

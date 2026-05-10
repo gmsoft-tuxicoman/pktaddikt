@@ -26,10 +26,10 @@ use crate::proto::dns::ProtoDns;
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 use crate::config::ConfigRef;
+use crate::base::{Parser, ParseErr};
 
 use std::time::Instant;
 use serde::Deserialize;
-use std::fmt;
 use std::mem;
 
 #[derive(Debug, Deserialize)]
@@ -84,14 +84,6 @@ pub enum Protocols {
     SunRpc,
 }
 
-pub enum ProtoParseResult {
-    Ok,
-    Stop,
-    Invalid,
-    New(Packet<'static>),
-    None
-}
-
 #[derive(Debug, PartialEq)]
 pub enum ProtoInfo {
     Ethernet(ProtoEthernetInfo),
@@ -104,42 +96,9 @@ pub enum ProtoInfo {
     Icmp(ProtoIcmpInfo),
 }
 
-impl PartialEq for ProtoParseResult {
-
-    fn eq(&self, other:&Self) -> bool {
-        use ProtoParseResult::*;
-
-        match (self, other) {
-            (Ok, Ok) => true,
-            (Stop, Stop) => true,
-            (Invalid, Invalid) => true,
-            (New(_), New(_)) => true, // don't check content
-            (None, None) => true,
-            _ => false,
-        }
-
-    }
-
-}
-
-impl fmt::Debug for ProtoParseResult {
-
-    fn fmt(&self, f:&mut fmt::Formatter<'_>) -> fmt::Result {
-        use ProtoParseResult::*;
-
-        match self {
-            Ok => write!(f, "Ok"),
-            Stop => write!(f, "Stop"),
-            Invalid => write!(f, "Invalid"),
-            None => write!(f, "None"),
-            New(_) => write!(f, "New"),
-        }
-
-    }
-}
 
 pub trait ProtoPktProcessor {
-    fn process(&mut self, pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult;
+    fn process(&mut self, pkt: &mut Packet, stack: &mut PktInfoStack) -> Result<(), ParseErr>;
 }
 
 
@@ -181,9 +140,9 @@ impl Proto {
 
         let start = Instant::now();
 
-        TimerManager::update_time(orig_pkt.ts);
+        TimerManager::update_time(orig_pkt.timestamp());
 
-        let mut ret = ProtoParseResult::None;
+        let mut ret = Err(ParseErr::Unknown);
         let mut pkt_holder: Option<Packet> = None;
         let mut stack_index: usize = 0;
 
@@ -225,15 +184,15 @@ impl Proto {
                 info.data_len = pkt.remaining_len();
             }
 
-            if let ProtoParseResult::New(_) = ret {
-                let ProtoParseResult::New(new_pkt) = mem::replace(&mut ret, ProtoParseResult::Ok) else {
+            if let Err(ParseErr::New(_)) = ret {
+                let Err(ParseErr::New(new_pkt)) = mem::replace(&mut ret, Err(ParseErr::Stop)) else {
                     unreachable!();
                 };
                 pkt_holder = Some(new_pkt);
                 continue;
             }
 
-            if ret != ProtoParseResult::Ok {
+            if ret.is_err() {
                 break;
             }
 
@@ -243,7 +202,7 @@ impl Proto {
         if self.debug {
             let processing_time = start.elapsed();
 
-            print!("{} ", orig_pkt.ts);
+            print!("{} ", orig_pkt.timestamp());
             for i in infos.iter() {
                 if i.proto == Protocols::None {
                     break;

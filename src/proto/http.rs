@@ -1,5 +1,5 @@
-
-use crate::stream::{PktStreamProcessor, PktStreamParser, StreamParseResult};
+use crate::base::{Parser, ParseErr};
+use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::packet::{PktInfoStack, PktTime, PktConnInfo};
 use crate::conntrack::ConntrackDirection;
 use crate::event::{EventId, EventKind};
@@ -8,6 +8,7 @@ use crate::event::{Event, EventBus, EventPayload, EventStr};
 use memchr::memchr;
 use tracing::trace;
 use serde::Serialize;
+use std::cmp;
 
 #[derive(Debug, Serialize)]
 pub struct NetHttpRequestBasic {
@@ -99,31 +100,27 @@ pub struct ProtoHttp {
 
 impl ProtoHttp {
 
-    fn parse_first_line(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn parse_first_line(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
 
         // Check if there is any reason to parse Http stuff first
         if ! (EventBus::has_subscribers(EventKind::NetHttpRequestBasic)
             || EventBus::has_subscribers(EventKind::NetHttpResponseBasic)) {
             // All done, nothing to parse
-            return StreamParseResult::Done;
+            return Err(ParseErr::Stop);
         }
 
 
         let ts = parser.timestamp();
 
-        let line_opt = parser.readline();
-        let line = match line_opt {
-            Some(ref l) => l,
-            None => return StreamParseResult::NeedData,
-        };
+        let line = parser.readline()?;
 
-        trace!("Parsing first line : {}", String::from_utf8_lossy(line));
+        trace!("Parsing first line : {}", String::from_utf8_lossy(&line));
 
         // Both query and response have 3 tokens
         // FIXME add HTTP/0.9 suppport
-        let end1 = match memchr(b' ', line) {
+        let end1 = match memchr(b' ', &line) {
             Some(o) => o,
-            None => return StreamParseResult::Invalid,
+            None => return Err(ParseErr::Invalid("Not enough words in HTTP query")),
         };
 
 
@@ -140,7 +137,7 @@ impl ProtoHttp {
 
         let end2 = match memchr(b' ', &line[start2..]) {
             Some(o) => o + start2,
-            None => return StreamParseResult::Invalid,
+            None => return Err(ParseErr::Invalid("Could not find second word in HTTP first line")),
         };
 
         let tok2 = &line[start2..end2];
@@ -169,7 +166,7 @@ impl ProtoHttp {
                     Some(d) => {
                         if d != dir {
                             // We got a request in the wrong direction
-                            return StreamParseResult::Invalid;
+                            return Err(ParseErr::Invalid("Request received from the client"));
                         }
                     }
                 };
@@ -182,13 +179,13 @@ impl ProtoHttp {
 
     }
 
-    fn parse_request(&mut self, method: &[u8], uri: &[u8], version: &[u8], dir: ConntrackDirection, ts: PktTime) -> StreamParseResult {
+    fn parse_request(&mut self, method: &[u8], uri: &[u8], version: &[u8], dir: ConntrackDirection, ts: PktTime) -> Result<(), ParseErr> {
 
         // Make sure we got something that looks like a method
         for &b in method {
             // Method are supposed to be [a-zA-Z]*
             if b < b'A' || (b > b'Z' && b < b'a') || b > b'z' {
-                return StreamParseResult::Invalid;
+                return Err(ParseErr::Invalid("HTTP method contains other characters than letters"));
             }
         }
 
@@ -196,7 +193,7 @@ impl ProtoHttp {
         if ! version.starts_with(b"HTTP/") { // Case sensitive check
             if version.len() < 8 || ! version[0..5].eq_ignore_ascii_case(b"HTTP/") {
                 // Version is not valid
-                return StreamParseResult::Invalid;
+                return Err(ParseErr::Invalid("Invalid HTTP version received"));
             } else {
                 // Version matched but it's not uppercase
                 // WEIRD
@@ -205,7 +202,7 @@ impl ProtoHttp {
         self.info[dir as usize].state = ProtoHttpState::Headers;
 
         if ! EventBus::has_subscribers(EventKind::NetHttpRequestBasic) {
-            return StreamParseResult::Ok;
+            return Ok(());
         }
 
         let evt = NetHttpRequestBasic {
@@ -223,22 +220,22 @@ impl ProtoHttp {
 
         self.info[dir as usize].event_basic = Some(ProtoHttpEvent::RequestBasic(evt));
 
-        StreamParseResult::Ok
+        Ok(())
     }
 
-    fn parse_response(&mut self, version: &[u8], status: &[u8], reason: &[u8], dir: ConntrackDirection, ts: PktTime) -> StreamParseResult {
+    fn parse_response(&mut self, version: &[u8], status: &[u8], reason: &[u8], dir: ConntrackDirection, ts: PktTime) -> Result<(), ParseErr> {
 
         // Parse status code
 
         let Some(status_code) = atoi(status) else {
-            return StreamParseResult::Invalid;
+            return Err(ParseErr::Invalid("Could not parse status code"));
         };
 
         self.info[dir as usize].state = ProtoHttpState::Headers;
         self.last_status = status_code;
 
         if ! EventBus::has_subscribers(EventKind::NetHttpResponseBasic) {
-            return StreamParseResult::Ok;
+            return Ok(());
         }
 
         trace!("HTTP Status code: {}", status_code);
@@ -255,15 +252,11 @@ impl ProtoHttp {
 
         self.info[dir as usize].event_basic = Some(ProtoHttpEvent::ResponseBasic(evt));
 
-        StreamParseResult::Ok
+        Ok(())
     }
 
-    fn parse_headers(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
-        let line_opt = parser.readline();
-        let line = match line_opt {
-            Some(ref l) => l,
-            None => return StreamParseResult::NeedData,
-        };
+    fn parse_headers(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
+        let line = parser.readline()?;
 
         if line.len() == 0 {
             // All headers are processed
@@ -289,7 +282,7 @@ impl ProtoHttp {
                 if clen == 0 {
                     // Content length is 0, no body
                     self.info[dir as usize].reset();
-                    return StreamParseResult::Ok;
+                    return Ok(());
                 }
 
             } else if Some(dir) == self.client_dir {
@@ -297,7 +290,7 @@ impl ProtoHttp {
                 if ! self.info[dir as usize].chunked {
                     // No body expected
                     self.info[dir as usize].reset();
-                    return StreamParseResult::Ok;
+                    return Ok(());
                 }
             }
 
@@ -305,16 +298,16 @@ impl ProtoHttp {
             if Some(dir.opposite()) == self.client_dir && ((self.last_status >= 100 && self.last_status < 200) || self.last_status == 204 || self.last_status == 304) {
                     // No body expected
                     self.info[dir as usize].reset();
-                    return StreamParseResult::Ok;
+                    return Ok(());
             }
 
             self.info[dir as usize].state = ProtoHttpState::Body;
-            return StreamParseResult::Ok;
+            return Ok(());
         }
 
-        let colon = match memchr(b':', line) {
+        let colon = match memchr(b':', &line) {
             Some(o) => o,
-            None => return StreamParseResult::Invalid,
+            None => return Err(ParseErr::Invalid("Could not find ':' in header line"))
         };
 
         let name = &line[..colon];
@@ -335,7 +328,7 @@ impl ProtoHttp {
             if name.eq_ignore_ascii_case(b"Content-Length") {
                 self.info[dir as usize].content_len = atoi(value);
                 if self.info[dir as usize].content_len.is_none() {
-                    return StreamParseResult::Invalid;
+                    return Err(ParseErr::Invalid("Could not parse Content-Length header"));
                 }
             }
         }
@@ -348,20 +341,21 @@ impl ProtoHttp {
 
         trace!("HTTP header: \"{}: {}\"",  String::from_utf8_lossy(name), String::from_utf8_lossy(value));
 
-        StreamParseResult::Ok
+        Ok(())
     }
 
-    fn parse_body(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn parse_body(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
 
         if let Some(content_len) = self.info[dir as usize].content_len {
             let mut remaining_len = content_len - self.info[dir as usize].content_pos;
 
             // FIXME This data should be sent to Blob interface
-            let data = parser.read_some(remaining_len);
+            let data_len = cmp::min(remaining_len, parser.remaining_len());
+            parser.skip(data_len)?;
 
-            self.info[dir as usize].content_pos += data.len();
-            trace!("Got {} bytes of payload ({}/{})", data.len(), self.info[dir as usize].content_pos, content_len);
-            remaining_len -= data.len();
+            self.info[dir as usize].content_pos += data_len;
+            trace!("Got {} bytes of payload ({}/{})", data_len, self.info[dir as usize].content_pos, content_len);
+            remaining_len -= data_len;
 
             if remaining_len == 0 {
                 // Payload done
@@ -371,16 +365,19 @@ impl ProtoHttp {
             }
         } else {
             // No Content-Lenght, must be a HTTP/1.0 response containing the whole body
-            let data = parser.remaining_data();
-            trace!("Got {} bytes of payload", data.len());
-            self.info[dir as usize].content_pos += data.len();
+
+            // FIXME, actually use the data
+            let data_len = parser.remaining_len();
+            parser.skip(data_len)?;
+            trace!("Got {} bytes of payload", data_len);
+            self.info[dir as usize].content_pos += data_len;
 
         }
 
-        StreamParseResult::Ok
+        Ok(())
     }
 
-    fn parse_body_chunked(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn parse_body_chunked(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
 
 
         if let Some(chunk_len) = self.info[dir as usize].content_len {
@@ -391,20 +388,18 @@ impl ProtoHttp {
 
             if remaining_len > 0 {
                 // remaining_len will be 0 if we go the content but not the CRLF
-                let data = parser.read_some(remaining_len);
-                self.info[dir as usize].content_pos += data.len();
-                trace!("Got {} of chunked payload ({}/{})", data.len(), self.info[dir as usize].content_pos, chunk_len);
+                // FIXME actually use the data
+                let data_len = cmp::min(remaining_len, parser.remaining_len());
+                parser.skip(data_len)?;
+                self.info[dir as usize].content_pos += data_len;
+                trace!("Got {} of chunked payload ({}/{})", data_len, self.info[dir as usize].content_pos, chunk_len);
             }
 
-            let line_opt = parser.readline();
-            let line = match line_opt {
-                Some(ref l) => l,
-                None => return StreamParseResult::NeedData,
-            };
+            let line = parser.readline()?;
 
             if line.len() > 0 {
                 // Line is supposed to be empty
-                return StreamParseResult::Invalid;
+                return Err(ParseErr::Invalid("Non-empty line after chunked size"));
             }
 
             self.info[dir as usize].content_len = None;
@@ -419,21 +414,17 @@ impl ProtoHttp {
 
             // First, read the chunk length
 
-            let line_opt = parser.readline();
-            let line = match line_opt {
-                Some(ref l) => l,
-                None => return StreamParseResult::NeedData,
-            };
+            let line = parser.readline()?;
 
             if line.len() > 10 {
                 // Chunk is wayy too big
-                return StreamParseResult::Invalid;
+                return Err(ParseErr::Invalid("Chunk size too big"));
             }
 
-            self.info[dir as usize].content_len = htoi(line);
+            self.info[dir as usize].content_len = htoi(&line);
             if self.info[dir as usize].content_len.is_none() {
                 // Unable to parse chunk length
-                return StreamParseResult::Invalid;
+                return Err(ParseErr::Invalid("Unable to parse chunk length"));
             }
 
             trace!("Got chunk of {} bytes", self.info[dir as usize].content_len.unwrap());
@@ -441,7 +432,7 @@ impl ProtoHttp {
 
         }
 
-        StreamParseResult::Ok
+        Ok(())
     }
 }
 
@@ -472,7 +463,7 @@ impl PktStreamProcessor for ProtoHttp {
         }
     }
 
-    fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> StreamParseResult {
+    fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> Result<(), ParseErr> {
 
         match self.info[dir as usize].state {
             ProtoHttpState::FirstLine => self.parse_first_line(dir, parser),
@@ -482,11 +473,11 @@ impl PktStreamProcessor for ProtoHttp {
                 if Some(dir.opposite()) == self.client_dir  && self.info[dir as usize].content_pos == 0 {
                     // We need to check if the body looks like a reply
                     // If it does, then we assume it's a reply to a HEAD request
-                    let data = parser.peek();
-                    if data.len() > 5 && data[0..5].eq_ignore_ascii_case(b"HTTP/") {
+                    let data = parser.peek(5)?;
+                    if data[0..5].eq_ignore_ascii_case(b"HTTP/") {
                         trace!("Found reply to HEAD request");
                         self.info[dir as usize].reset();
-                        return StreamParseResult::Ok;
+                        return Ok(())
                     }
                 }
 
@@ -534,7 +525,7 @@ fn htoi(val: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
 
-    use crate::packet::{Packet, PktDataOwned, PktInfoStack, PktTime};
+    use crate::packet::{Packet, PktInfoStack, PktTime};
     use crate::proto::{Protocols, ProtoInfo};
     use crate::stream::PktStream;
     use crate::conntrack::ConntrackDirection;
@@ -578,8 +569,7 @@ mod tests {
 
         let mut stream = PktStream::new(Protocols::Http, &infos).unwrap();
 
-        let pkt_data = PktDataOwned::new(b"GET / HTTP/1.1\r\n");
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), b"GET / HTTP/1.1\r\n");
         stream.process_packet(ConntrackDirection::Forward, &mut pkt);
 
         println!("{:?}", stream.proto());

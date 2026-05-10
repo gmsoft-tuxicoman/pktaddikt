@@ -1,6 +1,7 @@
-
-use crate::stream::{PktStreamProcessor, PktStreamParser, StreamParseResult};
-use crate::packet::{PktInfoStack, PktConnInfo, PktTime};
+use crate::base::{Parser, ParseErr};
+use crate::proto::ProtoPktProcessor;
+use crate::stream::{PktStreamProcessor, PktStreamParser};
+use crate::packet::{Packet, PktInfoStack, PktConnInfo};
 use crate::conntrack::ConntrackDirection;
 use crate::proto::nfs::ProtoNfs;
 use crate::event::EventId;
@@ -19,13 +20,14 @@ struct ProtoSunRpcCall {
 enum ProtoSunRpcState {
     Header,
     Body,
+    NA,
 }
 
 #[derive(Debug)]
 pub struct ProtoSunRpc {
 
-    conn_id: EventId,
-    conn_info: PktConnInfo,
+    conn_id: Option<EventId>,
+    conn_info: Option<PktConnInfo>,
     state: ProtoSunRpcState,
     frag_len: usize,
     prog_nfs: Option<ProtoNfs>,
@@ -35,33 +37,28 @@ pub struct ProtoSunRpc {
 
 impl ProtoSunRpc {
 
-    fn parse_call(&mut self, ts: PktTime, xid: u32, data: &[u8]) -> StreamParseResult {
+    fn parse_call<T: Parser>(&mut self, xid: u32, mut parser: T) -> Result<(), ParseErr> {
         
-        if data.len() < 32 {
-            return StreamParseResult::Invalid;
-        }
-
         // We must parse starting the RPC version
 
-        let version = u32::from_be_bytes(data[0..4].try_into().unwrap());
+        let version = parser.read_u32_be()?;
 
         if version != 2 {
-            return StreamParseResult::Invalid;
+            return Err(ParseErr::Invalid("Invalid RPC version"));
         }
 
-        let program = u32::from_be_bytes(data[4..8].try_into().unwrap());
+        let program = parser.read_u32_be()?;
 
         if program != 100003 {// NFS
-            trace!("Unknown RPC program");
-            return StreamParseResult::Invalid;
+            return Err(ParseErr::Invalid("Unsupported RPC program"));
         }
 
-        let prog_version = u32::from_be_bytes(data[8..12].try_into().unwrap());
+        let prog_version = parser.read_u32_be()?;
 
         let nfs_version = match self.nfs_version {
             Some(old_ver) => {
                 if old_ver != prog_version {
-                    return StreamParseResult::Invalid;
+                    return Err(ParseErr::Invalid("Program version different than earlier version"));
                 }
                 old_ver
             },
@@ -73,33 +70,24 @@ impl ProtoSunRpc {
 
         let prog_nfs = match &self.prog_nfs {
             Some(prog) => prog,
-            None => match ProtoNfs::new(&self.conn_id, self.conn_info, nfs_version) {
+            None => match ProtoNfs::new(self.conn_id.as_ref().unwrap(), self.conn_info.unwrap(), nfs_version) {
                 Some(prog) => {
                     self.prog_nfs = Some(prog);
                     &self.prog_nfs.as_ref().unwrap()
                 },
-                None => { return StreamParseResult::Done; },
+                None => { return Err(ParseErr::Stop); },
             }
         };
 
-        let proc = u32::from_be_bytes(data[12..16].try_into().unwrap());
+        let proc = parser.read_u32_be()?;
 
-        let auth = u32::from_be_bytes(data[16..20].try_into().unwrap());
-        let auth_len = u32::from_be_bytes(data[20..24].try_into().unwrap()) as usize;
-    
-        if data.len() < auth_len + 32 {
-            return StreamParseResult::Invalid;
-        }
+        parser.skip_u32()?; // auth_type
+        let auth_len = parser.read_u32_be()? as usize;
+        parser.skip(auth_len)?; // auth_pload
 
-        let verif = u32::from_be_bytes(data[24 + auth_len .. 28 + auth_len].try_into().unwrap());
-        let verif_len = u32::from_be_bytes(data[28 + auth_len .. 32 + auth_len ].try_into().unwrap()) as usize;
-
-        let offset = auth_len + verif_len + 32;
-        if data.len() < offset {
-            return StreamParseResult::Invalid
-        }
-
-        let pload = &data[offset..];
+        parser.skip_u32()?; // verif_type
+        let verif_len = parser.read_u32_be()? as usize;
+        parser.skip(verif_len)?;
 
         let call = ProtoSunRpcCall {
             xid,
@@ -108,17 +96,17 @@ impl ProtoSunRpc {
 
         self.nfs_calls.push(call);
 
-        trace!("Call with {} payload for XID {:x}, prog {}, version {}, proc {}", pload.len(), xid, program, prog_version, proc);
+        trace!("Call with {} payload for XID {:x}, prog {}, version {}, proc {}", parser.remaining_len(), xid, program, prog_version, proc);
 
-        if pload.len() > 0 {
-            prog_nfs.parse_call(ts, xid, proc, pload)
+        if parser.remaining_len() > 0 {
+            prog_nfs.parse_call(xid, proc, &mut parser)
         } else {
-            StreamParseResult::Ok
+            Ok(())
         }
     }
 
 
-    fn parse_reply(&mut self, ts:PktTime, xid: u32, data: &[u8]) -> StreamParseResult {
+    fn parse_reply<T: Parser>(&mut self, xid: u32, mut parser: T) -> Result<(), ParseErr> {
 
         let call;
 
@@ -127,58 +115,71 @@ impl ProtoSunRpc {
             call = self.nfs_calls.swap_remove(pos);
         } else {
             debug!("XID {} for NFS call not found", xid);
-            return StreamParseResult::Invalid;
+            return Err(ParseErr::Invalid("Matching NFS call not found base on XID"));
         }
 
         let prog_nfs = match &self.prog_nfs {
             Some(prog) => prog,
-            None => return StreamParseResult::Done,
+            None => return Err(ParseErr::Stop),
         };
 
 
-        if data.len() < 8 {
-            return StreamParseResult::Invalid;
-        }
-
-        let state = u32::from_be_bytes(data[0..4].try_into().unwrap());
+        let state = parser.read_u32_be()?;
 
         match state {
             0 => { // ACCEPTED
-                if data.len() < 16 {
-                    return StreamParseResult::Invalid;
-                }
-                let verif = u32::from_be_bytes(data[4..8].try_into().unwrap());
-                let verif_len = u32::from_be_bytes(data[8..12].try_into().unwrap()) as usize;
-                if data.len() < 16 + verif_len {
-                    return StreamParseResult::Invalid;
-                }
-                let accept_state = u32::from_be_bytes(data[12 + verif_len .. 16 + verif_len].try_into().unwrap());
+                parser.skip_u32()?; // verif
+                let verif_len = parser.read_u32_be()? as usize;
+                parser.skip(verif_len)?;
+                let accept_state = parser.read_u32_be()?;
 
                 match accept_state {
                     0 => {}, // SUCCESS
-                    _ => { return StreamParseResult::Done; } // Stop parsing for now
+                    _ => { return Err(ParseErr::Stop); } // Stop parsing for now
                 }
                 trace!("Reply accepted for XID {:x}", xid);
 
-                let offset = verif_len + 16;
-                let pload = &data[offset..];
 
-                if pload.len() > 0 {
-                    prog_nfs.parse_reply(ts, xid, call.proc, pload)
+                if parser.remaining_len() > 0 {
+                    prog_nfs.parse_reply(xid, call.proc, &mut parser)
                 } else {
-                    StreamParseResult::Ok
+                    return Ok(());
                 }
 
             },
             1 => { // DENIED
-                StreamParseResult::Done
+                Err(ParseErr::Stop)
             },
             _ => {
-                StreamParseResult::Invalid
+                Err(ParseErr::Invalid("Invalid RPC reply state"))
             },
         }
         
     }
+}
+
+impl ProtoSunRpc {
+    pub fn new() -> Self {
+        Self {
+            prog_nfs: None,
+            nfs_version: None,
+            nfs_calls: SmallVec::new(),
+            conn_id: None,
+            conn_info: None,
+            state: ProtoSunRpcState::NA,
+            frag_len: 0,
+        }
+    }
+}
+
+impl ProtoPktProcessor for ProtoSunRpc {
+
+    // SunRPC over UDP
+    fn process(&mut self, _pkt: &mut Packet, _infos: &mut PktInfoStack) -> Result<(), ParseErr> {
+
+        Ok(())
+    }
+
 }
 
 impl PktStreamProcessor for ProtoSunRpc {
@@ -188,50 +189,43 @@ impl PktStreamProcessor for ProtoSunRpc {
             prog_nfs: None,
             nfs_version: None,
             nfs_calls: SmallVec::new(),
-            conn_id: infos.get_conn_id().unwrap().clone(),
-            conn_info: infos.get_conn_info(),
+            conn_id: Some(infos.get_conn_id().unwrap().clone()),
+            conn_info: Some(infos.get_conn_info()),
             state: ProtoSunRpcState::Header,
             frag_len: 0,
         }
     }
 
     // SUN RPC over TCP
-    fn process(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> StreamParseResult {
+    fn process(&mut self, _dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
         
-        let ts = parser.timestamp();
-
         if self.state == ProtoSunRpcState::Header {
-            let Some(hdr) = parser.read(4) else {
-                return StreamParseResult::NeedData;
-            };
-            let frag = u32::from_be_bytes(hdr[0..4].try_into().unwrap());
-            self.frag_len = (frag & 0x7fffffff) as usize;
-
+            self.frag_len = (parser.read_u32_be()? & 0x7fffffff) as usize;
             self.state = ProtoSunRpcState::Body;
         }
 
-        // Read the body of the fragment
-        let Some(data) = parser.read(self.frag_len) else {
-            return StreamParseResult::NeedData;
-        };
+        if self.frag_len < 24 { 
+            return Err(ParseErr::Invalid("Fragment length too small"));
+        }
+
+        // Make sure the fragment is complete
+        parser.has_len(self.frag_len)?;
 
         self.state = ProtoSunRpcState::Header;
+        let msg_len = self.frag_len - 8; // Account for the 2 u32 we're about to read
         self.frag_len = 0;
 
-        if data.len() < 8 {
-            return StreamParseResult::Invalid;
-        }
-        let xid = u32::from_be_bytes(data[0..4].try_into().unwrap());
-        let msg_type = u32::from_be_bytes(data[4..8].try_into().unwrap());
+        let xid = parser.read_u32_be()?;
+        let msg_type = parser.read_u32_be()?;
 
 
-
+        // This should not fail since we checked with has_len() earlier
+        let msg_parser = parser.sub_packet(msg_len).unwrap();
         match msg_type {
-            0 => { self.parse_call(ts, xid, &data[8..]) },
-            1 => { self.parse_reply(ts, xid, &data[8..]) },
+            0 => { self.parse_call(xid, msg_parser) },
+            1 => { self.parse_reply(xid, msg_parser) },
             _ => {
-                trace!("Unknown RPC message type");
-                StreamParseResult::Invalid
+                Err(ParseErr::Invalid("Unknown RPC message type"))
             }
         }
 

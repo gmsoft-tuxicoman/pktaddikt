@@ -16,6 +16,7 @@ pub mod event;
 pub mod config;
 pub mod input;
 pub mod output;
+pub mod base;
 
 
 #[derive(Parser, Debug)]

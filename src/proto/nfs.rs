@@ -1,6 +1,6 @@
-use crate::stream::StreamParseResult;
+use crate::base::{Parser, ParseErr};
 use crate::event::{EventId, EventBus, EventStr, EventKind, Event, EventPayload};
-use crate::packet::{PktConnInfo, PktTime};
+use crate::packet::PktConnInfo;
 
 use tracing::{debug, trace};
 use serde::Serialize;
@@ -48,99 +48,46 @@ pub struct NetNfsCreateSessionCall {
 
 }
 
-struct NfsData<'a> {
-    data: &'a [u8],
-    off: usize,
-}
-
-impl<'a> NfsData<'a> {
-
-    const NFS4_VERIFIER_SIZE: usize = 8;
-    const NFS4_SESSIONID_SIZE: usize = 16;
-
-    fn new(data: &'a [u8], off: usize) -> Self {
-        Self {
-            data,
-            off,
-        }
-    }
-
-    fn read_u32(&mut self) -> Option<u32> {
-        if self.data.len() < self.off + 4 {
-            return None;
-        }
-
-        self.off += 4;
-        Some(u32::from_be_bytes(self.data[self.off - 4 .. self.off].try_into().unwrap()))
-    }
-
-    fn read_u64(&mut self) -> Option<u64> {
-        if self.data.len() < self.off + 8 {
-            return None;
-        }
-
-        self.off += 8;
-        Some(u64::from_be_bytes(self.data[self.off - 8 .. self.off].try_into().unwrap()))
-    }
-
-    fn skip_u32(&mut self, num: usize) -> Option<()> {
-        self.skip(4 * num)
-    }
-
-    fn skip_u64(&mut self, num: usize) -> Option<()> {
-        self.skip(8 * num)
-    }
-
-    fn read_opaque(&mut self) -> Option<&'a [u8]> {
-
-        let len = self.read_u32()? as usize;
-        self.off += len;
-        if self.data.len() < self.off {
-            return None;
-        }
-
-        let ret = Some(&self.data[self.off - len .. self.off]);
-
-        // Opaque are aligned on 4 bytes
-        self.off = (self.off + 3) & !3;
-        ret
-    }
-
-    fn skip_opaque(&mut self) -> Option<()> {
-
-        let len = self.read_u32()? as usize;
-        self.off += len;
-        if self.data.len() < self.off {
-            return None;
-        }
-
-        self.off = (self.off + 3) & !3;
-        Some(())
-    }
-
-    fn skip(&mut self, len: usize) -> Option<()> {
-        self.off += len;
-        if self.data.len() < self.off {
-            return None;
-        }
-
-        Some(())
-    }
-
-}
-
-
 #[derive(Debug)]
 pub struct ProtoNfs {
 
     conn_id: EventId,
     conn_info: PktConnInfo,
-    version_major: u32,
+//    version_major: u32,
 
 }
 
 
 impl ProtoNfs {
+
+    const NFS4_VERIFIER_SIZE: usize = 8;
+    const NFS4_SESSIONID_SIZE: usize = 16;
+
+    #[inline]
+    fn read_opaque<T: Parser>(parser: &mut T) -> Result<Vec<u8>, ParseErr> {
+
+        let len = parser.read_u32_be()? as usize;
+        let ret = parser.read(len)?.into_owned();
+
+        let align = (4 - (len & 3)) & 3;
+
+        if align > 0 {
+            parser.skip(align)?;
+        }
+
+        Ok(ret)
+    }
+
+    #[inline]
+    fn skip_opaque<T: Parser>(parser: &mut T) -> Result<(), ParseErr> {
+
+        let mut len = parser.read_u32_be()? as usize;
+
+        // Align to 4 bytes
+        len = (len + 3) & !3;
+        parser.skip(len)
+
+    }
 
     pub fn new(conn_id: &EventId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
         if version != 4 {
@@ -151,130 +98,113 @@ impl ProtoNfs {
         Some(Self {
             conn_id: conn_id.clone(),
             conn_info: conn_info.clone(),
-            version_major: version,
+            //version_major: version,
         })
     }
 
-    pub fn parse_call(&self, ts: PktTime, xid: u32, proc: u32, data: &[u8]) -> StreamParseResult {
+    pub fn parse_call<T: Parser>(&self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
 
-        let mut nfs_data = NfsData::new(data, 0);
+        match proc {
+            1 => self.compound_call(xid, parser),
+            _ => Err(ParseErr::Invalid("Unknown NFS procedure in call"))
+        }
+    }
 
-        let ret = match proc {
-            1 => self.compound_call(ts, xid, &mut nfs_data),
-            _ => None,
-        };
+    pub fn parse_reply<T: Parser>(&self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
 
-        match ret {
-            Some(_) => StreamParseResult::Ok,
-            None => StreamParseResult::Invalid,
+        match proc {
+            1 => self.compound_reply(xid, parser),
+            _ => Err(ParseErr::Invalid("Unknown NFS procedure in reply"))
         }
 
     }
 
-    pub fn parse_reply(&self, ts: PktTime, xid: u32, proc: u32, data: &[u8]) -> StreamParseResult {
-
-
-        let mut nfs_data = NfsData::new(data, 0);
-
-        let ret = match proc {
-            1 => self.compound_reply(ts, xid, &mut nfs_data),
-            _ => None,
-        };
-
-        match ret {
-            Some(_) => StreamParseResult::Ok,
-            None => StreamParseResult::Invalid,
-        }
-
-    }
-
-    fn compound_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn compound_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         // tag
-        data.skip_opaque()?;
+        ProtoNfs::skip_opaque(parser)?;
 
-        let minorversion = data.read_u32()?;
-        let numops = data.read_u32()?;
+        let minorversion = parser.read_u32_be()?;
+        let numops = parser.read_u32_be()?;
 
-        trace!("Got CALL COMPOUND NFS4.{} with {} operation(s)", minorversion, numops );
+        trace!("Got CALL COMPOUND NFS4.{} with {} operation(s)", minorversion, numops);
 
         for _ in 0..numops {
 
-            let opcode = data.read_u32()?;
+            let opcode = parser.read_u32_be()?;
             match opcode {
-                3 => self.v4_access_call(ts, xid, data),
-                8 => self.v4_delegreturn_call(ts, xid, data),
-                9 => self.v4_getattr_call(ts, xid, data),
-                10 => self.v4_getfh_call(ts, xid, data),
-                15 => self.v4_lookup_call(ts, xid, data),
-                18 => self.v4_open_call(ts, xid, data),
-                22 => self.v4_putfh_call(ts, xid, data),
-                24 => self.v4_putrootfh_call(ts, xid, data),
-                26 => self.v4_readdir_call(ts, xid, data),
-                42 => self.v4_exchange_id_call(ts, xid, data),
-                43 => self.v4_create_session_call(ts, xid, data),
-                44 => self.v4_destroy_session_call(ts, xid, data),
-                46 => self.v4_get_dir_delegation_call(ts, xid, data),
-                52 => self.v4_secinfo_no_name_call(ts, xid, data),
-                53 => self.v4_sequence_call(ts, xid, data),
-                57 => self.v4_destroy_client_id_call(ts, xid, data),
-                58 => self.v4_reclaim_complete_call(ts, xid, data),
-                68 => self.v4_read_plus_call(ts, xid, data),
+                3 => self.v4_access_call(xid, parser),
+                8 => self.v4_delegreturn_call(xid, parser),
+                9 => self.v4_getattr_call(xid, parser),
+                10 => self.v4_getfh_call(xid, parser),
+                15 => self.v4_lookup_call(xid, parser),
+                18 => self.v4_open_call(xid, parser),
+                22 => self.v4_putfh_call(xid, parser),
+                24 => self.v4_putrootfh_call(xid, parser),
+                26 => self.v4_readdir_call(xid, parser),
+                42 => self.v4_exchange_id_call(xid, parser),
+                43 => self.v4_create_session_call(xid, parser),
+                44 => self.v4_destroy_session_call(xid, parser),
+                46 => self.v4_get_dir_delegation_call(xid, parser),
+                52 => self.v4_secinfo_no_name_call(xid, parser),
+                53 => self.v4_sequence_call(xid, parser),
+                57 => self.v4_destroy_client_id_call(xid, parser),
+                58 => self.v4_reclaim_complete_call(xid, parser),
+                68 => self.v4_read_plus_call(xid, parser),
                 _ => {
                     debug!("Unknown NFS opcode {}", opcode);
-                    return None;
+                    return Err(ParseErr::Invalid("Unknown NFS opcode in COMPOUND call"));
                 }
             }?;
         }
 
-        Some(())
-
+        Ok(())
     }
 
-    fn compound_reply(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn compound_reply<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
-        let status = data.read_u32()?;
-        data.skip_opaque()?; // tag
+        let status = parser.read_u32_be()?;
+        ProtoNfs::skip_opaque(parser)?; // tag
 
-        let numops = data.read_u32()?;
+        let numops = parser.read_u32_be()?;
 
-        trace!("Got REPLY COMPOUND with status {} and {} operation(s)", status, numops );
+        trace!("Got REPLY COMPOUND with status {} and {} operation(s)", status, numops);
 
         for _ in 0..numops {
 
-            let opcode = data.read_u32()?;
-            let status = data.read_u32()?;
+            let opcode = parser.read_u32_be()?;
+            let status = parser.read_u32_be()?;
             match opcode {
-                3 => self.v4_access_reply(ts, xid, status, data),
-                8 => self.v4_delegreturn_reply(ts, xid, status, data),
-                9 => self.v4_getattr_reply(ts, xid, status, data),
-                10 => self.v4_getfh_reply(ts, xid, status, data),
-                15 => self.v4_lookup_reply(ts, xid, status, data),
-                18 => self.v4_open_reply(ts, xid, status, data),
-                22 => self.v4_putfh_reply(ts, xid, status, data),
-                24 => self.v4_putrootfh_reply(ts, xid, status, data),
-                26 => self.v4_readdir_reply(ts, xid, status, data),
-                42 => self.v4_exchange_id_reply(ts, xid, status, data),
-                43 => self.v4_create_session_reply(ts, xid, status, data),
-                44 => self.v4_destroy_session_reply(ts, xid, status, data),
-                46 => self.v4_get_dir_delegation_reply(ts, xid, status, data),
-                52 => self.v4_secinfo_no_name_reply(ts, xid, status, data),
-                53 => self.v4_sequence_reply(ts, xid, status, data),
-                57 => self.v4_destroy_client_id_reply(ts, xid, status, data),
-                58 => self.v4_reclaim_complete_reply(ts, xid, status, data),
-                68 => self.v4_read_plus_reply(ts, xid, status, data),
+                3 => self.v4_access_reply(xid, status, parser),
+                8 => self.v4_delegreturn_reply(xid, status, parser),
+                9 => self.v4_getattr_reply(xid, status, parser),
+                10 => self.v4_getfh_reply(xid, status, parser),
+                15 => self.v4_lookup_reply(xid, status, parser),
+                18 => self.v4_open_reply(xid, status, parser),
+                22 => self.v4_putfh_reply(xid, status, parser),
+                24 => self.v4_putrootfh_reply(xid, status, parser),
+                26 => self.v4_readdir_reply(xid, status, parser),
+                42 => self.v4_exchange_id_reply(xid, status, parser),
+                43 => self.v4_create_session_reply(xid, status, parser),
+                44 => self.v4_destroy_session_reply(xid, status, parser),
+                46 => self.v4_get_dir_delegation_reply(xid, status, parser),
+                52 => self.v4_secinfo_no_name_reply(xid, status, parser),
+                53 => self.v4_sequence_reply(xid, status, parser),
+                57 => self.v4_destroy_client_id_reply(xid, status, parser),
+                58 => self.v4_reclaim_complete_reply(xid, status, parser),
+                68 => self.v4_read_plus_reply(xid, status, parser),
                 _ => {
                     debug!("Unknown NFS opcode {}", opcode);
-                    return None;
+                    return Err(ParseErr::Invalid("Unknown NFS opcode in COMPOUND reply"));
                 }
             }?;
         }
 
-        Some(())
+        Ok(())
 
     }
 
-    fn v4_exchange_id_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_exchange_id_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("EXCHANGE_ID CALL");
 
@@ -285,47 +215,47 @@ impl ProtoNfs {
         { // eia_clientowner
 
             // co_verifier
-            data.skip(NfsData::NFS4_VERIFIER_SIZE)?;
+            parser.skip(ProtoNfs::NFS4_VERIFIER_SIZE)?;
             // co_ownerid
-            co_ownerid = data.read_opaque()?;
-            trace!("Found owner id : {}", String::from_utf8_lossy(co_ownerid));
+            co_ownerid = ProtoNfs::read_opaque(parser)?;
+            trace!("Found owner id : {}", String::from_utf8_lossy(&co_ownerid));
         }
 
         { // eia_flags
-            data.skip_u32(1)?;
+            parser.skip_u32()?;
         }
 
         { // eia_state_protect
-            let spa_how = data.read_u32()?;
+            let spa_how = parser.read_u32_be()?;
             match spa_how {
                 0 => {}, // SP4_NONE
-                1 => { data.skip_u32(2)?; }, // SP4_MACH_CRED (spo_must_enforce, spo_must_allow)
+                1 => { parser.skip_u32s(2)?; }, // SP4_MACH_CRED (spo_must_enforce, spo_must_allow)
                 2 => { // SP4_SSV
-                    data.skip_u32(2)?; // ssp_ops { spo_must_enforce, spo_must_allow}
-                    data.skip_opaque()?; // ssp_hash_algs
-                    data.skip_opaque()?; // ssp_encr_algs
-                    data.skip_u32(2)?; // ssp_window, ssp_num_gss_handles
+                    parser.skip_u32s(2)?; // ssp_ops { spo_must_enforce, ssp_ops.spo_must_allow }
+                    ProtoNfs::skip_opaque(parser)?; // ssp_hash_algs
+                    ProtoNfs::skip_opaque(parser)?; // ssp_encr_algs
+                    parser.skip_u32s(2)?; // ssp_window, ssp_num_gss_handles
                 },
-                _ => { return None; }
+                _ => { return Err(ParseErr::Invalid("Invalid spa_how value in exchange_id call")); }
             }
 
         }
 
         { // eia_client_impl_id
 
-            let num = data.read_u32()?;
+            let num = parser.read_u32_be()?;
 
             if num == 1 { // Max 1 element
                 // nii_domain
-                nii_domain = Some(data.read_opaque()?);
-                trace!("Found implementor domain : {}", String::from_utf8_lossy(nii_domain.unwrap()));
+                nii_domain = Some(ProtoNfs::read_opaque(parser)?);
+                trace!("Found implementor domain : {}", String::from_utf8_lossy(nii_domain.as_ref().unwrap()));
                 // nii_name
-                nii_name = Some(data.read_opaque()?);
-                trace!("Found implentation name : {}", String::from_utf8_lossy(nii_name.unwrap()));
+                nii_name = Some(ProtoNfs::read_opaque(parser)?);
+                trace!("Found implentation name : {}", String::from_utf8_lossy(nii_name.as_ref().unwrap()));
                 // nii_data
-                data.skip_u32(3)?;
+                parser.skip_u32s(3)?;
             } else if num > 1 {
-                return None;
+                return Err(ParseErr::Invalid("More than one element in eia_client_impl_id in exchange_id call"));
             }
         }
 
@@ -342,65 +272,64 @@ impl ProtoNfs {
                 nii_name: nii_name.map(Into::into),
             };
 
-            let evt = Event::new(ts, EventPayload::NetNfsExchangeIdCall(evt_pload));
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsExchangeIdCall(evt_pload));
             evt.send();
         }
-        Some(())
+        Ok(())
     }
 
-    fn v4_exchange_id_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_exchange_id_reply<T: Parser>(&self, xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("EXCHANGE_ID REPLY");
 
         if status != 0 {
             // Not OK
-            return Some(());
+            return Ok(());
         }
 
-        let eir_clientid = data.read_u64()?;
-
-        data.skip_u32(2); // eir_sequenceid, eir_flags
+        parser.skip_u64()?; // eir_clientid
+        parser.skip_u32s(2)?; // eir_sequenceid, eir_flags
 
         { // eir_state_protect
-            let spr_how = data.read_u32()?;
+            let spr_how = parser.read_u32_be()?;
             match spr_how {
                 0 => {}, // SP4_NONE
-                1 => { data.skip_u32(2)?; }, // SP4_MACH_CRED (spo_must_enforce, spo_must_allow)
+                1 => { parser.skip_u32s(2)?; }, // SP4_MACH_CRED (spo_must_enforce, spo_must_allow)
                 2 => { // SP4_SSV
-                    data.skip_u32(2)?; // ssi_ops { spo_must_enforce, spo_must_allow}
-                    data.skip_u32(4)?; // spi_hash_alg, spi_encr_alg, spi_ssv_len, spi_window
-                    data.skip_u32(2)?; // ssp_window, ssp_num_gss_handles
-                    data.skip_opaque()?; // spi_handles
+                    parser.skip_u32s(2)?; // ssi_ops { spo_must_enforce, spo_must_allow}
+                    parser.skip_u32s(4)?; // spi_hash_alg, spi_encr_alg, spi_ssv_len, spi_window
+                    parser.skip_u32s(2)?; // ssp_window, ssp_num_gss_handles
+                    ProtoNfs::skip_opaque(parser)?; // spi_handles
                 },
-                _ => { return None; }
+                _ => { return Err(ParseErr::Invalid("Invalid value for spa_how in exchange_id reply")); }
             }
         }
 
         let so_major_id;
         { // eir_server_owner
-            data.skip_u64(1)?; // so_minor_id
-            so_major_id = data.read_opaque()?;
+            parser.skip_u64()?; // so_minor_id
+            so_major_id = ProtoNfs::read_opaque(parser)?;
         }
-        trace!("Found server ID: {}", String::from_utf8_lossy(so_major_id));
+        trace!("Found server ID: {}", String::from_utf8_lossy(&so_major_id));
 
-        let eir_server_scope = data.read_opaque()?;
-        trace!("Found server scope: {}", String::from_utf8_lossy(eir_server_scope));
+        let eir_server_scope = ProtoNfs::read_opaque(parser)?;
+        trace!("Found server scope: {}", String::from_utf8_lossy(&eir_server_scope));
 
         let mut nii_domain = None;
         let mut nii_name = None;
         { // eir_server_impl_id
 
-            let num = data.read_u32()?;
+            let num = parser.read_u32_be()?;
 
             if num == 1 { // Max 1 element
-                nii_domain = Some(data.read_opaque()?);
-                trace!("Found implementor domain : {}", String::from_utf8_lossy(nii_domain.unwrap()));
-                nii_name = Some(data.read_opaque()?);
-                trace!("Found implentation name : {}", String::from_utf8_lossy(nii_name.unwrap()));
+                nii_domain = Some(ProtoNfs::read_opaque(parser)?);
+                trace!("Found implementor domain : {}", String::from_utf8_lossy(nii_domain.as_ref().unwrap()));
+                nii_name = Some(ProtoNfs::read_opaque(parser)?);
+                trace!("Found implentation name : {}", String::from_utf8_lossy(nii_name.as_ref().unwrap()));
                 // nii_data
-                data.skip_u32(3)?;
+                parser.skip_u32s(3)?;
             } else if num > 1 {
-                return None;
+                return Err(ParseErr::Invalid("More than one element in eir_server_impl_id in exchange_id reply"));
             }
         }
 
@@ -418,76 +347,74 @@ impl ProtoNfs {
                 nii_name: nii_name.map(Into::into),
             };
 
-            let evt = Event::new(ts, EventPayload::NetNfsExchangeIdReply(evt_pload));
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsExchangeIdReply(evt_pload));
             evt.send();
         }
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_create_session_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_create_session_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("CREATE_SESSION CALL");
 
-        let csa_clientid = data.read_u64()?;
-        let csa_sequence = data.read_u32()?;
-
-        data.skip_u32(1)?; // csa_flags
+        parser.skip_u64()?; // csa_clientid
+        parser.skip_u32s(2)?; // csa_sequence, csa_flags
 
         { // csa_fore_chan_attrs
-            data.skip_u32(6);
-            let ca_rdma_ird_len = data.read_u32()? as usize;
+            parser.skip_u32s(6)?;
+            let ca_rdma_ird_len = parser.read_u32_be()? as usize;
             if ca_rdma_ird_len > 1 {
-                return None;
+                return Err(ParseErr::Invalid("ca_rdma_ird_len > 1 in create_session call"));
             } else if ca_rdma_ird_len > 0 {
-                data.skip_u32(ca_rdma_ird_len)?;
+                parser.skip_u32s(ca_rdma_ird_len)?;
             }
         }
 
         { // csa_back_chan_attrs
-            data.skip_u32(6);
-            let ca_rdma_ird_len = data.read_u32()? as usize;
+            parser.skip_u32s(6)?;
+            let ca_rdma_ird_len = parser.read_u32_be()? as usize;
             if ca_rdma_ird_len > 1 {
-                return None;
+                return Err(ParseErr::Invalid("ca_rdma_ird_len > 1 in create_session call"));
             } else if ca_rdma_ird_len > 0 {
-                data.skip_u32(ca_rdma_ird_len)?;
+                parser.skip_u32s(ca_rdma_ird_len)?;
             }
         }
 
-        data.skip_u32(1); // csa_cb_program
+        parser.skip_u32()?; // csa_cb_program
 
         let mut machine_name = None;
         let mut uid = None;
         let mut gid = None;
 
 
-        let csa_sec_param_count = data.read_u32()?;
+        let csa_sec_param_count = parser.read_u32_be()?;
 
         if csa_sec_param_count > 4 {
-            return None;
+            return Err(ParseErr::Invalid("csa_sec_param_count > 4 in create_session call"));
         }
 
         for _ in 0..csa_sec_param_count {
 
             { // csa_sec_params
-                let cb_secflavor = data.read_u32()?;
+                let cb_secflavor = parser.read_u32_be()?;
                 match cb_secflavor {
                     0 => {}, // AUTH_NONE
                     1 => { // AUTH_SYS
-                        data.skip_u32(1)?; // stamp
-                        machine_name = Some(data.read_opaque()?);
-                        trace!("Found machine_name {}", String::from_utf8_lossy(machine_name.unwrap()));
-                        uid = Some(data.read_u32()?);
-                        gid = Some(data.read_u32()?);
+                        parser.skip_u32()?; // stamp
+                        machine_name = Some(ProtoNfs::read_opaque(parser)?);
+                        trace!("Found machine_name {}", String::from_utf8_lossy(machine_name.as_ref().unwrap()));
+                        uid = Some(parser.read_u32_be()?);
+                        gid = Some(parser.read_u32_be()?);
                         // Additional gids don't seem common so I'll just ignore them for now
-                        data.skip_opaque()?; // gids
+                        ProtoNfs::skip_opaque(parser)?; // gids
                     },
                     2 => {  // RPCSEC_GSS
-                        data.skip_u32(1)?; // gcbp_service
-                        data.skip_opaque()?; // gcbp_handle_from_server
-                        data.skip_opaque()?; // gcbp_handle_from_client
+                        parser.skip_u32()?; // gcbp_service
+                        ProtoNfs::skip_opaque(parser)?; // gcbp_handle_from_server
+                        ProtoNfs::skip_opaque(parser)?; // gcbp_handle_from_client
                     }
-                    _ => { return None; },
+                    _ => { return Err(ParseErr::Invalid("Invalid cb_secflavor in create_session call")); },
                 }
             }
         }
@@ -505,420 +432,421 @@ impl ProtoNfs {
                 gid,
             };
 
-            let evt = Event::new(ts, EventPayload::NetNfsCreateSessionCall(evt_pload));
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsCreateSessionCall(evt_pload));
             evt.send();
         }
 
-        Some(())
+        Ok(())
 
     }
 
-    fn v4_create_session_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_create_session_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("CREATE_SESSION REPLY");
 
         if status != 0 {
             // Not OK
-            return Some(());
+            return Ok(());
         }
 
-        data.skip(NfsData::NFS4_SESSIONID_SIZE)?; // csr_sessionid
-        data.skip_u32(2)?; // csr_sequence, csr_flags
+        parser.skip(ProtoNfs::NFS4_SESSIONID_SIZE)?; // csr_sessionid
+        parser.skip_u32s(2)?; // csr_sequence, csr_flags
 
         { // csr_fore_chan_attrs
-            data.skip_u32(6);
-            let ca_rdma_ird_len = data.read_u32()? as usize;
+            parser.skip_u32s(6)?;
+            let ca_rdma_ird_len = parser.read_u32_be()? as usize;
             if ca_rdma_ird_len > 1 {
-                return None;
+                return Err(ParseErr::Invalid("ca_rdma_ird_len > 1 in create_session reply"));
             } else if ca_rdma_ird_len > 0 {
-                data.skip_u32(ca_rdma_ird_len)?;
+                parser.skip_u32s(ca_rdma_ird_len)?;
             }
         }
 
         { // csr_back_chan_attrs
-            data.skip_u32(6);
-            let ca_rdma_ird_len = data.read_u32()? as usize;
+            parser.skip_u32s(6)?;
+            let ca_rdma_ird_len = parser.read_u32_be()? as usize;
             if ca_rdma_ird_len > 1 {
-                return None;
+                return Err(ParseErr::Invalid("ca_rdma_ird_len > 1 in create_session reply"));
             } else if ca_rdma_ird_len > 0 {
-                data.skip_u32(ca_rdma_ird_len)?;
+                parser.skip_u32s(ca_rdma_ird_len)?;
             }
         }
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_sequence_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_sequence_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SEQUENCE CALL");
 
-        data.skip(NfsData::NFS4_SESSIONID_SIZE)?; // sa_sessionid
-        data.skip_u32(4)?; // sa_sequenceid, sa_slotid, sa_highest_slotid, sa_cachethis
+        parser.skip(ProtoNfs::NFS4_SESSIONID_SIZE)?; // sa_sessionid
+        parser.skip_u32s(4)?; // sa_sequenceid, sa_slotid, sa_highest_slotid, sa_cachethis
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_sequence_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_sequence_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SEQUENCE REPLY");
 
         if status != 0 {
             // Not OK
-            return Some(());
+            return Ok(());
         }
 
-        data.skip(NfsData::NFS4_SESSIONID_SIZE)?; // sr_sessionid
-        data.skip_u32(5)?; // sr_sequenceid, sr_slotid, sr_highest_slotid, sr_target_highest_slotid, sr_status_flags
+        parser.skip(ProtoNfs::NFS4_SESSIONID_SIZE)?; // sr_sessionid
+        parser.skip_u32s(5)?; // sr_sequenceid, sr_slotid, sr_highest_slotid, sr_target_highest_slotid, sr_status_flags
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_reclaim_complete_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_reclaim_complete_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
         trace!("RECLAIM_COMPLETE CALL");
 
-        data.skip_u32(1)?; // rca_one_fs
+        parser.skip_u32()?; // rca_one_fs
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_reclaim_complete_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_reclaim_complete_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("RECLAIM_COMPLETE REPLY");
-        Some(())
+        Ok(())
     }
 
-    fn v4_putrootfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_putrootfh_call<T: Parser>(&self, _xid: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("PUTROOTFH CALL");
-        Some(())
+        Ok(())
     }
 
-    fn v4_putrootfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_putrootfh_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("PUTROOTFH REPLY");
-        Some(())
+        Ok(())
     }
 
-    fn v4_getfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_getfh_call<T: Parser>(&self, _xid: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GETFH CALL");
-        Some(())
+        Ok(())
     }
 
-    fn v4_getfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_getfh_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GETFH REPLY");
 
         if status != 0 {
-            return Some(());
+            return Ok(());
         }
 
-        data.skip_opaque()?; // file handle
-        Some(())
+        ProtoNfs::skip_opaque(parser)?; // file handle
+        Ok(())
     }
 
-    fn v4_getattr_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_getattr_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GETATTR CALL");
 
-        let len = data.read_u32()? as usize;
-        data.skip_u32(len)?;
-        Some(())
+        let len = parser.read_u32_be()? as usize;
+        parser.skip_u32s(len)?;
+        Ok(())
     }
 
-    fn v4_getattr_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_getattr_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GETATTR REPLY");
 
         if status != 0 {
-            return Some(());
+            return Ok(());
         }
 
-        let attrmask_len = data.read_u32()? as usize;
-        data.skip_u32(attrmask_len)?; // attrmask
+        let attrmask_len = parser.read_u32_be()? as usize;
+        parser.skip_u32s(attrmask_len)?; // attrmask
 
-        data.skip_opaque()?; // attr_vals
+        ProtoNfs::skip_opaque(parser)?; // attr_vals
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_secinfo_no_name_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_secinfo_no_name_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SECINFO_NO_NAME CALL");
 
-        data.skip_u32(1)?; // SECINFO_NO_NAME4args
-        Some(())
+        parser.skip_u32()?; // SECINFO_NO_NAME4args
+        Ok(())
     }
 
-    fn v4_secinfo_no_name_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_secinfo_no_name_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SECINFO_NO_NAME REPLY");
-        data.skip_opaque()?; // SECINFO4res<>
-        Some(())
+        ProtoNfs::skip_opaque(parser)?; // SECINFO4res<>
+        Ok(())
     }
 
-    fn v4_putfh_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_putfh_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("PUTFH CALL");
 
-        data.skip_opaque()?;
-        Some(())
+        ProtoNfs::skip_opaque(parser)?;
+        Ok(())
     }
 
-    fn v4_putfh_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_putfh_reply<T: Parser>(&self, _xid: u32, _status: u32, _arser: &mut T) -> Result<(), ParseErr> {
 
         trace!("PUTFH REPLY");
-        Some(())
+        Ok(())
     }
 
-    fn v4_access_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_access_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("ACCESS CALL");
-        data.skip_u32(1)?;
-        Some(())
+        parser.skip_u32()?;
+        Ok(())
     }
 
-    fn v4_access_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_access_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("ACCESS REPLY");
-        data.skip_u32(2)?; // supported, access
-        Some(())
+        parser.skip_u32s(2)?; // supported, access
+        Ok(())
     }
 
-    fn v4_lookup_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_lookup_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("LOOKUP CALL");
-        data.skip_opaque()?; // objname
-        Some(())
+        ProtoNfs::skip_opaque(parser)?; // objname
+        Ok(())
     }
 
-    fn v4_lookup_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_lookup_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("LOOKUP REPLY");
-        Some(())
+        Ok(())
     }
 
-    fn v4_get_dir_delegation_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_get_dir_delegation_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GET_DIR_DELEGATION CALL");
-        data.skip_u32(1); // gdda_signal_deleg_avail
-        data.skip_opaque()?; // gdda_notification_types
-        data.skip_u64(1); // gdda_child_attr_delay seconds
-        data.skip_u32(1); // gdda_child_attr_delay nanos
-        data.skip_u64(1); // gdda_dir_attr_delay seconds
-        data.skip_u32(1); // gdda_dir_attr_delay nanos
-        data.skip_opaque()?; // gdda_child_attributes
-        data.skip_opaque()?; // gddr_dir_attributes
-        Some(())
+        parser.skip_u32()?; // gdda_signal_deleg_avail
+        ProtoNfs::skip_opaque(parser)?; // gdda_notification_types
+        parser.skip_u64()?; // gdda_child_attr_delay seconds
+        parser.skip_u32()?; // gdda_child_attr_delay nanos
+        parser.skip_u64()?; // gdda_dir_attr_delay seconds
+        parser.skip_u32()?; // gdda_dir_attr_delay nanos
+        ProtoNfs::skip_opaque(parser)?; // gdda_child_attributes
+        ProtoNfs::skip_opaque(parser)?; // gddr_dir_attributes
+        Ok(())
     }
 
-    fn v4_get_dir_delegation_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_get_dir_delegation_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GET_DIR_DELEGATION REPLY");
 
-        let gddrnf_status = data.read_u32()?; // gddrnf_status
+        let gddrnf_status = parser.read_u32_be()?; // gddrnf_status
 
         match gddrnf_status {
             0 => { // GDD4_OK
                 debug!("GET_DIR_DELEGATION GDD4_OK not implemented");
-                return None; // FIXME
+                // FIXME
+                return Err(ParseErr::Invalid("GET_DIR_DELEGATION GDD4_OK not implemented"));
             },
             1 => { // GDD4_UNAVAIL
-                data.skip_u32(1); // gddrnf_will_signal_deleg_avail
+                parser.skip_u32()?; // gddrnf_will_signal_deleg_avail
             },
-            _ => { return None; }
+            _ => { return Err(ParseErr::Invalid("Invalid gddrnf_status value in get_dir_delegation reply")); }
         }
 
 
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_readdir_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_readdir_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("READDIR CALL");
-        data.skip_u64(2)?; // cookie, cookieverf
-        data.skip_u32(2)?; // dircount, maxcount
-        let attrmask_len = data.read_u32()? as usize;
-        data.skip_u32(attrmask_len)?; // attrmask
-        Some(())
+        parser.skip_u64s(2)?; // cookie, cookieverf
+        parser.skip_u32s(2)?; // dircount, maxcount
+        let attrmask_len = parser.read_u32_be()? as usize;
+        parser.skip_u32s(attrmask_len)?; // attrmask
+        Ok(())
     }
 
-    fn v4_readdir_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_readdir_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("READDIR REPLY");
 
         if status != 0 {
-            return Some(());
+            return Ok(());
         }
 
-        data.skip(NfsData::NFS4_VERIFIER_SIZE)?; // cookieverf
+        parser.skip(ProtoNfs::NFS4_VERIFIER_SIZE)?; // cookieverf
 
         loop {
-            let present = data.read_u32()?;
+            let present = parser.read_u32_be()?;
             match present {
                 0 => break,
                 1 => {},
-                _ => { return None ; },
+                _ => { return Err(ParseErr::Invalid("Invalid 'present' value in readdir reply")) ; },
             }
 
-            data.skip_u64(1); // cookie
-            let name = data.read_opaque()?;
-            trace!("Found file {}", String::from_utf8_lossy(name));
+            parser.skip_u64()?; // cookie
+            let name = ProtoNfs::read_opaque(parser)?;
+            trace!("Found file {}", String::from_utf8_lossy(&name));
 
-            let attrmask_len = data.read_u32()? as usize;
-            data.skip_u32(attrmask_len)?; // attrmask
-            data.skip_opaque()?; // attr_vals
+            let attrmask_len = parser.read_u32_be()? as usize;
+            parser.skip_u32s(attrmask_len)?; // attrmask
+            ProtoNfs::skip_opaque(parser)?; // attr_vals
         }
 
-        data.skip_u32(1); // eof
+        parser.skip_u32()?; // eof
 
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_open_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_open_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("OPEN CALL");
-        data.skip_u32(3)?; // seqid, share_access, share_deny
-        data.skip_u64(1)?; // clientid
-        data.skip_opaque()?; // owner
-        data.skip_u32(2)?; // openhow, claim
+        parser.skip_u32s(3)?; // seqid, share_access, share_deny
+        parser.skip_u64()?; // clientid
+        ProtoNfs::skip_opaque(parser)?; // owner
+        parser.skip_u32s(2)?; // openhow, claim
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_open_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_open_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("OPEN REPLY");
 
         if status != 0 {
-            return Some(());
+            return Ok(());
         }
 
-        data.skip(16)?; // stateid
+        parser.skip(16)?; // stateid
 
-        data.skip_u32(1)?; // cinfo.atomic
-        data.skip_u64(2)?; // cinfo.before, cinfo.after
+        parser.skip_u32()?; // cinfo.atomic
+        parser.skip_u64s(2)?; // cinfo.before, cinfo.after
 
-        data.skip_u32(1)?; // rflags
-        data.skip_opaque()?; // attrset
+        parser.skip_u32()?; // rflags
+        ProtoNfs::skip_opaque(parser)?; // attrset
 
-        let delegation_type = data.read_u32()?; // delegation_type
+        let delegation_type = parser.read_u32_be()?; // delegation_type
         match delegation_type {
             0 => {}, // OPEN_DELEGATE_NONE
             1 => { // OPEN_DELEGATE_READ
-                data.skip(16)?; // stateid
-                data.skip_u32(1)?; // recall
+                parser.skip(16)?; // stateid
+                parser.skip_u32()?; // recall
 
-                data.skip_u32(3)?; // read.{type, flag, access_mask}
-                data.skip_opaque(); // read.who
+                parser.skip_u32s(3)?; // read.{type, flag, access_mask}
+                ProtoNfs::skip_opaque(parser)?; // read.who
             },
             2 => { // OPEN_DELEGATE_WRITE
 
-                data.skip(16)?; // stateid
-                data.skip_u32(1)?; // recall
+                parser.skip(16)?; // stateid
+                parser.skip_u32()?; // recall
 
-                data.skip_u32(3)?; // space_limit
+                parser.skip_u32s(3)?; // space_limit
 
-                data.skip_u32(3)?; // read.{type, flag, access_mask}
-                data.skip_opaque(); // read.who
+                parser.skip_u32s(3)?; // read.{type, flag, access_mask}
+                ProtoNfs::skip_opaque(parser)?; // read.who
             },
             3 => { // OPEN_DELEGATE_NONE_EXT
-                let ond_why = data.read_u32()?;
+                let ond_why = parser.read_u32_be()?;
                 match ond_why {
-                    0 | 1 => { data.skip_u32(1)?; }
+                    0 | 1 => { parser.skip_u32()?; }
                     _ => {}
                 }
             }
             _ => {
                 debug!("Unknown delegation type {}", delegation_type);
-                return None;
+                return Err(ParseErr::Invalid("Invalid delegation_type in open reply"));
             }
         }
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_read_plus_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_read_plus_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("READ_PLUS CALL");
 
-        data.skip(16); // rpa_stateid
-        data.skip_u64(1); // rpa_offset
-        data.skip_u32(1); // rpa_count
-        Some(())
+        parser.skip(16)?; // rpa_stateid
+        parser.skip_u64()?; // rpa_offset
+        parser.skip_u32()?; // rpa_count
+        Ok(())
     }
 
-    fn v4_read_plus_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_read_plus_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("READ_PLUS REPLY");
 
-        let eof = data.read_u32()? != 0; // eof
+        parser.skip_u32()?; // eof
 
-        let content_count = data.read_u32()?;
+        let content_count = parser.read_u32_be()?;
 
         for _ in 0..content_count {
-            let rpc_content = data.read_u32()?;
+            let rpc_content = parser.read_u32_be()?;
             match rpc_content {
                 0 => { // DATA
-                    let d_offset = data.read_u64()?;
-                    let d_length = data.read_u32()? as usize;
+                    let d_offset = parser.read_u64_be()?;
+                    let d_length = parser.read_u32_be()? as usize;
                     trace!("Got {} of data from READ_PLUS at offset {}", d_length, d_offset);
-                    data.skip(d_length)?;
+                    parser.skip(d_length)?;
                 },
 
                 1 => { // HOLE
-                    let di_offset = data.read_u64()?;
-                    let content = data.read_opaque()?;
+                    let di_offset = parser.read_u64_be()?;
+                    let content = ProtoNfs::read_opaque(parser)?;
                     trace!("Got hole in READ_PLUS, offset {}, length {}", di_offset, content.len());
                 },
                 _ => {
                     debug!("Unsupported content in READ_PLUS");
-                    return None;
+                    return Err(ParseErr::Invalid("Invalid rpc_content value in read_plus reply"));
                 }
             }
         }
 
-        Some(())
+        Ok(())
     }
 
-    fn v4_delegreturn_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_delegreturn_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DELEGRETURN CALL");
-        data.skip(16)?;
-        Some(())
+        parser.skip(16)?;
+        Ok(())
     }
 
-    fn v4_delegreturn_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_delegreturn_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DELEGRETURN REPLY");
-        Some(())
+        Ok(())
     }
 
-    fn v4_destroy_session_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_destroy_session_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_SESSION CALL");
-        data.skip(NfsData::NFS4_SESSIONID_SIZE)?;
-        Some(())
+        parser.skip(ProtoNfs::NFS4_SESSIONID_SIZE)?;
+        Ok(())
     }
 
-    fn v4_destroy_session_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_destroy_session_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_SESSION REPLY");
-        Some(())
+        Ok(())
     }
 
-    fn v4_destroy_client_id_call(&self, ts: PktTime, xid: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_destroy_client_id_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_CLIENT_ID CALL");
-        data.skip_u64(1)?;
-        Some(())
+        parser.skip_u64()?;
+        Ok(())
     }
 
-    fn v4_destroy_client_id_reply(&self, ts: PktTime, xid: u32, status: u32, data: &mut NfsData) -> Option<()> {
+    fn v4_destroy_client_id_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_CLIENT_ID REPLY");
-        Some(())
+        Ok(())
     }
 }

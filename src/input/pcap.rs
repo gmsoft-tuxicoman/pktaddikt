@@ -1,4 +1,4 @@
-use crate::packet::{Packet, PktTime, PktDataBorrowed, PktInfoStack};
+use crate::packet::{Packet, PktTime, PktInfoStack};
 use crate::proto::{Proto, Protocols};
 use crate::config::ConfigRef;
 use crate::input::InputConfig;
@@ -117,9 +117,8 @@ impl InputPcap {
         } {
 
             let ts = PktTime::from_timeval(pcap_pkt.header.ts.tv_sec, pcap_pkt.header.ts.tv_usec);
-            let pkt_data = PktDataBorrowed::new(pcap_pkt.data);
 
-            let mut pkt = Packet::new(ts, pkt_data);
+            let mut pkt = Packet::from_slice(ts, pcap_pkt.data);
             let mut infos = PktInfoStack::new(proto);
 
 

@@ -1,4 +1,5 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, ProtoInfo};
+use crate::base::{Parser, ParseErr};
+use crate::proto::{ProtoPktProcessor, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
 
 
@@ -18,16 +19,11 @@ impl ProtoIcmp {
 
 impl ProtoPktProcessor for ProtoIcmp {
 
-    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        let plen = pkt.remaining_len();
 
-        if plen < 8 {
-            return ProtoParseResult::Invalid;
-        }
-
-        let icmp_type = pkt.read_u8().unwrap();
-        let icmp_code = pkt.read_u8().unwrap();
+        let icmp_type = pkt.read_u8()?;
+        let icmp_code = pkt.read_u8()?;
 
         let info = infos.proto_last_mut();
 
@@ -38,7 +34,7 @@ impl ProtoPktProcessor for ProtoIcmp {
 
         info.proto_info = Some(ProtoInfo::Icmp(proto_info));
 
-        return ProtoParseResult::Ok;
+        Ok(())
     }
 
 }
@@ -47,18 +43,17 @@ impl ProtoPktProcessor for ProtoIcmp {
 mod tests {
 
     use super::*;
-    use crate::packet::{PktDataBorrowed, PktTime};
+    use crate::packet::PktTime;
     use crate::proto::Protocols;
 
     #[test]
     fn icmp_parse_basic() {
         let data = vec![0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Icmp);
 
         let ret = ProtoIcmp::new().process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Ok);
+        assert_eq!(ret, Ok(()));
 
         let info = infos.iter().next().unwrap();
 

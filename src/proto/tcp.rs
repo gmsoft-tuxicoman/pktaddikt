@@ -1,7 +1,8 @@
 mod seq;
 pub mod conntrack;
 
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols, ProtoInfo};
+use crate::base::{Parser, ParseErr};
+use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
@@ -9,7 +10,6 @@ use crate::config::ConfigRef;
 use crate::event::EventId;
 
 use std::time::Duration;
-use tracing:: debug;
 use serde::Deserialize;
 
 
@@ -86,55 +86,42 @@ impl ProtoTcp {
 
 impl ProtoPktProcessor for ProtoTcp {
 
-    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        let plen = pkt.remaining_len();
-        if plen < 20 { // length smaller than TCP header
-            debug!("Payload length smaller than TCP header in packet {:p}", pkt);
-            return ProtoParseResult::Invalid;
-        }
-
-        let hdr = pkt.read_bytes(20).unwrap();
-
-        let sport: u16 = (hdr[0] as u16) << 8 | (hdr[1] as u16);
-        let dport: u16 = (hdr[2] as u16) << 8 | (hdr[3] as u16);
-        let seq: u32 = (hdr[4] as u32) << 24 | (hdr[5] as u32) << 16 | (hdr[6] as u32) << 8 | (hdr[7] as u32);
-        let ack: u32 = (hdr[8] as u32) << 24 | (hdr[9] as u32) << 16 | (hdr[10] as u32) << 8 | (hdr[11] as u32);
-        let window: u16 = (hdr[14] as u16) << 8 | (hdr[15] as u16);
-        let flags: u8 = hdr[13];
+        let sport = pkt.read_u16_be()?;
+        let dport = pkt.read_u16_be()?;
+        let seq = pkt.read_u32_be()?;
+        let ack = pkt.read_u32_be()?;
+        let hdr_len = ((pkt.read_u8()? & 0xf0) >> 2) as usize;
+        let flags = pkt.read_u8()?;
+        let window = pkt.read_u16_be()?;
+        pkt.skip_u32()?; // cksum. urg ptr
 
         // Check if flags are somewhat valid
         let f_syn_fin_rst = flags & (TCP_TH_SYN | TCP_TH_FIN | TCP_TH_RST);
         if f_syn_fin_rst.count_ones() > 1 {
-            debug!("More than one SYN/FIN/RST at the same time in packet {:p}", pkt);
-            return ProtoParseResult::Invalid;
+            return Err(ParseErr::Invalid("More than one SYN/FIN/RST at the same time"));
         }
-
-        let hdr_len = ((hdr[12] & 0xf0) >> 2) as usize;
 
         if hdr_len < 20 {
             // Header length too small
-            debug!("Header length too small in packet {:p}", pkt);
-            return ProtoParseResult::Invalid;
+            return Err(ParseErr::Invalid("Header length too small"));
         }
 
-        if hdr_len > plen {
+        if (hdr_len - 20) > pkt.remaining_len() {
             // Header length bigger than payload size
-            debug!("Header length bigger than payload size in packet {:p}", pkt);
-            return ProtoParseResult::Invalid;
+            return Err(ParseErr::Invalid("Header length bigger than payload size"));
         }
 
         if hdr_len > 20 {
             // Skip options and padding
-            if pkt.skip_bytes((hdr_len - 20).into()) == Err(()) {
-                return ProtoParseResult::Invalid;
-            }
+            pkt.skip(hdr_len - 20)?;
         }
 
         if ((flags & TCP_TH_RST) != 0) && pkt.remaining_len() > 0 {
             // RFC 1122 4.2.2.12 : RST may contain the data that caused the packet to be sent,
             // discard it
-            pkt.shrink_remaining(0);
+            pkt.shrink(0);
         }
 
 
@@ -154,7 +141,7 @@ impl ProtoPktProcessor for ProtoTcp {
         // WIP, needs to be improved
         let next_proto = match ProtoTcp::next_proto(dport) {
             Protocols::None => ProtoTcp::next_proto(sport),
-            Protocols::Test => { return ProtoParseResult::Stop; },
+            Protocols::Test => return Err(ParseErr::Stop),
             proto => proto
         };
 
@@ -166,7 +153,7 @@ impl ProtoPktProcessor for ProtoTcp {
 
         let mut ce_locked = ce.lock().unwrap();
         let cd = ce_locked.get_or_insert_with(|| {
-            let conn_id = EventId::new(pkt.ts);
+            let conn_id = EventId::new(pkt.timestamp());
             infos.set_conn_id(conn_id);
             Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData })
 
@@ -188,10 +175,10 @@ impl ProtoPktProcessor for ProtoTcp {
             TcpState::Closed => self.cfg.proto.tcp.timeout_closed,
         };
 
-        ce_locked.set_timeout(Duration::from_secs(timeout), pkt.ts);
+        ce_locked.set_timeout(Duration::from_secs(timeout), pkt.timestamp());
 
 
-        ProtoParseResult::Stop
+        Err(ParseErr::Stop)
 
     }
 }
@@ -207,16 +194,15 @@ impl Drop for ProtoTcp {
 mod tests {
 
     use super::*;
-    use crate::packet::{PktTime, PktDataBorrowed};
+    use crate::packet::PktTime;
     use crate::proto::ProtoTest;
     use crate::config::Config;
     use crate::proto::ipv4::ProtoIpv4Info;
     use tracing_test::traced_test;
     use std::net::Ipv4Addr;
 
-    fn tcp_parse_test(proto: &mut ProtoTcp, data: &[u8]) -> ProtoParseResult {
-        let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+    fn tcp_parse_test(proto: &mut ProtoTcp, data: &[u8]) -> Result<(), ParseErr> {
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         proto.process(&mut pkt, &mut infos)
@@ -226,8 +212,7 @@ mod tests {
     #[test]
     fn tcp_parse_basic() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
         let info = infos.proto_last_mut();
 
@@ -243,7 +228,7 @@ mod tests {
         infos.proto_push(Protocols::Tcp, None);
 
         let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Stop);
+        assert_eq!(ret, Err(ParseErr::Stop));
 
         let check = infos.proto_from_last(1).unwrap();
 
@@ -261,30 +246,28 @@ mod tests {
     }
 
     #[test]
-    #[traced_test]
     fn tcp_packet_too_short() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00 ];
-        let ret = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
-        assert_eq!(ret, ProtoParseResult::Invalid);
-        assert!(logs_contain("Payload length smaller than TCP header"));
+        let ret= tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
+        assert_eq!(ret, Err(ParseErr::Truncated));
     }
 
     #[test]
-    #[traced_test]
     fn tcp_header_too_small() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x40, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let ret = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
-        assert_eq!(ret, ProtoParseResult::Invalid);
-        assert!(logs_contain("Header length too small"));
+        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data) else {
+            panic!("Unexpected success");
+        };
+        assert_eq!(ret.invalid_reason(), "Header length too small");
     }
 
     #[test]
-    #[traced_test]
     fn tcp_header_too_big() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x70, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let ret = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
-        assert_eq!(ret, ProtoParseResult::Invalid);
-        assert!(logs_contain("Header length bigger than payload size"));
+        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data) else {
+            panic!("Unexpected succes");
+        };
+        assert_eq!(ret.invalid_reason(), "Header length bigger than payload size");
     }
 
     #[test]
@@ -296,14 +279,13 @@ mod tests {
         let mut test = ProtoTest::new();
         test.add_expectation(&[ 0xdd ] , PktTime::from_micros(0));
 
-        let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
         let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Stop);
+        assert_eq!(ret, Err(ParseErr::Stop));
 
-        test.process(&mut pkt, &mut infos);
+        let _ = test.process(&mut pkt, &mut infos);
 
     }
 
@@ -311,9 +293,10 @@ mod tests {
     #[traced_test]
     fn tcp_packet_invalid_flags() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x07, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let ret = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
-        assert_eq!(ret, ProtoParseResult::Invalid);
-        assert!(logs_contain("More than one SYN/FIN/RST at the same time"));
+        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data) else {
+            panic!("Unexpected success");
+        };
+        assert_eq!(ret.invalid_reason(), "More than one SYN/FIN/RST at the same time");
     }
 
 }

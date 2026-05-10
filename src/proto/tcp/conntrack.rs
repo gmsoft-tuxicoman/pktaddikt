@@ -1,8 +1,8 @@
-
+use crate::base::Parser;
 use crate::conntrack::ConntrackDirection;
 use crate::proto::tcp::{TCP_TH_SYN, TCP_TH_ACK, TCP_TH_FIN, TCP_TH_RST};
 use crate::proto::tcp::seq::TcpSeq;
-use crate::packet::{Packet, PktTime, PktDataZero, PktInfoStack};
+use crate::packet::{Packet, PktTime, PktInfoStack};
 use crate::stream::PktStream;
 use crate::proto::{Protocols, ProtoInfo};
 use crate::event::{Event, EventId, EventPayload};
@@ -179,7 +179,7 @@ impl ConntrackTcp {
             // Discard empty FIN or RST packet
             return;
         }
-        trace!("Sending packet with ts {}", data.ts);
+        trace!("Sending packet with ts {}", data.timestamp());
         if self.stream.is_some() {
             self.stream.as_mut().unwrap().process_packet(dir, data);
         }
@@ -190,10 +190,10 @@ impl ConntrackTcp {
         let new_size = data.remaining_len();
         let new_data = match self.stream {
             Some(ref s) =>  match s.is_active() {
-                true => data.clone(),
-                false => data.clone_empty(),
+                true => data.to_owned(),
+                false => data.to_empty(),
             },
-            None => data.clone_empty(),
+            None => data.to_empty(),
         };
         let queue = self.get_dir_mut(dir);
         let old_pkt_opt = queue.pkts.insert(seq, TcpPacket {
@@ -313,7 +313,7 @@ impl ConntrackTcp {
 
         // Send the start event
         if self.start_ts.is_none() {
-            self.start_ts = Some(data.ts);
+            self.start_ts = Some(data.timestamp());
             let evt_pload = NetTcpConnectionStart {
                 conn_id: self.conn_id.clone(),
                 src_host: self.src_host,
@@ -322,12 +322,12 @@ impl ConntrackTcp {
                 dst_port: self.dst_port,
             };
 
-            let evt = Event::new(data.ts, EventPayload::NetTcpConnectionStart(evt_pload));
+            let evt = Event::new(data.timestamp(), EventPayload::NetTcpConnectionStart(evt_pload));
             evt.send();
         }
 
-        if self.last_ts < data.ts {
-            self.last_ts = data.ts;
+        if self.last_ts < data.timestamp() {
+            self.last_ts = data.timestamp();
         }
 
         let mut end_seq = seq + data.remaining_len() as u32;
@@ -431,7 +431,7 @@ impl ConntrackTcp {
             let dupe: usize = (cur_seq - seq).into();
 
             // Skip the part we know about
-            data.skip_bytes(dupe).unwrap();
+            data.skip(dupe).unwrap();
             seq += dupe as u32;
         }
 
@@ -512,7 +512,7 @@ impl ConntrackTcp {
                 if pkt.seq < cur_seq {
                     // Trim data
                     let dupe: usize = (cur_seq - pkt.seq).into();
-                    pkt.data.skip_bytes(dupe).unwrap();
+                    pkt.data.skip(dupe).unwrap();
                     pkt.seq += dupe as u32;
 
                 }
@@ -548,7 +548,7 @@ impl ConntrackTcp {
 
             if pkt.is_some() {
                 let mut pkt = pkt.unwrap();
-                trace!("Sending additional packet with ts {}, seq {:?} and ack {:?}", pkt.data.ts, pkt.seq, pkt.ack);
+                trace!("Sending additional packet with ts {}, seq {:?} and ack {:?}", pkt.data.timestamp(), pkt.seq, pkt.ack);
                 self.send_packet(dir, pkt.flags, &mut pkt.data, false);
                 tries = 2; // We unblocked some packets, let's keep trying in both directions
             }
@@ -574,7 +574,7 @@ impl ConntrackTcp {
         // Check if we have a gap in the forward direction
         if let Some(entry) = self.forward.pkts.first_entry() {
             let pkt = entry.get();
-            ts_fwd = Some(pkt.data.ts);
+            ts_fwd = Some(pkt.data.timestamp());
             if let Some(cur_seq) = self.forward.cur_seq {
                 gap_fwd = usize::from(pkt.seq - cur_seq)
             } else {
@@ -587,7 +587,7 @@ impl ConntrackTcp {
         // Check if we have a gap in the reverse direction
         if let Some(entry) = self.reverse.pkts.first_entry() {
             let pkt = entry.get();
-            ts_rev = Some(pkt.data.ts);
+            ts_rev = Some(pkt.data.timestamp());
             if let Some(cur_seq) = self.reverse.cur_seq {
                 gap_rev = usize::from(pkt.seq - cur_seq);
                 if gap_rev > 0 {
@@ -621,15 +621,13 @@ impl ConntrackTcp {
             trace!("Filling gap of {} bytes", gap);
 
             while gap > 0 {
-                let filler_len = match gap > PktDataZero::max_len() {
-                    true => PktDataZero::max_len(),
+                let filler_len = match gap > Packet::PKT_ZERO_MAX_LEN {
+                    true => Packet::PKT_ZERO_MAX_LEN,
                     false => gap,
 
                 };
 
-                let data = PktDataZero::new(filler_len);
-
-                self.send_packet(dir, 0, &mut Packet::new(ts, data), true);
+                self.send_packet(dir, 0, &mut Packet::from_zero(ts, filler_len), true);
 
                 gap -= filler_len;
             }
@@ -660,7 +658,6 @@ impl Drop for ConntrackTcp {
 mod tests {
 
     use super::*;
-    use crate::packet::PktDataOwned;
     use crate::proto::tcp::ProtoTcpInfo;
     use crate::proto::ipv4::ProtoIpv4Info;
     use tracing_test::traced_test;
@@ -700,8 +697,7 @@ mod tests {
 
     fn queue_pkt(ct: &mut ConntrackTcp, dir: ConntrackDirection, seq: u32, ack: u32, flags: u8, data: &[u8]) {
 
-        let pkt_data = PktDataOwned::new(&data);
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         ct.process_packet(dir, seq, ack, flags, &mut pkt, 0);
 
     }

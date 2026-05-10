@@ -1,4 +1,5 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, ProtoInfo};
+use crate::base::{Parser, ParseErr};
+use crate::proto::{ProtoPktProcessor, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::ethernet::ProtoEthernet;
 
@@ -23,16 +24,10 @@ impl ProtoVlan {
 
 impl ProtoPktProcessor for ProtoVlan {
 
-    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        let plen = pkt.remaining_len();
-
-        if plen < 4 {
-            return ProtoParseResult::Invalid;
-        }
-
-        let tci = pkt.read_u16().unwrap();
-        let eth_type = pkt.read_u16().unwrap();
+        let tci = pkt.read_u16_be()?;
+        let eth_type = pkt.read_u16_be()?;
 
 
         let priority = ((tci & 0xE000) >> 13) as u8;
@@ -52,7 +47,7 @@ impl ProtoPktProcessor for ProtoVlan {
 
         infos.proto_push(ProtoEthernet::next_proto(eth_type), None);
 
-        ProtoParseResult::Ok
+        Ok(())
     }
 }
 
@@ -60,18 +55,17 @@ impl ProtoPktProcessor for ProtoVlan {
 mod tests {
 
     use super::*;
-    use crate::packet::{PktDataBorrowed, PktTime};
+    use crate::packet::PktTime;
     use crate::proto::Protocols;
 
     #[test]
     fn vlan_parse_basic() {
         let data = vec![0x50, 0x0a, 0x81, 0x00];
-        let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Vlan);
 
         let ret = ProtoVlan::new().process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Ok);
+        assert_eq!(ret, Ok(()));
 
         let info = infos.iter().next().unwrap();
 

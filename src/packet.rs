@@ -1,8 +1,8 @@
+use crate::base::{Parser, ParseErr};
 use crate::proto::{Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackRef, ConntrackWeakRef, ConntrackDirection};
 use crate::event::EventId;
 use std::sync::Arc;
-use std::ops::Range;
 use tracing::trace;
 use rangemap::RangeSet;
 use std::fmt;
@@ -10,6 +10,7 @@ use std::time::Duration;
 use std::ops::{Add, Sub};
 use serde::{Serialize, Serializer};
 use std::net::IpAddr;
+use std::borrow::Cow;
 
 
 // Time in microsecond
@@ -209,277 +210,222 @@ impl PktInfo {
 
 }
 
-
-// Packet for all your packet needs
-pub struct Packet<'a> {
-    pub ts: PktTime,
-    data_range: Range<usize>,
-    pub data: PktDataType<'a>,
-}
-
-pub enum PktDataType<'a> {
-    Borrowed(PktDataBorrowed<'a>),
-    Owned(PktDataOwned),
-    Zero(PktDataZero),
-    Multipart(PktDataMultipart),
+#[derive(Debug)]
+pub enum PacketData<'a> {
+    Borrowed(&'a[u8]),
+    Owned(Arc<[u8]>),
+    OwnedVec(Arc<Vec<u8>>),
+    Zero(usize),
     Empty,
 }
 
-impl<'a> PktData for PktDataType<'a> {
+// A packet filled with 0
+static PKT_ZERO: [u8; Packet::PKT_ZERO_MAX_LEN] = [0; Packet::PKT_ZERO_MAX_LEN];
+impl<'a> PacketData<'a> {
 
-    fn data(&self) -> &[u8] {
+    fn as_slice(&self) -> &[u8] {
         match self {
-            Self::Borrowed(d) => d.data(),
-            Self::Owned(d) => d.data(),
-            Self::Zero(d) => d.data(),
-            Self::Multipart(d) => d.data(),
-            Self::Empty => { panic!("Tried to get data from empty packet"); },
+            PacketData::Owned(arc) => &arc,
+            PacketData::OwnedVec(vec) => &vec,
+            PacketData::Borrowed(b) => b,
+            PacketData::Zero(len) => &PKT_ZERO[0..*len],
+            PacketData::Empty => &[],
         }
     }
 
-    fn copy_or_clone(&self) -> PktDataType<'static> {
+    fn len(&self) -> usize {
         match self {
-            Self::Borrowed(d) => d.copy_or_clone(),
-            Self::Owned(d) => d.copy_or_clone(),
-            Self::Zero(d) => d.copy_or_clone(),
-            Self::Multipart(d) => d.copy_or_clone(),
-            Self::Empty => { panic!("Tried to copy data from empty packet"); },
+            PacketData::Owned(arc) => arc.len(),
+            PacketData::OwnedVec(vec) => vec.len(),
+            PacketData::Borrowed(b) => b.len(),
+            PacketData::Zero(len) => *len,
+            PacketData::Empty => 0,
         }
     }
+}
 
+// Packet for all your packet needs
+#[derive(Debug)]
+pub struct Packet<'a> {
+    ts: PktTime,
+    data: PacketData<'a>,
+    range: (usize, usize), // Use a tuple instead of Range because Range isn't Copy
 }
 
 
 impl<'a> Packet<'a> {
 
-    pub fn new(ts: PktTime, data: PktDataType<'a>) -> Self {
+    pub const PKT_ZERO_MAX_LEN :usize = 4096;
 
-        Packet {
-            ts: ts,
-            data_range: 0 .. data.data().len(),
-            data: data
+    pub fn from_slice(ts: PktTime, data: &'a [u8]) -> Self {
+        let pkt_data = PacketData::Borrowed(data);
+        let len = pkt_data.len();
+        Self {
+            ts,
+            data: pkt_data,
+            range: (0, len),
         }
-
     }
 
-    pub fn read_u8(&mut self) -> Option<u8> {
-        let byte = self.read_bytes(1)?;
-        Some(byte[0])
+
+    pub fn from_vec(ts: PktTime, data: Arc<Vec<u8>>) -> Self {
+        let pkt_data = PacketData::OwnedVec(data.clone());
+        let len = pkt_data.len();
+        Self {
+            ts,
+            data: pkt_data,
+            range: (0, len),
+        }
     }
 
-    pub fn read_u16(&mut self) -> Option<u16> {
-        let bytes = self.read_bytes(2)?;
-        Some((bytes[0] as u16) << 8 | (bytes[1] as u16))
+    pub fn from_zero(ts: PktTime, len: usize) -> Self {
+        let pkt_data = PacketData::Zero(len);
+        Self {
+            ts,
+            data: pkt_data,
+            range: (0, len),
+        }
     }
 
-    pub fn remaining_len(&self) -> usize {
-        self.data_range.end - self.data_range.start
+    pub fn to_owned(&self) -> Packet<'static> {
+        let pkt_data = match &self.data {
+            PacketData::Owned(arc) => PacketData::Owned(arc.clone()),
+            PacketData::OwnedVec(vec) => PacketData::OwnedVec(vec.clone()),
+            PacketData::Borrowed(b) => PacketData::Owned(Arc::from(*b)),
+            PacketData::Zero(len) => PacketData::Zero(*len),
+            PacketData::Empty => PacketData::Empty,
+        };
+        Packet {
+            ts: self.ts,
+            data: pkt_data,
+            range: self.range,
+        }
+    }
+
+    pub fn to_empty(&self) -> Packet<'static> {
+        Packet {
+            ts: self.ts,
+            data: PacketData::Empty,
+            range: self.range,
+        }
     }
 
     pub fn remaining_data(&mut self) -> &[u8] {
-        let data = self.data.data();
-        let ret = &data[self.data_range.start..self.data_range.end];
-        self.data_range.start = self.data_range.end;
-        ret
+        let remaining_data = &self.data.as_slice()[self.range.0 .. self.range.1];
+        self.range = (0, 0);
+        remaining_data
     }
 
     pub fn peek(&self) -> &[u8] {
-        &self.data.data()[self.data_range.start..self.data_range.end]
+        &self.data.as_slice()[self.range.0 .. self.range.1]
     }
 
-    pub fn skip_bytes(&mut self, size: usize) -> Result<(),()> {
-        trace!("Skipping {} bytes from pkt {}", size, self.ts);
-        if self.remaining_len() < size {
-            self.data_range.start = self.data_range.end;
-            return Err(());
+    #[inline]
+    pub fn shrink(&mut self, size: usize) {
+        assert!(self.remaining_len() >= size, "Trying to shrink a packet with a bigger or equal length!");
+        self.range.1 -= size;
+    }
+
+    #[inline]
+    // return a sub packet and mark the data as read
+    pub fn sub_packet(&mut self, size: usize) -> Result<Packet<'a>, ParseErr> {
+
+        if size == 0 {
+            return Err(ParseErr::Invalid("Requested packet with 0 size"));
         }
-        self.data_range.start += size;
-        return Ok(());
-    }
 
-    pub fn shrink_remaining(&mut self, new_size: usize) {
-        let new_end = new_size + self.data_range.start;
-        trace!("Shrinking data to {} (was {})", new_size, self.data_range.end - self.data_range.start);
-        assert!(self.data_range.end >= new_end, "Trying to shrink a packet with a bigger or equal length!");
-        self.data_range.end = new_end;
-    }
+        self.has_len(size)?;
 
-    pub fn read_bytes(&mut self, size: usize) -> Option<&[u8]> {
-
-        trace!("Reading {} bytes from pkt {} (off: {}, remaining len: {})", size, self.ts, self.data_range.start, self.data_range.end - self.data_range.start);
-        let data = self.data.data();
-        debug_assert!(data.len() >= self.data_range.end - self.data_range.start);
-        if self.data_range.start + size > self.data_range.end {
-            return None;
-        }
-        let bytes = &data[self.data_range.start ..(self.data_range.start + size)];
-        self.data_range.start += size;
-        Some(bytes)
-
-    }
-
-    pub fn clone(&self) -> Packet<'static> {
-
-        Packet {
+        let pkt_data = match &self.data {
+            PacketData::Owned(arc) => PacketData::Owned(arc.clone()),
+            PacketData::OwnedVec(vec) => PacketData::OwnedVec(vec.clone()),
+            PacketData::Borrowed(b) => PacketData::Borrowed(b),
+            PacketData::Zero(len) => PacketData::Zero(*len),
+            PacketData::Empty => PacketData::Empty,
+        };
+        let range = (self.range.0, self.range.0 + size);
+        self.range.0 += size;
+        Ok(Packet {
             ts: self.ts,
-            data: self.data.copy_or_clone(),
-            data_range: self.data_range.clone(),
-        }
-    }
-
-    /// Clone the packet metadata only. The actualy payload is replaced with PktDataZero
-    pub fn clone_empty(&self) -> Packet<'static> {
-        Packet {
-            ts: self.ts,
-            data: PktDataType::Empty,
-            data_range: self.data_range.clone(),
-        }
-    }
-
-}
-
-// Data of a packet
-pub trait PktData {
-
-    fn data(&self) -> &[u8];
-    fn copy_or_clone(&self) -> PktDataType<'static>;
-}
-
-// A packet with a reference to some data
-pub struct PktDataBorrowed<'a> {
-    data: &'a[u8]
-}
-
-impl<'a> PktDataBorrowed<'a> {
-
-    pub fn new(data: &'a[u8]) -> PktDataType<'a> {
-        PktDataType::Borrowed(PktDataBorrowed {
-           data: data
-        })
-    }
-}
-
-impl<'a> PktData for PktDataBorrowed<'a> {
-
-    fn data(&self) -> &'a [u8] {
-        &self.data
-    }
-
-    fn copy_or_clone(&self) -> PktDataType<'static> {
-        PktDataOwned::new(self.data)
-    }
-
-}
-
-
-// A packet with owned data
-pub struct PktDataOwned {
-    data: Arc<Vec<u8>>
-}
-
-impl PktDataOwned {
-    pub fn new_raw(data: &[u8]) -> PktDataOwned {
-        PktDataOwned {
-            data: Arc::new(data.to_vec())
-        }
-    }
-
-    pub fn new(data: &[u8]) -> PktDataType<'static> {
-        PktDataType::Owned(PktDataOwned::new_raw(data))
-    }
-}
-
-
-impl PktData for PktDataOwned {
-
-    fn data(&self) -> &[u8] {
-        &self.data
-    }
-
-    fn copy_or_clone(&self) -> PktDataType<'static> {
-        PktDataType::Owned(PktDataOwned {
-            data: self.data.clone()
-        })
-    }
-}
-
-// A packet filled with 0
-pub static PKT_ZERO_MAX_LEN :usize = 4096;
-static PKT_ZERO: [u8; PKT_ZERO_MAX_LEN] = [0; PKT_ZERO_MAX_LEN];
-pub struct PktDataZero {
-    len: usize,
-}
-
-impl PktDataZero {
-
-    pub fn new_raw(len: usize) -> Self {
-        assert!(len <= PKT_ZERO_MAX_LEN, "PktDataZero supports packets up to {} bytes only", PKT_ZERO_MAX_LEN);
-        PktDataZero {
-            len: len
-        }
-    }
-
-    pub fn new(len: usize) -> PktDataType<'static> {
-        PktDataType::Zero(PktDataZero::new_raw(len))
-    }
-
-    pub fn max_len() -> usize {
-        PKT_ZERO_MAX_LEN
-    }
-}
-
-impl PktData for PktDataZero {
-
-    fn data(&self) -> &[u8] {
-        &PKT_ZERO[..self.len]
-    }
-
-    fn copy_or_clone(&self) -> PktDataType<'static> {
-        PktDataType::Zero(PktDataZero {
-            len: self.len
+            data: pkt_data,
+            range: range,
         })
     }
 
+    #[inline]
+    pub fn read_skip(&mut self, size: usize, skip: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+        self.has_len(size + skip)?;
+        let chunk = Cow::Borrowed(&self.data.as_slice()[self.range.0 .. self.range.0 + size]);
+        self.range.0 += size + skip;
+        Ok(chunk)
+    }
 }
+
+impl Parser for Packet<'_> {
+
+    #[inline]
+    fn read(&mut self, size: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+        self.has_len(size)?;
+        let chunk = Cow::Borrowed(&self.data.as_slice()[self.range.0 .. self.range.0 + size]);
+        self.range.0 += size;
+        Ok(chunk)
+    }
+
+    #[inline]
+    fn read_fixed<const N: usize>(&mut self) -> Result<[u8; N], ParseErr> {
+        self.has_len(N)?;
+        let (chunk, _) = self.data.as_slice()[self.range.0 ..].split_first_chunk::<N>().ok_or(ParseErr::Truncated)?;
+        let ret: [u8; N] = *chunk;
+        self.range.0 += N;
+        Ok(ret)
+    }
+
+    #[inline]
+    fn remaining_len(&self) -> usize {
+        self.range.1 - self.range.0
+    }
+
+    #[inline]
+    fn skip(&mut self, size: usize) -> Result<(), ParseErr> {
+        self.has_len(size)?;
+        self.range.0 += size;
+        Ok(())
+    }
+
+    #[inline]
+    fn timestamp(&self) -> PktTime {
+        self.ts
+    }
+}
+
+
+
 
 // A packet created by multiple fragments
-pub struct PktDataMultipart {
-    data: Arc<Vec<u8>>, // Concatenated data
+pub struct PacketMultipart {
+    data: Vec<u8>, // Concatenated data
     ranges: RangeSet<usize>, // Info tracking about data
     tot_len: Option<usize> // Total expected length of the reassembled data
 
 }
 
 
-impl PktData for PktDataMultipart {
 
-    fn data(&self) -> &[u8] {
-        &self.data
-    }
+impl PacketMultipart {
 
-    fn copy_or_clone(&self) -> PktDataType<'static> {
-        PktDataType::Owned(PktDataOwned {
-            data: self.data.clone()
-        })
-    }
-
-}
-
-impl<'a,'b> PktDataMultipart {
-
-    pub fn new_raw(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            data: Arc::new(Vec::with_capacity(capacity)),
+            data: Vec::with_capacity(capacity),
             ranges: RangeSet::<usize>::new(),
             tot_len: None
         }
     }
 
-    pub fn new(capacity: usize) -> PktDataType<'a> {
-        PktDataType::Multipart(PktDataMultipart::new_raw(capacity))
+    pub fn take_data(self) -> Vec<u8> {
+        self.data
     }
 
-    pub fn add(&mut self, offset: usize, data: &'b [u8]) {
+    pub fn add(&mut self, offset: usize, data: &[u8]) {
         // This implementation only works for contiguous packets
         // Packets nested or not having proper boundaries will be dropped
 
@@ -494,24 +440,22 @@ impl<'a,'b> PktDataMultipart {
 
         // Copy the data into the buffer
 
-        let data_mut = Arc::get_mut(&mut self.data).expect("PktDataMultipart was cloned before it was complete");
 
-        if data_mut.len() == range.start {
+        if self.data.len() == range.start {
             // Most common case, we can simply append the data
-            data_mut.extend_from_slice(data);
+            self.data.extend_from_slice(data);
         } else {
             // Resize if needed then copy
-            if data_mut.len() < range.end {
-                data_mut.resize(range.end, 0)
+            if self.data.len() < range.end {
+                self.data.resize(range.end, 0)
             }
-            data_mut[range.start..range.end].copy_from_slice(data);
+            self.data[range.start..range.end].copy_from_slice(data);
         }
 
         trace!("Part {} -> {} added into multipart {:p}", range.start, range.end, self);
         self.ranges.insert(range);
 
     }
-
 
     pub fn set_expected_len(&mut self, tot_len: usize) {
 

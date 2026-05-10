@@ -1,4 +1,5 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols, ProtoInfo};
+use crate::base::{Parser, ParseErr};
+use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::packet::{Packet, PktInfoStack};
 use crate::config::ConfigRef;
@@ -51,64 +52,33 @@ impl ProtoIpv6 {
 
 impl ProtoPktProcessor for ProtoIpv6 {
 
-    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        let plen = pkt.remaining_len();
-        if plen < 40 {
-            return ProtoParseResult::Invalid;
+        let ver_tc_flow = pkt.read_u32_be()?;
+        if ver_tc_flow >> 28 != 6 { // not IP version 6
+            return Err(ParseErr::Invalid("IP version is not 6"));
         }
 
-        let hdr = pkt.read_bytes(40).unwrap();
-
-        if hdr[0] >> 4 != 6 { // not IP version 6
-            return ProtoParseResult::Invalid;
-        }
-
-        let tot_len: u32 = (((hdr[4] as u32) << 8) | (hdr[5] as u32)) + 40;
-
-        let src = Ipv6Addr::new((hdr[8] as u16) << 8 | (hdr[9] as u16),
-                                (hdr[10] as u16) << 8 | (hdr[11] as u16),
-                                (hdr[12] as u16) << 8 | (hdr[13] as u16),
-                                (hdr[14] as u16) << 8 | (hdr[15] as u16),
-                                (hdr[16] as u16) << 8 | (hdr[17] as u16),
-                                (hdr[18] as u16) << 8 | (hdr[19] as u16),
-                                (hdr[20] as u16) << 8 | (hdr[21] as u16),
-                                (hdr[22] as u16) << 8 | (hdr[23] as u16));
-        let dst = Ipv6Addr::new((hdr[24] as u16) << 8 | (hdr[25] as u16),
-                                (hdr[26] as u16) << 8 | (hdr[27] as u16),
-                                (hdr[28] as u16) << 8 | (hdr[29] as u16),
-                                (hdr[30] as u16) << 8 | (hdr[31] as u16),
-                                (hdr[32] as u16) << 8 | (hdr[33] as u16),
-                                (hdr[34] as u16) << 8 | (hdr[35] as u16),
-                                (hdr[36] as u16) << 8 | (hdr[37] as u16),
-                                (hdr[38] as u16) << 8 | (hdr[39] as u16));
-
-        let hop_limit = hdr[7];
+        let tot_len = pkt.read_u32_be()?;
+        let mut nhdr = pkt.read_u8()?;
+        let hop_limit = pkt.read_u8()?;
+        let src = pkt.read_ipv6()?;
+        let dst = pkt.read_ipv6()?;
 
 
-        let mut nhdr_type: u8 = hdr[6];
+
 
         loop {
-            nhdr_type = match nhdr_type {
+            nhdr = match nhdr {
                 0  |  // HOPOPTS
                 43 |  // ROUTING
                 44 |  // FRAGMENT (TODO)
                 60 => { // DSTOPTS
                     // Read header length
-                    let nhdr_len = pkt.read_u8();
-                    if nhdr_len == None {
-                        return ProtoParseResult::Invalid;
-                    }
+                    let nhdr_len = pkt.read_u8()?;
                     // Skip header
-                    if pkt.skip_bytes(nhdr_len.unwrap() as usize) == Err(()) {
-                        return ProtoParseResult::Invalid;
-                    }
-                    // Read next header value
-                    let nhdr_type_opt = pkt.read_u8();
-                    if nhdr_type_opt == None {
-                        return ProtoParseResult::Invalid;
-                    }
-                    nhdr_type_opt.unwrap()
+                    pkt.skip(nhdr_len as usize)?;
+                    pkt.read_u8()?
                 }
 
                 _ => {
@@ -123,7 +93,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
             src,
             dst,
             hop_limit,
-            proto: nhdr_type,
+            proto: nhdr,
         };
 
         info.proto_info = Some(ProtoInfo::Ipv6(proto_info));
@@ -132,7 +102,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
         let a = src.to_bits();
         let b = dst.to_bits();
 
-        let next_proto = match nhdr_type {
+        let next_proto = match nhdr {
             4 => Protocols::Ipv4,
             6 => Protocols::Tcp,
             17 => Protocols::Udp,
@@ -144,7 +114,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
         if next_proto == Protocols::None {
             // Cut short processing if we don't know what the next proto is
             infos.proto_push(next_proto, None);
-            return ProtoParseResult::Ok;
+            return Ok(());
         }
 
         let ct_key = ConntrackKeyIpv6 { a: ((a >> 8) as u64) ^ (a as u64) , b: ((b >> 8) as u64) ^ (b as u64) };
@@ -154,12 +124,11 @@ impl ProtoPktProcessor for ProtoIpv6 {
         let mut ce_locked = ce.lock().unwrap();
 
         match ce_locked.has_children() {
-            true => ce_locked.set_timeout(Duration::ZERO, pkt.ts),
-            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.ipv6.conntrack_timeout), pkt.ts)
+            true => ce_locked.set_timeout(Duration::ZERO, pkt.timestamp()),
+            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.ipv6.conntrack_timeout), pkt.timestamp())
         }
 
-
-        ProtoParseResult::Ok
+        Ok(())
 
     }
 

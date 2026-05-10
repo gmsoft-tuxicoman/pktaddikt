@@ -10,6 +10,7 @@ use crossbeam_channel;
 use serde::{Serialize, Serializer};
 use tracing::{debug, trace};
 use std::ops::Deref;
+use std::borrow::Cow;
 
 
 static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
@@ -293,5 +294,14 @@ impl From<Vec<u8>> for EventStr {
 impl From<&[u8]> for EventStr {
     fn from(s: &[u8]) -> Self {
         EventStr(s.to_vec())
+    }
+}
+
+impl From<Cow<'_, [u8]>> for EventStr {
+    fn from(cow: Cow<'_, [u8]>) -> Self {
+        match cow {
+            Cow::Borrowed(bytes) => EventStr::from(bytes),
+            Cow::Owned(vec) => EventStr::from(vec),
+        }
     }
 }

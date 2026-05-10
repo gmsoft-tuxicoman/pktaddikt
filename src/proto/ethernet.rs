@@ -1,4 +1,5 @@
-use crate::proto::{ProtoPktProcessor, Protocols, ProtoParseResult, ProtoInfo};
+use crate::base::{Parser, ParseErr};
+use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
 
 
@@ -45,15 +46,11 @@ impl ProtoEthernet {
 
 impl ProtoPktProcessor for ProtoEthernet {
 
-    fn process(&mut self, pkt: &mut Packet, stack: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, stack: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        if pkt.remaining_len() < 14 {
-            return ProtoParseResult::Invalid;
-        }
-
-        let src: EthernetMac = pkt.read_bytes(6).unwrap().try_into().unwrap();
-        let dst: EthernetMac = pkt.read_bytes(6).unwrap().try_into().unwrap();
-        let eth_type = pkt.read_u16().unwrap();
+        let src = EthernetMac(pkt.read_fixed::<6>()?);
+        let dst = EthernetMac(pkt.read_fixed::<6>()?);
+        let eth_type = pkt.read_u16_be()?;
 
         let info = stack.proto_last_mut();
 
@@ -68,7 +65,7 @@ impl ProtoPktProcessor for ProtoEthernet {
 
         stack.proto_push(ProtoEthernet::next_proto(eth_type), None);
 
-        ProtoParseResult::Ok
+        Ok(())
 
     }
 
@@ -79,17 +76,16 @@ impl ProtoPktProcessor for ProtoEthernet {
 mod tests {
 
     use super::*;
-    use crate::packet::{PktTime, PktDataBorrowed};
+    use crate::packet::PktTime;
 
     #[test]
     fn ethernet_parse_basic() {
         let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE, 0xEF, 0x01, 0x02, 0x03];
-        let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Ethernet);
 
         let ret = ProtoEthernet::new().process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Ok);
+        assert_eq!(ret, Ok(()));
 
         let info = infos.iter().next().unwrap();
 
@@ -106,11 +102,10 @@ mod tests {
     #[test]
     fn ethernet_too_short() {
         let data = vec![ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0xBE];
-        let pkt_data = PktDataBorrowed::new(&data);
-        let mut pkt = Packet::new(PktTime::from_micros(0), pkt_data);
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Ethernet);
 
         let ret = ProtoEthernet::new().process(&mut pkt, &mut infos);
-        assert_eq!(ret, ProtoParseResult::Invalid);
+        assert_eq!(ret, Err(ParseErr::Truncated));
     }
 }

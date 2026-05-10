@@ -1,4 +1,5 @@
-use crate::proto::{ProtoPktProcessor, ProtoParseResult, Protocols, ProtoInfo};
+use crate::base::{Parser, ParseErr};
+use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection};
 use crate::packet::{Packet, PktInfoStack, PktTime};
 use crate::config::ConfigRef;
@@ -103,27 +104,22 @@ impl ProtoUdp {
 
 impl ProtoPktProcessor for ProtoUdp {
 
-    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> ProtoParseResult {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        let plen = pkt.remaining_len();
-        if plen < 9 { // length smaller than UDP header and 1 byte of data
-            return ProtoParseResult::Invalid;
-        }
 
-        let hdr = pkt.read_bytes(8).unwrap();
 
-        let sport: u16 = (hdr[0] as u16) << 8 | (hdr[1] as u16);
-        let dport: u16 = (hdr[2] as u16) << 8 | (hdr[3] as u16);
-        let tot_len: u16 = (hdr[4] as u16) << 8 | (hdr[5] as u16);
+        let sport: u16 = pkt.read_u16_be()?;
+        let dport: u16 = pkt.read_u16_be()?;
+        let tot_len: u16 = pkt.read_u16_be()?;
+        pkt.skip_u16()?; // checksum
 
 
         let data_len = (tot_len as usize) - 8;
-        if data_len > pkt.remaining_len() {
-            // Stop processing if payload is not complete
-            return ProtoParseResult::Stop;
-        } else if data_len < pkt.remaining_len() {
+        pkt.has_len(data_len)?;
+
+        if data_len < pkt.remaining_len() {
             // Shrink remaining payload to advertised size
-            pkt.shrink_remaining(data_len);
+            pkt.shrink(data_len);
         }
 
         let info = infos.proto_last_mut();
@@ -152,12 +148,12 @@ impl ProtoPktProcessor for ProtoUdp {
         let mut ce_locked = ce.lock().unwrap();
 
         match ce_locked.has_children() {
-            true => ce_locked.set_timeout(Duration::ZERO, pkt.ts),
-            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.udp.conntrack_timeout), pkt.ts)
+            true => ce_locked.set_timeout(Duration::ZERO, pkt.timestamp()),
+            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.udp.conntrack_timeout), pkt.timestamp())
         }
 
 
-        let conn_id = EventId::new(pkt.ts);
+        let conn_id = EventId::new(pkt.timestamp());
         let cd = ce_locked.get_or_insert_with(||
             {
                 let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
@@ -179,7 +175,7 @@ impl ProtoPktProcessor for ProtoUdp {
                         tot_pkts: 0,
                     },
                     conn_id: conn_id.clone(),
-                    start_ts: pkt.ts,
+                    start_ts: pkt.timestamp(),
                     last_ts: PktTime::from_micros(0),
                     src_port: sport,
                     dst_port: dport,
@@ -206,7 +202,7 @@ impl ProtoPktProcessor for ProtoUdp {
 
         ).downcast_mut::<ConntrackUdp>().unwrap();
 
-        cd.last_ts = pkt.ts;
+        cd.last_ts = pkt.timestamp();
         infos.set_conn_id(conn_id);
 
         let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
@@ -226,7 +222,7 @@ impl ProtoPktProcessor for ProtoUdp {
 
         }
 
-        ProtoParseResult::Ok
+        Ok(())
 
     }
 }

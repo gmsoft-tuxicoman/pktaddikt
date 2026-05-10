@@ -59,7 +59,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
             return Err(ParseErr::Invalid("IP version is not 6"));
         }
 
-        let tot_len = pkt.read_u32_be()?;
+        let tot_len = pkt.read_u16_be()?;
         let mut nhdr = pkt.read_u8()?;
         let hop_limit = pkt.read_u8()?;
         let src = pkt.read_ipv6()?;
@@ -134,3 +134,33 @@ impl ProtoPktProcessor for ProtoIpv6 {
 
 }
 
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::packet::PktTime;
+    use crate::config::Config;
+
+    #[test]
+    fn ipv6_parse_basic() {
+        let data = vec![ 0x60, 0x00, 0x00, 0x00, 0x00, 0x01, 0x11, 0x2A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0xFF ];
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
+        let mut infos = PktInfoStack::new(Protocols::Ipv6);
+
+        let ret = ProtoIpv6::new(Config::new()).process(&mut pkt, &mut infos);
+        assert_eq!(ret, Ok(()));
+
+        let info = infos.iter().next().unwrap();
+
+        let expected = ProtoInfo::Ipv6(ProtoIpv6Info {
+            src: Ipv6Addr::new(0x0102, 0x0304, 0x0506, 0x0708, 0x090A, 0x0B0C, 0x0D0E, 0x0F10),
+            dst: Ipv6Addr::new(0x1112, 0x1314, 0x1516, 0x1718, 0x191A, 0x1B1C, 0x1D1E, 0x1F20),
+            hop_limit: 42,
+            proto: 17,
+        });
+
+        assert_eq!(info.proto_info, Some(expected));
+    }
+
+}

@@ -164,27 +164,23 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
 
         let mut ret = Vec::new();
 
-        if pkt_id > 1 {
-            // Consume all the buffers
-            for _ in 0 .. pkt_id - 1 {
-                let p = self.pkt_buff.remove(0);
-                ret.extend_from_slice(p.peek());
-            }
+        // Consume all the buffers
+        for _ in 0 .. pkt_id {
+            let p = self.pkt_buff.remove(0);
+            ret.extend_from_slice(p.peek());
         }
 
         if pkt_id == fake_id {
             // Use self.pkt for last data
-            ret.extend_from_slice(&self.pkt.read(off).unwrap());
+            ret.extend_from_slice(&self.pkt.read_skip(off, 1).unwrap());
         } else {
             // Use first packet left in the buffer
-            ret.extend_from_slice(&self.pkt_buff[0].read(off).unwrap());
+            ret.extend_from_slice(&self.pkt_buff[0].read_skip(off, 1).unwrap());
             if self.pkt_buff[0].remaining_len() == 0 {
                 self.pkt_buff.remove(0);
             }
 
         }
-
-        ret.pop(); // Remove \n
 
         if ret.len() > 1 && ret[ret.len() - 1] == b'\r' {
             ret.pop(); // Remove \r
@@ -414,3 +410,319 @@ impl PktSubStream {
 
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pktstreamparser_read() {
+
+        // Create 3 packets of 5 bytes each
+        let data1 = vec![ 1u8; 5 ];
+        let mut pkt1 = Packet::from_slice(PktTime::from_micros(0), &data1);
+        let data2 = vec![ 2u8; 5 ];
+        let mut pkt2 = Packet::from_slice(PktTime::from_micros(0), &data2);
+        let data3 = vec![ 3u8; 5 ];
+        let mut pkt3 = Packet::from_slice(PktTime::from_micros(0), &data3);
+        let data4 = vec![ 4u8; 5 ];
+        let mut pkt4 = Packet::from_slice(PktTime::from_micros(0), &data4);
+        let data5 = vec![ 5u8; 5 ];
+        let mut pkt5 = Packet::from_slice(PktTime::from_micros(0), &data5);
+        let data6 = vec![ 6u8; 5 ];
+        let mut pkt6 = Packet::from_slice(PktTime::from_micros(0), &data6);
+
+        let mut stream = PktSubStream::new();
+
+        {
+            let mut parser = stream.add_packet(&mut pkt1);
+            // Read first 4 bytes to test the fast path
+            let out = parser.read(4).unwrap();
+            assert_eq!(out.as_ref(), [1u8; 4]);
+
+            // Trying to read 4 more bytes should fail
+            let ret = parser.read(4);
+            assert_eq!(ret, Err(ParseErr::Truncated));
+        }
+
+        // Going out of scope so that the packet is added in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt2);
+            // We should have 6 bytes in the buffer, read 3 bytes using the slow path
+            let out = parser.read(3).unwrap();
+            assert_eq!(out.as_ref(), [ 1u8, 2u8, 2u8]);
+
+            // Test read fixed on 2 bytes using the fast path
+            let out = parser.read_fixed::<2>().unwrap();
+            assert_eq!(out.as_ref(), [ 2u8, 2u8 ]);
+        }
+
+        // Going out of scope, pkt1 should be discarded and pkt2 should be in the buffer
+        assert_eq!(stream.buff.len(), 1);
+        {
+            let mut parser = stream.add_packet(&mut pkt3);
+            // Test read fixed on 2 bytes using the slow path
+            let out = parser.read_fixed::<2>().unwrap();
+            assert_eq!(out.as_ref(), [ 2u8, 3u8 ]);
+        }
+
+        // We should have only pkt3 in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt4);
+
+            // Skip one byte from the buffer in the slow path
+            parser.skip(1).unwrap();
+            // Read one byte fixed lengh
+            let out = parser.read_fixed::<1>().unwrap();
+            assert_eq!(out.as_ref(), [3u8]);
+        }
+
+        // We should have pkt3 and 4 in the buffer
+        assert_eq!(stream.buff.len(), 2);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt5);
+            // Test to skip one byte
+            let out = parser.read(3).unwrap();
+            assert_eq!(out.as_ref(), [3u8, 3u8, 4u8]);
+            let out = parser.read_fixed::<6>().unwrap();
+            assert_eq!(out.as_ref(), [4u8, 4u8, 4u8, 4u8, 5u8, 5u8]);
+        }
+
+        // We should have pkt5 in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt6);
+            let out = parser.read(8).unwrap();
+            assert_eq!(out.as_ref(), [5u8, 5u8, 5u8, 6u8, 6u8, 6u8, 6u8, 6u8]);
+        }
+
+        // Buffer should be empty
+        assert_eq!(stream.buff.len(), 0);
+    }
+
+    #[test]
+    fn pktstreamparser_skip() {
+
+        // Create 3 packets of 5 bytes each
+        let data1 = vec![ 1u8; 5 ];
+        let mut pkt1 = Packet::from_slice(PktTime::from_micros(0), &data1);
+        let data2 = vec![ 2u8; 5 ];
+        let mut pkt2 = Packet::from_slice(PktTime::from_micros(0), &data2);
+        let data3 = vec![ 3u8; 5 ];
+        let mut pkt3 = Packet::from_slice(PktTime::from_micros(0), &data3);
+
+        let mut stream = PktSubStream::new();
+
+        {
+            let mut parser = stream.add_packet(&mut pkt1);
+            assert_eq!(parser.remaining_len(), 5);
+            parser.skip(4).unwrap();
+
+        }
+
+        // Going out of scope so that the packet is added in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt2);
+            parser.skip(3).unwrap();
+
+        }
+
+        // Going out of scope, pkt1 and pkt2 should be in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt3);
+            parser.skip(8).unwrap();
+        }
+
+        // Buffer should be empty
+        assert_eq!(stream.buff.len(), 0);
+    }
+
+    #[test]
+    fn pktstreamparser_peek() {
+
+        // Create 3 packets of 5 bytes each
+        let data1 = vec![ 1u8; 5 ];
+        let mut pkt1 = Packet::from_slice(PktTime::from_micros(0), &data1);
+        let data2 = vec![ 2u8; 5 ];
+        let mut pkt2 = Packet::from_slice(PktTime::from_micros(0), &data2);
+
+        let mut stream = PktSubStream::new();
+
+        {
+            let parser = stream.add_packet(&mut pkt1);
+            // Peek on fast path, should return the whole packet
+            let out = parser.peek(4).unwrap();
+            assert_eq!(out.as_ref(), [1u8; 5]);
+
+            // Peek longer than packet, should fail
+            let ret = parser.peek(6);
+            assert_eq!(ret, Err(ParseErr::Truncated));
+
+        }
+
+        // Going out of scope so that the packet is added in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let parser = stream.add_packet(&mut pkt2);
+            // Peek on slow path only on the first buffer, should return previous packet
+            let out = parser.peek(4).unwrap();
+            assert_eq!(out.as_ref(), [1u8; 5]);
+
+            // Peek longer than first packet, it will allocate and return first 2 packets
+            let out = parser.peek(6).unwrap();
+            assert_eq!(out.as_ref(), [1u8, 1u8, 1u8, 1u8, 1u8, 2u8, 2u8, 2u8, 2u8, 2u8]);
+
+            // Nothing should have been consume
+            assert_eq!(parser.remaining_len(), 10);
+        }
+
+        // We should have the 2 packets in the buffer since we did not consume them
+        assert_eq!(stream.buff.len(), 2);
+
+    }
+
+    #[test]
+    fn pktstreamparser_readline() {
+
+        let data1 = b"First line\nSecond";
+        let mut pkt1 = Packet::from_slice(PktTime::from_micros(0), data1);
+        let data2 = b" line\r\nThird line\r";
+        let mut pkt2 = Packet::from_slice(PktTime::from_micros(0), data2);
+        let data3 = b"\nFourth li";
+        let mut pkt3 = Packet::from_slice(PktTime::from_micros(0), data3);
+        let data4 = b"n";
+        let mut pkt4 = Packet::from_slice(PktTime::from_micros(0), data4);
+        let data5 = b"e\nFift ";
+        let mut pkt5 = Packet::from_slice(PktTime::from_micros(0), data5);
+        let data6 = b"line\n";
+        let mut pkt6 = Packet::from_slice(PktTime::from_micros(0), data6);
+        let data7 = b"No line";
+        let mut pkt7 = Packet::from_slice(PktTime::from_micros(0), data7);
+
+        let mut stream = PktSubStream::new();
+
+        {
+            let mut parser = stream.add_packet(&mut pkt1);
+            // Fast path
+            let out = parser.readline().unwrap();
+            assert_eq!(out.as_ref(), b"First line");
+
+            let ret = parser.readline();
+            assert_eq!(ret, Err(ParseErr::Truncated));
+        }
+
+        // One packet in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt2);
+            let out = parser.readline().unwrap();
+            assert_eq!(out.as_ref(), b"Second line");
+
+            let ret = parser.readline();
+            assert_eq!(ret, Err(ParseErr::Truncated));
+        }
+
+        // One packet in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt3);
+            let out = parser.readline().unwrap();
+            assert_eq!(out.as_ref(), b"Third line");
+        }
+
+        // One packet in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt4);
+
+            // Line not complete in pkt4
+            let ret = parser.readline();
+            assert_eq!(ret, Err(ParseErr::Truncated));
+        }
+
+        // Two packets in the buffer
+        assert_eq!(stream.buff.len(), 2);
+        {
+            let mut parser = stream.add_packet(&mut pkt5);
+
+            let out = parser.readline().unwrap();
+            assert_eq!(out.as_ref(), b"Fourth line");
+
+        }
+
+        // One packet in the buffer
+        assert_eq!(stream.buff.len(), 1);
+
+        {
+            // Do nothing so that the packet gets queued
+            stream.add_packet(&mut pkt6);
+        }
+
+        // Two packets in the buffer
+        assert_eq!(stream.buff.len(), 2);
+
+        {
+            let mut parser = stream.add_packet(&mut pkt7);
+
+            let out = parser.readline().unwrap();
+            assert_eq!(out.as_ref(), b"Fift line");
+
+            // No more new line
+            let ret = parser.readline();
+            assert_eq!(ret, Err(ParseErr::Truncated));
+        }
+
+    }
+
+    #[test]
+    fn pktstreamparser_subpacket() {
+
+        // Create 3 packets of 5 bytes each
+        let data1 = vec![ 1u8; 5 ];
+        let mut pkt1 = Packet::from_slice(PktTime::from_micros(0), &data1);
+        let data2 = vec![ 2u8; 5 ];
+        let mut pkt2 = Packet::from_slice(PktTime::from_micros(0), &data2);
+        let data3 = vec![ 3u8; 5 ];
+        let mut pkt3 = Packet::from_slice(PktTime::from_micros(0), &data3);
+
+        let mut stream = PktSubStream::new();
+
+        {
+            let mut parser = stream.add_packet(&mut pkt1);
+            let subpkt = parser.sub_packet(3).unwrap();
+            assert_eq!(subpkt.peek(), [ 1u8, 1u8, 1u8]);
+        }
+
+        {
+            let mut parser = stream.add_packet(&mut pkt2);
+            // Try to create a packet bigger than current buffer
+            let Err(ret) = parser.sub_packet(10) else {
+                panic!("Supposed to error out");
+            };
+            assert_eq!(ret, ParseErr::Truncated);
+        }
+
+        {
+            let mut parser = stream.add_packet(&mut pkt3);
+            let subpkt = parser.sub_packet(5).unwrap();
+            assert_eq!(subpkt.peek(), [ 1u8, 1u8, 2u8, 2u8, 2u8]);
+
+            assert_eq!(parser.remaining_len(), 7);
+        }
+
+    }
+}

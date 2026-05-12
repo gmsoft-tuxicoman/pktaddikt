@@ -97,6 +97,7 @@ impl ProtoUdp {
     fn next_proto(port: u16) -> Protocols {
         match port {
             53 => Protocols::Dns,
+            111 | 2049 => Protocols::SunRpc,
             _ => Protocols::None
         }
     }
@@ -105,8 +106,6 @@ impl ProtoUdp {
 impl ProtoPktProcessor for ProtoUdp {
 
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
-
-
 
         let sport: u16 = pkt.read_u16_be()?;
         let dport: u16 = pkt.read_u16_be()?;

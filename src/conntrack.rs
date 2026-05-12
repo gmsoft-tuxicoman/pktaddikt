@@ -1,12 +1,14 @@
+use crate::timer::{TimerManager, TimerId, TimerCb};
+use crate::packet::PktTime;
+
 use std::sync::{Arc, Weak, Mutex};
 use std::any::Any;
 use tracing::trace;
 use std::time::Duration;
 use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
+use std::collections::HashMap;
 
-use crate::timer::{TimerManager, TimerId, TimerCb};
-use crate::packet::PktTime;
 
 
 pub type ConntrackRef = Arc<Mutex<Conntrack>>;
@@ -92,6 +94,41 @@ struct ConntrackEntry<K: ConntrackKey> {
 pub struct ConntrackTable<K: ConntrackKey> {
     entries: Arc<Vec<Mutex<ConntrackList<K>>>>,
     next_id: AtomicU64,
+}
+
+pub struct ConntrackTableUnique {
+    entries: Arc<Mutex<HashMap<usize, ConntrackRef>>>
+}
+
+impl ConntrackTableUnique {
+
+    pub fn new() -> Self {
+        Self {
+            entries: Arc::new(Mutex::new(HashMap::new()))
+        }
+    }
+
+    pub fn get(&self, parent: (ConntrackWeakRef, ConntrackDirection)) -> (ConntrackRef, ConntrackDirection) {
+
+        let mut entries_locked = self.entries.lock().unwrap();
+        let key = parent.0.as_ptr() as usize;
+        let ce = entries_locked.entry(key).or_insert_with(|| {
+
+            let entries = self.entries.clone();
+            let cleanup_cb = Arc::new(move || {
+                    ConntrackTableUnique::remove(entries.clone(), key);
+            });
+            Conntrack::new(cleanup_cb)
+        });
+
+        (ce.clone(), parent.1)
+    }
+
+    fn remove(entries: Arc<Mutex<HashMap<usize, ConntrackRef>>>, key: usize) {
+        let mut entries = entries.lock().unwrap();
+        entries.remove(&key);
+    }
+
 }
 
 pub struct ConntrackTimer {

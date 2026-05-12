@@ -2,7 +2,7 @@ use crate::base::{Parser, ParseErr};
 use crate::proto::ProtoPktProcessor;
 use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::packet::{Packet, PktInfoStack, PktConnInfo};
-use crate::conntrack::ConntrackDirection;
+use crate::conntrack::{ConntrackDirection, ConntrackTableUnique};
 use crate::proto::nfs::ProtoNfs;
 use crate::event::EventId;
 
@@ -10,32 +10,37 @@ use crate::event::EventId;
 use tracing::{debug, trace};
 use smallvec::SmallVec;
 
-#[derive(Debug)]
 struct ProtoSunRpcCall {
     xid: u32,
     proc: u32,
 }
 
-#[derive(Debug, PartialEq)]
-enum ProtoSunRpcState {
+#[derive(PartialEq)]
+enum ProtoSunRpcTcpState {
     Header,
     Body,
-    NA,
 }
 
-#[derive(Debug)]
 pub struct ProtoSunRpc {
 
-    conn_id: Option<EventId>,
-    conn_info: Option<PktConnInfo>,
-    state: ProtoSunRpcState,
-    frag_len: usize,
+    conn_id: EventId,
+    conn_info: PktConnInfo,
     prog_nfs: Option<ProtoNfs>,
     nfs_version: Option<u32>,
     nfs_calls: SmallVec<[ProtoSunRpcCall; 8]>,
 }
 
 impl ProtoSunRpc {
+
+    pub fn new(infos: &PktInfoStack) -> Self {
+        Self {
+            prog_nfs: None,
+            nfs_version: None,
+            nfs_calls: SmallVec::new(),
+            conn_id: infos.get_conn_id().unwrap().clone(),
+            conn_info: infos.get_conn_info(),
+        }
+    }
 
     fn parse_call<T: Parser>(&mut self, xid: u32, mut parser: T) -> Result<(), ParseErr> {
         
@@ -70,7 +75,7 @@ impl ProtoSunRpc {
 
         let prog_nfs = match &self.prog_nfs {
             Some(prog) => prog,
-            None => match ProtoNfs::new(self.conn_id.as_ref().unwrap(), self.conn_info.unwrap(), nfs_version) {
+            None => match ProtoNfs::new(&self.conn_id, self.conn_info, nfs_version) {
                 Some(prog) => {
                     self.prog_nfs = Some(prog);
                     &self.prog_nfs.as_ref().unwrap()
@@ -156,52 +161,81 @@ impl ProtoSunRpc {
         }
         
     }
-}
 
-impl ProtoSunRpc {
-    pub fn new() -> Self {
-        Self {
-            prog_nfs: None,
-            nfs_version: None,
-            nfs_calls: SmallVec::new(),
-            conn_id: None,
-            conn_info: None,
-            state: ProtoSunRpcState::NA,
-            frag_len: 0,
+
+    pub fn process_message<T: Parser>(&mut self, mut parser: T) -> Result<(), ParseErr> {
+
+        let xid = parser.read_u32_be()?;
+        let msg_type = parser.read_u32_be()?;
+
+
+        // This should not fail since we checked with has_len() earlier
+        match msg_type {
+            0 => { self.parse_call(xid, parser) },
+            1 => { self.parse_reply(xid, parser) },
+            _ => {
+                Err(ParseErr::Invalid("Unknown RPC message type"))
+            }
         }
     }
 }
 
-impl ProtoPktProcessor for ProtoSunRpc {
+pub struct ProtoSunRpcUdp {
+
+    ct: ConntrackTableUnique,
+}
+
+impl ProtoSunRpcUdp {
+
+    pub fn new() -> Self {
+        Self {
+            ct: ConntrackTableUnique::new()
+        }
+    }
+}
+
+impl ProtoPktProcessor for ProtoSunRpcUdp {
 
     // SunRPC over UDP
-    fn process(&mut self, _pkt: &mut Packet, _infos: &mut PktInfoStack) -> Result<(), ParseErr> {
+    fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        Ok(())
+        let info = infos.proto_last();
+        let (ce, _) = self.ct.get(info.parent_ce().unwrap());
+
+        let mut ce_locked = ce.lock().unwrap();
+        let rpc = ce_locked.get_or_insert_with(|| Box::new(ProtoSunRpc::new(infos))).downcast_mut::<ProtoSunRpc>().unwrap();
+
+
+        rpc.process_message(pkt.to_parser())
+
     }
 
 }
 
-impl PktStreamProcessor for ProtoSunRpc {
+pub struct ProtoSunRpcTcp {
+    rpc: ProtoSunRpc,
+    state: ProtoSunRpcTcpState,
+    frag_len: usize,
+}
+
+impl PktStreamProcessor for ProtoSunRpcTcp {
+
 
     fn new(infos: &PktInfoStack) -> Self {
         Self {
-            prog_nfs: None,
-            nfs_version: None,
-            nfs_calls: SmallVec::new(),
-            conn_id: Some(infos.get_conn_id().unwrap().clone()),
-            conn_info: Some(infos.get_conn_info()),
-            state: ProtoSunRpcState::Header,
+            rpc: ProtoSunRpc::new(infos),
+            state: ProtoSunRpcTcpState::Header,
             frag_len: 0,
         }
     }
+
 
     // SUN RPC over TCP
     fn process(&mut self, _dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
         
-        if self.state == ProtoSunRpcState::Header {
+        if self.state == ProtoSunRpcTcpState::Header {
             self.frag_len = (parser.read_u32_be()? & 0x7fffffff) as usize;
-            self.state = ProtoSunRpcState::Body;
+            self.state = ProtoSunRpcTcpState::Body;
         }
 
         if self.frag_len < 24 { 
@@ -209,27 +243,12 @@ impl PktStreamProcessor for ProtoSunRpc {
         }
 
         // Make sure the fragment is complete
-        parser.has_len(self.frag_len)?;
+        let msg_parser = parser.sub_packet(self.frag_len)?;
 
-        self.state = ProtoSunRpcState::Header;
-        let msg_len = self.frag_len - 8; // Account for the 2 u32 we're about to read
+        self.state = ProtoSunRpcTcpState::Header;
         self.frag_len = 0;
 
-        let xid = parser.read_u32_be()?;
-        let msg_type = parser.read_u32_be()?;
-
-
-        // This should not fail since we checked with has_len() earlier
-        let msg_parser = parser.sub_packet(msg_len).unwrap();
-        match msg_type {
-            0 => { self.parse_call(xid, msg_parser) },
-            1 => { self.parse_reply(xid, msg_parser) },
-            _ => {
-                Err(ParseErr::Invalid("Unknown RPC message type"))
-            }
-        }
-
-
+        self.rpc.process_message(msg_parser)
 
     }
 }

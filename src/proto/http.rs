@@ -572,8 +572,6 @@ mod tests {
         let mut pkt = Packet::from_slice(PktTime::from_micros(0), b"GET / HTTP/1.1\r\n");
         stream.process_packet(ConntrackDirection::Forward, &mut pkt);
 
-        println!("{:?}", stream.proto());
-
     }
 
 

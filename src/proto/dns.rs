@@ -3,7 +3,7 @@ use crate::proto::ProtoPktProcessor;
 use crate::packet::{Packet, PktInfoStack, PktConnInfo};
 use crate::event::{Event, EventId, EventStr, EventPayload, EventBus, EventKind};
 use crate::stream::{PktStreamProcessor, PktStreamParser};
-use crate::conntrack::ConntrackDirection;
+use crate::conntrack::{ConntrackDirection, ConntrackTableUnique};
 
 use serde::Serialize;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -109,20 +109,18 @@ pub struct NetDnsMessage {
 
 #[derive(Debug)]
 pub struct ProtoDns {
-    tcp_bytes: Option<usize>,
-    conn_id: Option<EventId>,
+    conn_id: EventId,
     conn_info: PktConnInfo,
     proto: &'static str,
 }
 
 impl ProtoDns {
 
-    pub fn new() -> Self {
+    pub fn new(infos: &PktInfoStack, proto: &'static str) -> Self {
         Self {
-            tcp_bytes: None,
-            conn_id: None,
-            conn_info: Default::default(),
-            proto: "udp",
+            conn_id: infos.get_conn_id().unwrap().clone(),
+            conn_info: infos.get_conn_info(),
+            proto,
 
         }
     }
@@ -301,7 +299,7 @@ impl ProtoDns {
 
 
         let mut evt_pload = NetDnsMessage {
-            conn_id: self.conn_id.clone().unwrap(),
+            conn_id: self.conn_id.clone(),
             proto: self.proto,
             conn_info: self.conn_info.clone(),
             direction: dir,
@@ -422,7 +420,21 @@ impl ProtoDns {
 
 }
 
-impl ProtoPktProcessor for ProtoDns {
+pub struct ProtoDnsUdp {
+    ct: ConntrackTableUnique,
+}
+
+impl ProtoDnsUdp {
+
+    pub fn new() -> Self {
+        Self {
+            ct: ConntrackTableUnique::new(),
+        }
+    }
+
+}
+
+impl ProtoPktProcessor for ProtoDnsUdp {
 
     // DNS over UDP
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
@@ -431,28 +443,30 @@ impl ProtoPktProcessor for ProtoDns {
             return Ok(());
         }
 
-        let info = infos.proto_from_last(1).unwrap();
-        if self.conn_id.is_none() {
-            self.conn_id = Some(infos.get_conn_id().unwrap().clone());
-            self.conn_info = infos.get_conn_info();
-        }
+        let info = infos.proto_last();
+        let (ce, ce_dir) = self.ct.get(info.parent_ce().unwrap());
 
-        let dir = info.ce_dir().unwrap();
-        self.parse_message(pkt, dir)
+        let mut ce_locked = ce.lock().unwrap();
+        let dns = ce_locked.get_or_insert_with(|| Box::new(ProtoDns::new(infos, "udp"))).downcast_mut::<ProtoDns>().unwrap();
+
+        dns.parse_message(pkt, ce_dir)
     }
 
 }
 
-impl PktStreamProcessor for ProtoDns {
+pub struct ProtoDnsTcp {
+    tcp_bytes: Option<usize>,
+    dns: ProtoDns
+}
+
+impl PktStreamProcessor for ProtoDnsTcp {
 
     fn new(infos: &PktInfoStack) -> Self {
 
 
         Self {
             tcp_bytes: None,
-            conn_id: Some(infos.get_conn_id().unwrap().clone()),
-            conn_info: infos.get_conn_info(),
-            proto: "tcp",
+            dns: ProtoDns::new(infos, "tcp"),
 
         }
     }
@@ -466,7 +480,7 @@ impl PktStreamProcessor for ProtoDns {
 
         if let Some(msg_size) = self.tcp_bytes {
             let mut data = parser.sub_packet(msg_size)?;
-            if self.parse_message(&mut data, dir) == Err(ParseErr::Truncated) {
+            if self.dns.parse_message(&mut data, dir) == Err(ParseErr::Truncated) {
                 return Err(ParseErr::Invalid("DNS over TCP message incomplete"));
             }
             self.tcp_bytes = None;

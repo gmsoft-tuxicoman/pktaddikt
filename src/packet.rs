@@ -353,6 +353,30 @@ impl<'a> Packet<'a> {
     }
 
     #[inline]
+    // return an owned parser
+    pub fn to_parser(&mut self) -> Packet<'a> {
+
+        let pkt_data = match &self.data {
+            PacketData::Owned(arc) => PacketData::Owned(arc.clone()),
+            PacketData::OwnedVec(vec) => PacketData::OwnedVec(vec.clone()),
+            PacketData::Borrowed(b) => PacketData::Borrowed(b),
+            PacketData::Zero(len) => PacketData::Zero(*len),
+            PacketData::Empty => PacketData::Empty,
+        };
+
+        let pkt = Packet {
+            ts: self.ts,
+            data: pkt_data,
+            range: self.range,
+        };
+
+        // Packet entirely consumed
+        self.range.0 = self.range.1;
+
+        pkt
+    }
+
+    #[inline]
     pub fn read_skip(&mut self, size: usize, skip: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
         self.has_len(size + skip)?;
         let chunk = Cow::Borrowed(&self.data.as_slice()[self.range.0 .. self.range.0 + size]);

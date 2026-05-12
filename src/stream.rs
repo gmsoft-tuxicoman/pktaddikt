@@ -4,9 +4,9 @@ use crate::proto::Protocols;
 use crate::conntrack::ConntrackDirection;
 use crate::proto::test::ProtoTest;
 use crate::proto::http::ProtoHttp;
-use crate::proto::dns::ProtoDns;
+use crate::proto::dns::ProtoDnsTcp;
 use crate::proto::tls::ProtoTls;
-use crate::proto::sunrpc::ProtoSunRpc;
+use crate::proto::sunrpc::ProtoSunRpcTcp;
 
 use std::borrow::Cow;
 use memchr::memchr;
@@ -18,13 +18,12 @@ pub trait PktStreamProcessor {
     fn process(&mut self, dir: ConntrackDirection, parser: PktStreamParser) -> Result<(), ParseErr>;
 }
 
-#[derive(Debug)]
 pub enum PktStreamProto {
     Test(ProtoTest),
     Http(ProtoHttp),
-    Dns(ProtoDns),
+    Dns(ProtoDnsTcp),
     Tls(ProtoTls),
-    SunRpc(ProtoSunRpc),
+    SunRpc(ProtoSunRpcTcp),
 }
 
 pub struct PktStream {
@@ -43,9 +42,9 @@ impl PktStream {
             proto: match proto {
                 Protocols::Test => PktStreamProto::Test(<ProtoTest as PktStreamProcessor>::new(infos)),
                 Protocols::Http => PktStreamProto::Http(ProtoHttp::new(infos)),
-                Protocols::Dns => PktStreamProto::Dns(<ProtoDns as PktStreamProcessor>::new(infos)),
+                Protocols::Dns => PktStreamProto::Dns(ProtoDnsTcp::new(infos)),
                 Protocols::Tls => PktStreamProto::Tls(ProtoTls::new(infos)),
-                Protocols::SunRpc => PktStreamProto::SunRpc(<ProtoSunRpc as PktStreamProcessor>::new(infos)),
+                Protocols::SunRpc => PktStreamProto::SunRpc(ProtoSunRpcTcp::new(infos)),
                 _ => return None
             },
             pkt_buff_fwd: SmallVec::new(),

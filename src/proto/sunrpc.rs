@@ -4,6 +4,7 @@ use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::packet::{Packet, PktInfoStack, PktConnInfo};
 use crate::conntrack::{ConntrackDirection, ConntrackTableUnique};
 use crate::proto::nfs::ProtoNfs;
+use crate::proto::portmap::ProtoPortmap;
 use crate::event::EventId;
 
 
@@ -25,20 +26,27 @@ pub struct ProtoSunRpc {
 
     conn_id: EventId,
     conn_info: PktConnInfo,
-    prog_nfs: Option<ProtoNfs>,
-    nfs_version: Option<u32>,
-    nfs_calls: SmallVec<[ProtoSunRpcCall; 8]>,
+    prog: Option<ProtoSunRpcProg>,
+    version: Option<u32>,
+    calls: SmallVec<[ProtoSunRpcCall; 8]>,
+    prog_id: u32,
+}
+
+enum ProtoSunRpcProg {
+    Nfs(ProtoNfs),
+    Portmap(ProtoPortmap),
 }
 
 impl ProtoSunRpc {
 
     pub fn new(infos: &PktInfoStack) -> Self {
         Self {
-            prog_nfs: None,
-            nfs_version: None,
-            nfs_calls: SmallVec::new(),
+            prog: None,
+            version: None,
+            calls: SmallVec::new(),
             conn_id: infos.get_conn_id().unwrap().clone(),
             conn_info: infos.get_conn_info(),
+            prog_id: 0,
         }
     }
 
@@ -53,14 +61,33 @@ impl ProtoSunRpc {
         }
 
         let program = parser.read_u32_be()?;
-
-        if program != 100003 {// NFS
-            return Err(ParseErr::Invalid("Unsupported RPC program"));
-        }
-
         let prog_version = parser.read_u32_be()?;
 
-        let nfs_version = match self.nfs_version {
+
+        // First time
+        if self.prog_id == 0 {
+            self.prog_id = program;
+            self.prog = match program {
+                100000 => match ProtoPortmap::new(&self.conn_id, self.conn_info, prog_version) {
+                    Some(p) => Some(ProtoSunRpcProg::Portmap(p)),
+                    None => None,
+                },
+                100003 => match ProtoNfs::new(&self.conn_id, self.conn_info, prog_version) {
+                    Some(p) => Some(ProtoSunRpcProg::Nfs(p)),
+                    None => None,
+                },
+                _ => {
+                    debug!("RPC program not supported");
+                    return Err(ParseErr::Stop);
+                }
+            }
+        }
+        let prog = match &self.prog {
+            Some(p) => p,
+            None => return Err(ParseErr::Stop)
+        };
+
+        let prog_version = match self.version {
             Some(old_ver) => {
                 if old_ver != prog_version {
                     return Err(ParseErr::Invalid("Program version different than earlier version"));
@@ -68,19 +95,8 @@ impl ProtoSunRpc {
                 old_ver
             },
             None => {
-                self.nfs_version = Some(prog_version);
+                self.version = Some(prog_version);
                 prog_version
-            }
-        };
-
-        let prog_nfs = match &self.prog_nfs {
-            Some(prog) => prog,
-            None => match ProtoNfs::new(&self.conn_id, self.conn_info, nfs_version) {
-                Some(prog) => {
-                    self.prog_nfs = Some(prog);
-                    &self.prog_nfs.as_ref().unwrap()
-                },
-                None => { return Err(ParseErr::Stop); },
             }
         };
 
@@ -99,12 +115,15 @@ impl ProtoSunRpc {
             proc,
         };
 
-        self.nfs_calls.push(call);
+        self.calls.push(call);
 
         trace!("Call with {} payload for XID {:x}, prog {}, version {}, proc {}", parser.remaining_len(), xid, program, prog_version, proc);
 
         if parser.remaining_len() > 0 {
-            prog_nfs.parse_call(xid, proc, &mut parser)
+            match prog {
+                ProtoSunRpcProg::Portmap(p) => p.parse_call(xid, proc, &mut parser),
+                ProtoSunRpcProg::Nfs(p) => p.parse_call(xid, proc, &mut parser),
+            }
         } else {
             Ok(())
         }
@@ -115,16 +134,16 @@ impl ProtoSunRpc {
 
         let call;
 
-        // Find corresponding NFS call
-        if let Some(pos) = self.nfs_calls.iter().position(|c| c.xid == xid) {
-            call = self.nfs_calls.swap_remove(pos);
+        // Find corresponding RPC call
+        if let Some(pos) = self.calls.iter().position(|c| c.xid == xid) {
+            call = self.calls.swap_remove(pos);
         } else {
-            debug!("XID {} for NFS call not found", xid);
-            return Err(ParseErr::Invalid("Matching NFS call not found base on XID"));
+            debug!("XID {} for RPC call not found", xid);
+            return Err(ParseErr::Invalid("Matching RPC call not found base on XID"));
         }
 
-        let prog_nfs = match &self.prog_nfs {
-            Some(prog) => prog,
+        let prog = match &self.prog {
+            Some(p) => p,
             None => return Err(ParseErr::Stop),
         };
 
@@ -146,7 +165,10 @@ impl ProtoSunRpc {
 
 
                 if parser.remaining_len() > 0 {
-                    prog_nfs.parse_reply(xid, call.proc, &mut parser)
+                    match prog {
+                        ProtoSunRpcProg::Portmap(p) => p.parse_reply(xid, call.proc, &mut parser),
+                        ProtoSunRpcProg::Nfs(p) => p.parse_reply(xid, call.proc, &mut parser),
+                    }
                 } else {
                     return Ok(());
                 }

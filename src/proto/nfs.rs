@@ -48,7 +48,6 @@ pub struct NetNfsCreateSessionCall {
 
 }
 
-#[derive(Debug)]
 pub struct ProtoNfs {
 
     conn_id: EventId,
@@ -64,7 +63,7 @@ impl ProtoNfs {
     const NFS4_SESSIONID_SIZE: usize = 16;
 
     #[inline]
-    fn read_opaque<T: Parser>(parser: &mut T) -> Result<Vec<u8>, ParseErr> {
+    pub fn read_opaque<T: Parser>(parser: &mut T) -> Result<Vec<u8>, ParseErr> {
 
         let len = parser.read_u32_be()? as usize;
         let ret = parser.read(len)?.into_owned();
@@ -79,7 +78,7 @@ impl ProtoNfs {
     }
 
     #[inline]
-    fn skip_opaque<T: Parser>(parser: &mut T) -> Result<(), ParseErr> {
+    pub fn skip_opaque<T: Parser>(parser: &mut T) -> Result<(), ParseErr> {
 
         let mut len = parser.read_u32_be()? as usize;
 

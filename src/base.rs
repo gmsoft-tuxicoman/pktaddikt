@@ -153,3 +153,36 @@ pub trait Parser {
         self.skip(8 * count)
     }
 }
+
+// Ascii base 10 to integer
+pub fn atoi(val: &[u8]) -> Option<usize> {
+    let mut ret = 0usize;
+
+    for &b in val {
+        if b < b'0' || b > b'9' {
+            return None;
+        }
+
+        ret = ret * 10 + (b - b'0') as usize;
+    }
+    Some(ret)
+}
+
+// Ascii hexadecimal to integer
+pub fn htoi(val: &[u8]) -> Option<usize> {
+    let mut ret = 0usize;
+
+    for &b in val {
+        if b >= b'0' && b  <= b'9' {
+            ret = (ret << 4 ) + (b - b'0') as usize;
+        } else if b >= b'a' && b <= b'f' {
+            ret = (ret << 4) + (b - b'a' + 10) as usize;
+        } else if b >= b'A' && b <= b'F' {
+            ret = (ret << 4) + (b - b'A' + 10) as usize;
+        } else {
+            return None;
+        }
+    }
+    Some(ret)
+}
+

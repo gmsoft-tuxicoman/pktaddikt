@@ -2,6 +2,7 @@ use crate::base::{Parser, ParseErr};
 use crate::packet::PktConnInfo;
 use crate::event::EventId;
 use crate::proto::nfs::ProtoNfs;
+use crate::base::atoi;
 
 use tracing::{debug, trace};
 
@@ -57,7 +58,23 @@ impl ProtoPortmap {
 
     fn getaddr_reply<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
         let addr = ProtoNfs::read_opaque(parser)?;
-        trace!("Found program at address {}", String::from_utf8_lossy(&addr));
+
+        let addr_str = String::from_utf8_lossy(&addr);
+        let parts_vec  = addr_str.rsplitn(3, '.').collect::<Vec<_>>();
+        let parts = parts_vec.as_slice();
+
+        if parts.len() != 3 {
+            return Err(ParseErr::Invalid("Invalid or unknown universal address format"));
+        }
+
+        let port_low = atoi(parts[0].as_bytes());
+        let port_high = atoi(parts[1].as_bytes());
+        let port = match (port_low, port_high) {
+            (Some(l), Some(h)) => (h << 8) + l,
+            _ => return Err(ParseErr::Invalid("Cloud not parse universal address port")),
+        };
+
+        trace!("Found program at address {} and port {}", parts[2], port);
         Ok(())
     }
 

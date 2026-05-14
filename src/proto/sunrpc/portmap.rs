@@ -1,10 +1,10 @@
 use crate::base::{Parser, ParseErr};
 use crate::packet::PktConnInfo;
 use crate::event::EventId;
-use crate::proto::nfs::ProtoNfs;
 use crate::proto::Protocols;
 use crate::base::atoi;
 use crate::expectation::{ExpectationTable, ExpectationEntry, ExpectationType};
+use crate::proto::sunrpc::xdr::*;
 
 use tracing::{debug, trace};
 use std::net::Ipv4Addr;
@@ -53,15 +53,15 @@ impl ProtoPortmap {
 
         let r_prog = parser.read_u32_be()?;
         let r_vers = parser.read_u32_be()?;
-        let r_netid = ProtoNfs::read_opaque(parser)?;
-        ProtoNfs::skip_opaque(parser)?; // r_addr
-        ProtoNfs::skip_opaque(parser)?; // r_owner
+        let r_netid = read_opaque(parser)?;
+        skip_opaque(parser)?; // r_addr
+        skip_opaque(parser)?; // r_owner
         trace!("Requesting program {} version {} over {}", r_prog, r_vers, String::from_utf8_lossy(&r_netid));
         Ok(())
     }
 
     fn getaddr_reply<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
-        let addr = ProtoNfs::read_opaque(parser)?;
+        let addr = read_opaque(parser)?;
 
         let addr_str = String::from_utf8_lossy(&addr);
         let parts_vec  = addr_str.rsplitn(3, '.').collect::<Vec<_>>();
@@ -83,7 +83,7 @@ impl ProtoPortmap {
         };
 
         // Build the expectation
-        let expt = ExpectationEntry::new(Protocols::SunRpc)
+        let expt = ExpectationEntry::new(Protocols::SunRpc, true)
                     .add(ExpectationType::Udp{ dport: port as u16, sport: None })
                     .add(ExpectationType::Ipv4{ daddr: dst, saddr: None });
 

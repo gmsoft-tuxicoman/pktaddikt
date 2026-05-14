@@ -11,8 +11,6 @@ pub mod icmp;
 pub mod dns;
 pub mod tls;
 pub mod sunrpc;
-pub mod nfs;
-pub mod portmap;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::{ProtoEthernet, ProtoEthernetInfo};

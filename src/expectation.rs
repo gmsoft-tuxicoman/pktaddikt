@@ -101,13 +101,16 @@ impl ExpectationTable {
 
             if matched {
                 let next_proto = entry.next_proto;
-                let entry_id = entry.id;
 
-                // Drop the guard
-                drop(entries);
+                if ! entry.persistent {
+                    let entry_id = entry.id;
 
-                // Remove the entry from the list
-                self.remove(entry_id);
+                    // Drop the guard
+                    drop(entries);
+
+                    // Remove the entry from the list
+                    self.remove(entry_id);
+                }
 
 
                 trace!("Expectation matched with proto {:?}", next_proto);
@@ -138,16 +141,18 @@ pub struct ExpectationEntry {
     next_proto: Protocols,
     id: u64,
     timer_id: TimerId,
+    persistent: bool,
 }
 
 impl ExpectationEntry {
 
-    pub fn new(next_proto: Protocols) -> Self {
+    pub fn new(next_proto: Protocols, persistent: bool) -> Self {
         Self {
             matches: Vec::new(),
             next_proto,
             id: 0,
             timer_id: 0,
+            persistent,
         }
     }
 

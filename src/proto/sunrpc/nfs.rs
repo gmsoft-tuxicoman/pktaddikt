@@ -1,6 +1,7 @@
 use crate::base::{Parser, ParseErr};
 use crate::event::{EventId, EventBus, EventStr, EventKind, Event, EventPayload};
 use crate::packet::PktConnInfo;
+use crate::proto::sunrpc::xdr::*;
 
 use tracing::{debug, trace};
 use serde::Serialize;
@@ -62,32 +63,6 @@ impl ProtoNfs {
     const NFS4_VERIFIER_SIZE: usize = 8;
     const NFS4_SESSIONID_SIZE: usize = 16;
 
-    #[inline]
-    pub fn read_opaque<T: Parser>(parser: &mut T) -> Result<Vec<u8>, ParseErr> {
-
-        let len = parser.read_u32_be()? as usize;
-        let ret = parser.read(len)?.into_owned();
-
-        let align = (4 - (len & 3)) & 3;
-
-        if align > 0 {
-            parser.skip(align)?;
-        }
-
-        Ok(ret)
-    }
-
-    #[inline]
-    pub fn skip_opaque<T: Parser>(parser: &mut T) -> Result<(), ParseErr> {
-
-        let mut len = parser.read_u32_be()? as usize;
-
-        // Align to 4 bytes
-        len = (len + 3) & !3;
-        parser.skip(len)
-
-    }
-
     pub fn new(conn_id: &EventId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
         if version != 4 {
             trace!("Only support for NFSv4 for now ... patch welcome");
@@ -121,7 +96,7 @@ impl ProtoNfs {
     fn compound_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         // tag
-        ProtoNfs::skip_opaque(parser)?;
+        skip_opaque(parser)?;
 
         let minorversion = parser.read_u32_be()?;
         let numops = parser.read_u32_be()?;
@@ -163,7 +138,7 @@ impl ProtoNfs {
     fn compound_reply<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         let status = parser.read_u32_be()?;
-        ProtoNfs::skip_opaque(parser)?; // tag
+        skip_opaque(parser)?; // tag
 
         let numops = parser.read_u32_be()?;
 
@@ -216,7 +191,7 @@ impl ProtoNfs {
             // co_verifier
             parser.skip(ProtoNfs::NFS4_VERIFIER_SIZE)?;
             // co_ownerid
-            co_ownerid = ProtoNfs::read_opaque(parser)?;
+            co_ownerid = read_opaque(parser)?;
             trace!("Found owner id : {}", String::from_utf8_lossy(&co_ownerid));
         }
 
@@ -231,8 +206,8 @@ impl ProtoNfs {
                 1 => { parser.skip_u32s(2)?; }, // SP4_MACH_CRED (spo_must_enforce, spo_must_allow)
                 2 => { // SP4_SSV
                     parser.skip_u32s(2)?; // ssp_ops { spo_must_enforce, ssp_ops.spo_must_allow }
-                    ProtoNfs::skip_opaque(parser)?; // ssp_hash_algs
-                    ProtoNfs::skip_opaque(parser)?; // ssp_encr_algs
+                    skip_opaque(parser)?; // ssp_hash_algs
+                    skip_opaque(parser)?; // ssp_encr_algs
                     parser.skip_u32s(2)?; // ssp_window, ssp_num_gss_handles
                 },
                 _ => { return Err(ParseErr::Invalid("Invalid spa_how value in exchange_id call")); }
@@ -246,10 +221,10 @@ impl ProtoNfs {
 
             if num == 1 { // Max 1 element
                 // nii_domain
-                nii_domain = Some(ProtoNfs::read_opaque(parser)?);
+                nii_domain = Some(read_opaque(parser)?);
                 trace!("Found implementor domain : {}", String::from_utf8_lossy(nii_domain.as_ref().unwrap()));
                 // nii_name
-                nii_name = Some(ProtoNfs::read_opaque(parser)?);
+                nii_name = Some(read_opaque(parser)?);
                 trace!("Found implentation name : {}", String::from_utf8_lossy(nii_name.as_ref().unwrap()));
                 // nii_data
                 parser.skip_u32s(3)?;
@@ -298,7 +273,7 @@ impl ProtoNfs {
                     parser.skip_u32s(2)?; // ssi_ops { spo_must_enforce, spo_must_allow}
                     parser.skip_u32s(4)?; // spi_hash_alg, spi_encr_alg, spi_ssv_len, spi_window
                     parser.skip_u32s(2)?; // ssp_window, ssp_num_gss_handles
-                    ProtoNfs::skip_opaque(parser)?; // spi_handles
+                    skip_opaque(parser)?; // spi_handles
                 },
                 _ => { return Err(ParseErr::Invalid("Invalid value for spa_how in exchange_id reply")); }
             }
@@ -307,11 +282,11 @@ impl ProtoNfs {
         let so_major_id;
         { // eir_server_owner
             parser.skip_u64()?; // so_minor_id
-            so_major_id = ProtoNfs::read_opaque(parser)?;
+            so_major_id = read_opaque(parser)?;
         }
         trace!("Found server ID: {}", String::from_utf8_lossy(&so_major_id));
 
-        let eir_server_scope = ProtoNfs::read_opaque(parser)?;
+        let eir_server_scope = read_opaque(parser)?;
         trace!("Found server scope: {}", String::from_utf8_lossy(&eir_server_scope));
 
         let mut nii_domain = None;
@@ -321,9 +296,9 @@ impl ProtoNfs {
             let num = parser.read_u32_be()?;
 
             if num == 1 { // Max 1 element
-                nii_domain = Some(ProtoNfs::read_opaque(parser)?);
+                nii_domain = Some(read_opaque(parser)?);
                 trace!("Found implementor domain : {}", String::from_utf8_lossy(nii_domain.as_ref().unwrap()));
-                nii_name = Some(ProtoNfs::read_opaque(parser)?);
+                nii_name = Some(read_opaque(parser)?);
                 trace!("Found implentation name : {}", String::from_utf8_lossy(nii_name.as_ref().unwrap()));
                 // nii_data
                 parser.skip_u32s(3)?;
@@ -401,17 +376,17 @@ impl ProtoNfs {
                     0 => {}, // AUTH_NONE
                     1 => { // AUTH_SYS
                         parser.skip_u32()?; // stamp
-                        machine_name = Some(ProtoNfs::read_opaque(parser)?);
+                        machine_name = Some(read_opaque(parser)?);
                         trace!("Found machine_name {}", String::from_utf8_lossy(machine_name.as_ref().unwrap()));
                         uid = Some(parser.read_u32_be()?);
                         gid = Some(parser.read_u32_be()?);
                         // Additional gids don't seem common so I'll just ignore them for now
-                        ProtoNfs::skip_opaque(parser)?; // gids
+                        skip_opaque(parser)?; // gids
                     },
                     2 => {  // RPCSEC_GSS
                         parser.skip_u32()?; // gcbp_service
-                        ProtoNfs::skip_opaque(parser)?; // gcbp_handle_from_server
-                        ProtoNfs::skip_opaque(parser)?; // gcbp_handle_from_client
+                        skip_opaque(parser)?; // gcbp_handle_from_server
+                        skip_opaque(parser)?; // gcbp_handle_from_client
                     }
                     _ => { return Err(ParseErr::Invalid("Invalid cb_secflavor in create_session call")); },
                 }
@@ -539,7 +514,7 @@ impl ProtoNfs {
             return Ok(());
         }
 
-        ProtoNfs::skip_opaque(parser)?; // file handle
+        skip_opaque(parser)?; // file handle
         Ok(())
     }
 
@@ -563,7 +538,7 @@ impl ProtoNfs {
         let attrmask_len = parser.read_u32_be()? as usize;
         parser.skip_u32s(attrmask_len)?; // attrmask
 
-        ProtoNfs::skip_opaque(parser)?; // attr_vals
+        skip_opaque(parser)?; // attr_vals
 
         Ok(())
     }
@@ -579,7 +554,7 @@ impl ProtoNfs {
     fn v4_secinfo_no_name_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SECINFO_NO_NAME REPLY");
-        ProtoNfs::skip_opaque(parser)?; // SECINFO4res<>
+        skip_opaque(parser)?; // SECINFO4res<>
         Ok(())
     }
 
@@ -587,7 +562,7 @@ impl ProtoNfs {
 
         trace!("PUTFH CALL");
 
-        ProtoNfs::skip_opaque(parser)?;
+        skip_opaque(parser)?;
         Ok(())
     }
 
@@ -614,7 +589,7 @@ impl ProtoNfs {
     fn v4_lookup_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("LOOKUP CALL");
-        ProtoNfs::skip_opaque(parser)?; // objname
+        skip_opaque(parser)?; // objname
         Ok(())
     }
 
@@ -628,13 +603,13 @@ impl ProtoNfs {
 
         trace!("GET_DIR_DELEGATION CALL");
         parser.skip_u32()?; // gdda_signal_deleg_avail
-        ProtoNfs::skip_opaque(parser)?; // gdda_notification_types
+        skip_opaque(parser)?; // gdda_notification_types
         parser.skip_u64()?; // gdda_child_attr_delay seconds
         parser.skip_u32()?; // gdda_child_attr_delay nanos
         parser.skip_u64()?; // gdda_dir_attr_delay seconds
         parser.skip_u32()?; // gdda_dir_attr_delay nanos
-        ProtoNfs::skip_opaque(parser)?; // gdda_child_attributes
-        ProtoNfs::skip_opaque(parser)?; // gddr_dir_attributes
+        skip_opaque(parser)?; // gdda_child_attributes
+        skip_opaque(parser)?; // gddr_dir_attributes
         Ok(())
     }
 
@@ -690,12 +665,12 @@ impl ProtoNfs {
             }
 
             parser.skip_u64()?; // cookie
-            let name = ProtoNfs::read_opaque(parser)?;
+            let name = read_opaque(parser)?;
             trace!("Found file {}", String::from_utf8_lossy(&name));
 
             let attrmask_len = parser.read_u32_be()? as usize;
             parser.skip_u32s(attrmask_len)?; // attrmask
-            ProtoNfs::skip_opaque(parser)?; // attr_vals
+            skip_opaque(parser)?; // attr_vals
         }
 
         parser.skip_u32()?; // eof
@@ -709,7 +684,7 @@ impl ProtoNfs {
         trace!("OPEN CALL");
         parser.skip_u32s(3)?; // seqid, share_access, share_deny
         parser.skip_u64()?; // clientid
-        ProtoNfs::skip_opaque(parser)?; // owner
+        skip_opaque(parser)?; // owner
         parser.skip_u32s(2)?; // openhow, claim
 
         Ok(())
@@ -729,7 +704,7 @@ impl ProtoNfs {
         parser.skip_u64s(2)?; // cinfo.before, cinfo.after
 
         parser.skip_u32()?; // rflags
-        ProtoNfs::skip_opaque(parser)?; // attrset
+        skip_opaque(parser)?; // attrset
 
         let delegation_type = parser.read_u32_be()?; // delegation_type
         match delegation_type {
@@ -739,7 +714,7 @@ impl ProtoNfs {
                 parser.skip_u32()?; // recall
 
                 parser.skip_u32s(3)?; // read.{type, flag, access_mask}
-                ProtoNfs::skip_opaque(parser)?; // read.who
+                skip_opaque(parser)?; // read.who
             },
             2 => { // OPEN_DELEGATE_WRITE
 
@@ -749,7 +724,7 @@ impl ProtoNfs {
                 parser.skip_u32s(3)?; // space_limit
 
                 parser.skip_u32s(3)?; // read.{type, flag, access_mask}
-                ProtoNfs::skip_opaque(parser)?; // read.who
+                skip_opaque(parser)?; // read.who
             },
             3 => { // OPEN_DELEGATE_NONE_EXT
                 let ond_why = parser.read_u32_be()?;
@@ -797,7 +772,7 @@ impl ProtoNfs {
 
                 1 => { // HOLE
                     let di_offset = parser.read_u64_be()?;
-                    let content = ProtoNfs::read_opaque(parser)?;
+                    let content = read_opaque(parser)?;
                     trace!("Got hole in READ_PLUS, offset {}, length {}", di_offset, content.len());
                 },
                 _ => {

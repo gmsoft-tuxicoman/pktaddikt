@@ -78,6 +78,7 @@ struct ConntrackUdp {
     dst_port: u16,
     src_host: Option<IpAddr>,
     dst_host: Option<IpAddr>,
+    next_proto: Option<Protocols>,
 }
 
 pub struct ProtoUdp {
@@ -139,17 +140,6 @@ impl ProtoPktProcessor for ProtoUdp {
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
         let (ce, ce_dir) = self.ct.get(ct_key, info.parent_ce());
 
-        let next_proto = match self.et.check(infos) {
-            Some(p) => p,
-            None =>
-                match ProtoUdp::next_proto(dport) {
-                    Protocols::None => ProtoUdp::next_proto(sport),
-                    proto => proto,
-                },
-        };
-
-        infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
-
         let mut ce_locked = ce.lock().unwrap();
 
         match ce_locked.has_children() {
@@ -157,10 +147,10 @@ impl ProtoPktProcessor for ProtoUdp {
             false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.udp.conntrack_timeout), pkt.timestamp())
         }
 
-
-        let conn_id = EventId::new(pkt.timestamp());
+        let ts = pkt.timestamp();
         let cd = ce_locked.get_or_insert_with(||
             {
+                let conn_id = EventId::new(ts);
                 let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
                 let (src_host, dst_host) = match ip_info {
                     Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
@@ -180,12 +170,13 @@ impl ProtoPktProcessor for ProtoUdp {
                         tot_pkts: 0,
                     },
                     conn_id: conn_id.clone(),
-                    start_ts: pkt.timestamp(),
-                    last_ts: PktTime::from_micros(0),
+                    start_ts: ts,
+                    last_ts: ts,
                     src_port: sport,
                     dst_port: dport,
                     src_host,
                     dst_host,
+                    next_proto: None,
                     }
                 );
 
@@ -207,8 +198,26 @@ impl ProtoPktProcessor for ProtoUdp {
 
         ).downcast_mut::<ConntrackUdp>().unwrap();
 
-        cd.last_ts = pkt.timestamp();
-        infos.set_conn_id(conn_id);
+        infos.set_conn_id(cd.conn_id.clone());
+
+        let next_proto = match cd.next_proto {
+            Some(p) => p,
+            None => {
+                let np = match self.et.check(infos) {
+                    Some(p) => p,
+                    None =>
+                        match ProtoUdp::next_proto(dport) {
+                            Protocols::None => ProtoUdp::next_proto(sport),
+                            proto => proto,
+                        },
+                    };
+                    cd.next_proto = Some(np);
+                    np
+                }
+        };
+
+        infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
+
 
         let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
 

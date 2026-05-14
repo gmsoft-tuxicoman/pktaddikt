@@ -63,9 +63,9 @@ pub enum EventPayload {
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
-    NetNfsExchangeIdCall(crate::proto::nfs::NetNfsExchangeIdCall),
-    NetNfsExchangeIdReply(crate::proto::nfs::NetNfsExchangeIdReply),
-    NetNfsCreateSessionCall(crate::proto::nfs::NetNfsCreateSessionCall),
+    NetNfsExchangeIdCall(crate::proto::sunrpc::nfs::NetNfsExchangeIdCall),
+    NetNfsExchangeIdReply(crate::proto::sunrpc::nfs::NetNfsExchangeIdReply),
+    NetNfsCreateSessionCall(crate::proto::sunrpc::nfs::NetNfsCreateSessionCall),
 }
 
 impl EventPayload {

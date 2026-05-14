@@ -2,9 +2,13 @@ use crate::base::{Parser, ParseErr};
 use crate::packet::PktConnInfo;
 use crate::event::EventId;
 use crate::proto::nfs::ProtoNfs;
+use crate::proto::Protocols;
 use crate::base::atoi;
+use crate::expectation::{ExpectationTable, ExpectationEntry, ExpectationType};
 
 use tracing::{debug, trace};
+use std::net::Ipv4Addr;
+use std::time::Duration;
 
 
 
@@ -71,8 +75,20 @@ impl ProtoPortmap {
         let port_high = atoi(parts[1].as_bytes());
         let port = match (port_low, port_high) {
             (Some(l), Some(h)) => (h << 8) + l,
-            _ => return Err(ParseErr::Invalid("Cloud not parse universal address port")),
+            _ => return Err(ParseErr::Invalid("Could not parse universal address port")),
         };
+
+        let Ok(dst): Result<Ipv4Addr, _> = parts[2].parse() else {
+            return Err(ParseErr::Invalid("Could not parse universal address ip part"));
+        };
+
+        // Build the expectation
+        let expt = ExpectationEntry::new(Protocols::SunRpc)
+                    .add(ExpectationType::Udp{ dport: port as u16, sport: None })
+                    .add(ExpectationType::Ipv4{ daddr: dst, saddr: None });
+
+        // FIXME add config for duration length
+        ExpectationTable::add(Protocols::Udp, expt, parser.timestamp(), Duration::from_secs(60));
 
         trace!("Found program at address {} and port {}", parts[2], port);
         Ok(())

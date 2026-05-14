@@ -4,6 +4,7 @@ use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection};
 use crate::packet::{Packet, PktInfoStack, PktTime};
 use crate::config::ConfigRef;
 use crate::event::{Event, EventPayload, EventId, EventKind, EventBus};
+use crate::expectation::ExpectationTable;
 
 use std::time::Duration;
 use std::net::IpAddr;
@@ -82,6 +83,7 @@ struct ConntrackUdp {
 pub struct ProtoUdp {
     cfg: ConfigRef,
     ct: ConntrackTable<ConntrackKeyUdp>,
+    et: &'static ExpectationTable,
 }
 
 
@@ -91,6 +93,7 @@ impl ProtoUdp {
         Self {
             cfg: cfg.clone(),
             ct: ConntrackTable::new(cfg.proto.udp.conntrack_size),
+            et: ExpectationTable::init(Protocols::Udp),
         }
     }
 
@@ -136,10 +139,13 @@ impl ProtoPktProcessor for ProtoUdp {
         let ct_key = ConntrackKeyUdp { a: sport, b: dport };
         let (ce, ce_dir) = self.ct.get(ct_key, info.parent_ce());
 
-        // WIP
-        let next_proto = match ProtoUdp::next_proto(dport) {
-            Protocols::None => ProtoUdp::next_proto(sport),
-            proto => proto,
+        let next_proto = match self.et.check(infos) {
+            Some(p) => p,
+            None =>
+                match ProtoUdp::next_proto(dport) {
+                    Protocols::None => ProtoUdp::next_proto(sport),
+                    proto => proto,
+                },
         };
 
         infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));

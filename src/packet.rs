@@ -142,7 +142,7 @@ impl PktInfoStack {
         self.infos.last_mut().unwrap()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &PktInfo> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &PktInfo> {
         self.infos.iter()
     }
 

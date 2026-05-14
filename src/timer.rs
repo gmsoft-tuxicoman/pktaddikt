@@ -89,20 +89,21 @@ impl TimerManager {
     pub fn destroy(tid: TimerId) {
         // Aquire lock
         let mut manager = TIMER_MANAGER.lock().unwrap();
-        manager.destroy_locked(tid)
+        manager.destroy_locked(tid);
 
     }
 
-    pub fn destroy_locked(&mut self, tid: TimerId) {
-        self.dequeue_locked(tid);
+    pub fn destroy_locked(&mut self, tid: TimerId) -> Option<TimerId> {
+        self.dequeue_locked(tid)?;
         self.timers.remove(tid);
+        Some(tid)
     }
 
 
-    fn dequeue_locked(&mut self, tid: TimerId) {
+    fn dequeue_locked(&mut self, tid: TimerId) -> Option<TimerId> {
         // Timer are always queued. Remove it
 
-        let timer = &mut self.timers[tid];
+        let timer = &mut self.timers.get_mut(tid)?;
 
 
         // Remove the timer from the existing queue
@@ -131,6 +132,8 @@ impl TimerManager {
             // Timer is head
             queue.head = next_tid;
         }
+
+        Some(tid)
 
     }
 
@@ -330,10 +333,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn timer_remove_invalid() {
         let mut manager = TimerManager::new();
         manager.dequeue_locked(42);
+        manager.destroy_locked(1337);
 
     }
 

@@ -2,7 +2,7 @@ use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir};
 use crate::packet::{Packet, PktInfoStack};
-use crate::config::ConfigRef;
+use crate::config::Config;
 
 use std::net::Ipv6Addr;
 use std::time::Duration;
@@ -17,7 +17,6 @@ pub struct ProtoIpv6Info {
 }
 
 pub struct ProtoIpv6 {
-    cfg: ConfigRef,
     ct: ConntrackTable<ConntrackKeyIpv6>,
 }
 
@@ -41,16 +40,14 @@ impl Default for Ipv6Config {
     }
 }
 
-impl ProtoIpv6 {
-    pub fn new(cfg: ConfigRef) -> Self {
+impl ProtoPktProcessor for ProtoIpv6 {
+
+    fn new() -> Self {
+        let cfg = Config::get();
         Self {
-            cfg: cfg.clone(),
             ct: ConntrackTable::new(cfg.proto.ipv6.conntrack_size),
         }
     }
-}
-
-impl ProtoPktProcessor for ProtoIpv6 {
 
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
@@ -125,7 +122,10 @@ impl ProtoPktProcessor for ProtoIpv6 {
 
         match ce_locked.has_children() {
             true => ce_locked.set_timeout(Duration::ZERO, pkt.timestamp()),
-            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.ipv6.conntrack_timeout), pkt.timestamp())
+            false => {
+                let cfg = Config::get();
+                ce_locked.set_timeout(Duration::from_secs(cfg.proto.ipv6.conntrack_timeout), pkt.timestamp())
+            }
         }
 
         Ok(())
@@ -140,7 +140,6 @@ mod tests {
 
     use super::*;
     use crate::packet::PktTime;
-    use crate::config::Config;
 
     #[test]
     fn ipv6_parse_basic() {
@@ -148,7 +147,7 @@ mod tests {
         let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Ipv6);
 
-        let ret = ProtoIpv6::new(Config::new()).process(&mut pkt, &mut infos);
+        let ret = ProtoIpv6::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, Ok(()));
 
         let info = infos.iter().next().unwrap();

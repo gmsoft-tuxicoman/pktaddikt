@@ -22,10 +22,10 @@ use crate::proto::arp::{ProtoArp, ProtoArpInfo};
 use crate::proto::vlan::{ProtoVlan, ProtoVlanInfo};
 use crate::proto::icmp::{ProtoIcmp, ProtoIcmpInfo};
 use crate::proto::dns::ProtoDnsUdp;
-use crate::proto::sunrpc::ProtoSunRpcUdp;
+use crate::proto::sunrpc::{ProtoSunRpcUdp, SunRpcConfig};
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
-use crate::config::ConfigRef;
+use crate::config::Config;
 use crate::base::{Parser, ParseErr};
 
 use std::time::Instant;
@@ -45,6 +45,8 @@ pub struct ProtoConfig {
     tcp: TcpConfig,
     #[serde(default)]
     udp: UdpConfig,
+    #[serde(default)]
+    sunrpc: SunRpcConfig,
 }
 
 impl Default for ProtoConfig {
@@ -55,6 +57,7 @@ impl Default for ProtoConfig {
             ipv6: Ipv6Config::default(),
             tcp: TcpConfig::default(),
             udp: UdpConfig::default(),
+            sunrpc: SunRpcConfig::default(),
         }
     }
 }
@@ -98,6 +101,7 @@ pub enum ProtoInfo {
 
 
 pub trait ProtoPktProcessor {
+    fn new() -> Self;
     fn process(&mut self, pkt: &mut Packet, stack: &mut PktInfoStack) -> Result<(), ParseErr>;
 }
 
@@ -120,14 +124,15 @@ pub struct Proto {
 
 impl Proto {
 
-    pub fn new(cfg: ConfigRef) -> Self {
+    pub fn new() -> Self {
+        let cfg = Config::get();
         Self {
             test: ProtoTest::new(),
             ethernet: ProtoEthernet::new(),
-            ipv4: ProtoIpv4::new(cfg.clone()),
-            ipv6: ProtoIpv6::new(cfg.clone()),
-            tcp: ProtoTcp::new(cfg.clone()),
-            udp: ProtoUdp::new(cfg.clone()),
+            ipv4: ProtoIpv4::new(),
+            ipv6: ProtoIpv6::new(),
+            tcp: ProtoTcp::new(),
+            udp: ProtoUdp::new(),
             arp: ProtoArp::new(),
             vlan: ProtoVlan::new(),
             icmp: ProtoIcmp::new(),

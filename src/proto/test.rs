@@ -13,14 +13,6 @@ pub struct ProtoTest {
     expectations: Vec<ProtoTestExpect>,
 }
 
-impl ProtoTest {
-    pub fn new() -> Self {
-        Self {
-            expectations: Vec::new(),
-        }
-    }
-}
-
 #[derive(Debug)]
 struct ProtoTestExpect {
 
@@ -31,6 +23,12 @@ struct ProtoTestExpect {
 #[cfg(not(test))]
 impl ProtoPktProcessor for ProtoTest {
 
+    fn new() -> Self {
+        Self {
+            expectations: Vec::new(),
+        }
+    }
+
     fn process(&mut self, pkt: &mut Packet, _: &mut PktInfoStack) -> Result<(), ParseErr> {
         Err(ParseErr::Invalid("Cannot use Proto Test outside of testing"))
     }
@@ -38,6 +36,12 @@ impl ProtoPktProcessor for ProtoTest {
 
 #[cfg(test)]
 impl ProtoPktProcessor for ProtoTest {
+
+    fn new() -> Self {
+        Self {
+            expectations: Vec::new(),
+        }
+    }
 
     fn process(&mut self, pkt: &mut Packet, _: &mut PktInfoStack) -> Result<(), ParseErr> {
 
@@ -56,7 +60,9 @@ impl ProtoPktProcessor for ProtoTest {
 impl PktStreamProcessor for ProtoTest {
 
     fn new(infos: &PktInfoStack) -> Self {
-        ProtoTest::new()
+        Self {
+            expectations: Vec::new(),
+        }
     }
 
 

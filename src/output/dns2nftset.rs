@@ -1,7 +1,8 @@
-use crate::output::Output;
+use crate::output::{Output, OutputConfig};
 use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind};
 use crate::output::EventPayload::NetDnsMessage;
 use crate::proto::dns::NetDnsRecordData;
+use crate::config::Config;
 
 use serde::Deserialize;
 use tracing::{warn, trace};
@@ -42,21 +43,27 @@ pub struct OutputDns2NftSet {
 
 impl OutputDns2NftSet {
 
-    pub fn new(output_cfg: &Dns2NftSetConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
+    pub fn new(name: &str, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
 
         evt_bus.subscribe_kind(EventKind::NetDnsMessage, tx);
+        let main_cfg = Config::get();
 
-        if output_cfg.matches.len() == 0 {
+        let OutputConfig::Dns2NftSet(cfg) = main_cfg.outputs.get(name).unwrap() else {
+            panic!("Config is not logzeek");
+        };
+
+
+        if cfg.matches.len() == 0 {
             warn!("No match configured, the output will not match anything !");
         }
 
-        let set_v4 = output_cfg.set.clone() + "_v4";
-        let set_v6 = output_cfg.set.clone() + "_v6";
+        let set_v4 = cfg.set.clone() + "_v4";
+        let set_v6 = cfg.set.clone() + "_v6";
         
         let mut batch = Batch::new();
         batch.add(schema::NfListObject::Table(schema::Table {
             family: types::NfFamily::INet,
-            name: output_cfg.table.clone().into(),
+            name: cfg.table.clone().into(),
             ..Default::default()
         }));
 
@@ -81,8 +88,8 @@ impl OutputDns2NftSet {
         helper::apply_ruleset(&batch.to_nftables()).unwrap();
 
         Box::new(Self {
-            table: output_cfg.table.clone(),
-            matches: output_cfg.matches.clone(),
+            table: cfg.table.clone(),
+            matches: cfg.matches.clone(),
             set_v4,
             set_v6,
         })

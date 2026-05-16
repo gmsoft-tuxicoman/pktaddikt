@@ -2,7 +2,7 @@ use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection};
 use crate::packet::{Packet, PktInfoStack, PktTime};
-use crate::config::ConfigRef;
+use crate::config::Config;
 use crate::event::{Event, EventPayload, EventId, EventKind, EventBus};
 use crate::expectation::ExpectationTable;
 
@@ -82,21 +82,12 @@ struct ConntrackUdp {
 }
 
 pub struct ProtoUdp {
-    cfg: ConfigRef,
     ct: ConntrackTable<ConntrackKeyUdp>,
     et: &'static ExpectationTable,
 }
 
 
 impl ProtoUdp {
-
-    pub fn new(cfg: ConfigRef) -> Self {
-        Self {
-            cfg: cfg.clone(),
-            ct: ConntrackTable::new(cfg.proto.udp.conntrack_size),
-            et: ExpectationTable::init(Protocols::Udp),
-        }
-    }
 
     fn next_proto(port: u16) -> Protocols {
         match port {
@@ -108,6 +99,14 @@ impl ProtoUdp {
 }
 
 impl ProtoPktProcessor for ProtoUdp {
+
+    fn new() -> Self {
+        let cfg = Config::get();
+        Self {
+            ct: ConntrackTable::new(cfg.proto.udp.conntrack_size),
+            et: ExpectationTable::init(Protocols::Udp),
+        }
+    }
 
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
@@ -144,14 +143,17 @@ impl ProtoPktProcessor for ProtoUdp {
 
         match ce_locked.has_children() {
             true => ce_locked.set_timeout(Duration::ZERO, pkt.timestamp()),
-            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.udp.conntrack_timeout), pkt.timestamp())
+            false => {
+                let cfg = Config::get();
+                ce_locked.set_timeout(Duration::from_secs(cfg.proto.udp.conntrack_timeout), pkt.timestamp())
+            }
         }
 
         let ts = pkt.timestamp();
         let cd = ce_locked.get_or_insert_with(||
             {
                 let conn_id = EventId::new(ts);
-                let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
+                let ip_info = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap());
                 let (src_host, dst_host) = match ip_info {
                     Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
                     Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
@@ -275,7 +277,6 @@ impl Drop for ConntrackUdp {
 mod test {
 
     use super::*;
-    use crate::Config;
     use crate::proto::ipv4::ProtoIpv4Info;
     use std::net::Ipv4Addr;
 
@@ -297,7 +298,7 @@ mod test {
 	infos.proto_push(Protocols::Udp, None);
 
 
-        let ret = ProtoUdp::new(Config::new()).process(&mut pkt, &mut infos);
+        let ret = ProtoUdp::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, Ok(()));
 
         let check = infos.proto_from_last(1).unwrap();

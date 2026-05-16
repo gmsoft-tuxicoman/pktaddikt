@@ -1,5 +1,6 @@
-use crate::output::Output;
+use crate::output::{Output, OutputConfig};
 use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind};
+use crate::config::Config;
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -33,12 +34,16 @@ pub struct OutputLogJson {
 
 impl OutputLogJson {
 
-    pub fn new(output_cfg: &LogJsonConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
-        let file = OpenOptions::new().create(true).write(true).append(true).open(&output_cfg.file).expect(&format!("Unable to open file {} for output logjson", &output_cfg.file));
+    pub fn new(name: &str, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
+        let main_cfg = Config::get();
+        let OutputConfig::LogJson(cfg) = main_cfg.outputs.get(name).unwrap() else {
+            panic!("Config is not logjson");
+        };
+        let file = OpenOptions::new().create(true).write(true).append(true).open(&cfg.file).expect(&format!("Unable to open file {} for output logjson", &cfg.file));
         let writer = BufWriter::new(file);
 
 
-        for evt_name in &output_cfg.events {
+        for evt_name in &cfg.events {
             evt_bus.subscribe_glob(evt_name, tx).expect(&format!("Event {} does not exists", evt_name));
         }
 

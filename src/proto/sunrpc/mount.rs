@@ -1,14 +1,9 @@
 use crate::base::{Parser, ParseErr};
 use crate::packet::PktConnInfo;
 use crate::event::EventId;
-use crate::proto::Protocols;
-use crate::base::atoi;
-use crate::expectation::{ExpectationTable, ExpectationEntry, ExpectationType};
 use crate::proto::sunrpc::xdr::*;
 
 use tracing::{debug, trace};
-use std::net::Ipv4Addr;
-use std::time::Duration;
 
 
 
@@ -57,7 +52,7 @@ impl ProtoMount {
         Ok(())
     }
 
-    fn mnt_reply<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn mnt_reply<T: Parser>(&self, _xid: u32, _parser: &mut T) -> Result<(), ParseErr> {
         // No need to parse for now
         Ok(())
     }

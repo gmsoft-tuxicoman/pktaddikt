@@ -11,13 +11,11 @@ pub struct ProtoIcmpInfo {
 
 pub struct ProtoIcmp {}
 
-impl ProtoIcmp {
-    pub fn new() -> Self {
+impl ProtoPktProcessor for ProtoIcmp {
+
+    fn new() -> Self {
         Self {}
     }
-}
-
-impl ProtoPktProcessor for ProtoIcmp {
 
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 

@@ -3,7 +3,7 @@ use crate::output::logjson::{OutputLogJson, LogJsonConfig};
 use crate::output::logzeek::{OutputLogZeek, LogZeekConfig};
 #[cfg(feature = "with_nftables")]
 use crate::output::dns2nftset::{OutputDns2NftSet, Dns2NftSetConfig};
-use crate::config::ConfigRef;
+use crate::config::Config;
 use crate::event::{EventRxChannel, EventTxChannel, EventBus, Event, EventPayload, SysShutdown};
 use crate::packet::PktTime;
 
@@ -50,15 +50,17 @@ pub struct OutputBuilder {
 
 impl OutputBuilder {
 
-    pub fn build_all(cfg: ConfigRef, evt_bus: &mut EventBus) -> Self {
+    pub fn build_all(evt_bus: &mut EventBus) -> Self {
 
         let mut outputs: Vec<OutputRunner> = Vec::new();
 
-        for (output_name, _) in &cfg.outputs {
+        let cfg = Config::get();
+
+        for (output_name, output_cfg) in &cfg.outputs {
 
             let (tx, rx) = crossbeam_channel::unbounded();
 
-            let output = OutputBuilder::new(cfg.clone(), output_name, evt_bus, &tx);
+            let output = OutputBuilder::new(output_name, output_cfg, evt_bus, &tx);
 
             let handle = std::thread::spawn(move || {
                 output.run(rx);
@@ -75,19 +77,14 @@ impl OutputBuilder {
 
     }
 
-    fn new(cfg: ConfigRef, name: &str, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
-
-        let output_cfg = match cfg.outputs.get(name) {
-            Some(o) => o,
-            None => panic!("Invalid output type"),
-        };
+    fn new(name: &str, output_cfg: &OutputConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
 
         println!("Adding output {} ...", name);
 
         match &output_cfg {
-            OutputConfig::LogJson(c) => OutputLogJson::new(c, evt_bus, tx),
-            OutputConfig::LogZeek(c) => OutputLogZeek::new(c, evt_bus, tx),
-            OutputConfig::Dns2NftSet(c) => OutputDns2NftSet::new(c, evt_bus, tx),
+            OutputConfig::LogJson(_) => OutputLogJson::new(name, evt_bus, tx),
+            OutputConfig::LogZeek(_) => OutputLogZeek::new(name, evt_bus, tx),
+            OutputConfig::Dns2NftSet(_) => OutputDns2NftSet::new(name, evt_bus, tx),
         }
 
     }

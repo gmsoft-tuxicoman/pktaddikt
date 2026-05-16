@@ -424,17 +424,13 @@ pub struct ProtoDnsUdp {
     ct: ConntrackTableUnique,
 }
 
-impl ProtoDnsUdp {
+impl ProtoPktProcessor for ProtoDnsUdp {
 
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             ct: ConntrackTableUnique::new(),
         }
     }
-
-}
-
-impl ProtoPktProcessor for ProtoDnsUdp {
 
     // DNS over UDP
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {

@@ -2,7 +2,7 @@ use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackTimer, ConntrackRef};
 use crate::packet::{Packet, PacketMultipart, PktInfoStack};
-use crate::config::ConfigRef;
+use crate::config::Config;
 
 use std::sync::Arc;
 use std::net::Ipv4Addr;
@@ -27,7 +27,6 @@ pub struct ProtoIpv4Info {
 }
 
 pub struct ProtoIpv4 {
-    cfg: ConfigRef,
     ct: ConntrackTable<ConntrackKeyIpv4>,
 }
 
@@ -63,13 +62,6 @@ impl Default for Ipv4Config {
 
 impl ProtoIpv4 {
 
-    pub fn new(cfg: ConfigRef) -> Self {
-        Self {
-            cfg: cfg.clone(),
-            ct: ConntrackTable::new(cfg.proto.ipv4.conntrack_size),
-        }
-    }
-
     fn frag_cleanup(ce: ConntrackRef, frag_id: u16) {
         let mut ce_locked = ce.lock().unwrap();
 
@@ -83,6 +75,12 @@ impl ProtoIpv4 {
 
 impl ProtoPktProcessor for ProtoIpv4 {
 
+    fn new() -> Self {
+        let cfg = Config::get();
+        Self {
+            ct: ConntrackTable::new(cfg.proto.ipv4.conntrack_size),
+        }
+    }
 
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
@@ -166,10 +164,11 @@ impl ProtoPktProcessor for ProtoIpv4 {
 
         infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
         let mut ce_locked = ce.lock().unwrap();
+        let cfg = Config::get();
 
         match ce_locked.has_children() {
             true => ce_locked.set_timeout(Duration::ZERO, pkt.timestamp()),
-            false => ce_locked.set_timeout(Duration::from_secs(self.cfg.proto.ipv4.conntrack_timeout), pkt.timestamp())
+            false => ce_locked.set_timeout(Duration::from_secs(cfg.proto.ipv4.conntrack_timeout), pkt.timestamp())
         }
 
         // Check if the packet is fragmented and needs more handling
@@ -200,13 +199,13 @@ impl ProtoPktProcessor for ProtoIpv4 {
         let frags = frags_entry
             .and_modify(|v| {
                 trace!("Fragment data with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
-                ConntrackTimer::requeue(&v.timer, Duration::from_secs(self.cfg.proto.ipv4.fragment_timeout), pkt.timestamp());
+                ConntrackTimer::requeue(&v.timer, Duration::from_secs(cfg.proto.ipv4.fragment_timeout), pkt.timestamp());
             })
             .or_insert_with( || {
                     trace!("Fragment created with conntrack {:p} and id {}", Arc::as_ptr(&ce), id);
                     Ipv4Fragment {
                         pkt: Some(PacketMultipart::new(1500)),
-                        timer: ConntrackTimer::new(&ce, Duration::from_secs(self.cfg.proto.ipv4.fragment_timeout), pkt.timestamp(), Arc::new(move |x| ProtoIpv4::frag_cleanup(x, id))),
+                        timer: ConntrackTimer::new(&ce, Duration::from_secs(cfg.proto.ipv4.fragment_timeout), pkt.timestamp(), Arc::new(move |x| ProtoIpv4::frag_cleanup(x, id))),
                     }
                 }
             );
@@ -244,7 +243,6 @@ mod tests {
 
     use super::*;
     use crate::packet::PktTime;
-    use crate::config::Config;
     use tracing_test::traced_test;
 
     fn ipv4_parse_test(proto: &mut ProtoIpv4, data: &[u8], ts: PktTime) -> Result<(), ParseErr> {
@@ -260,7 +258,7 @@ mod tests {
         let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
-        let ret = ProtoIpv4::new(Config::new()).process(&mut pkt, &mut infos);
+        let ret = ProtoIpv4::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, Ok(()));
 
         let info = infos.iter().next().unwrap();
@@ -281,7 +279,7 @@ mod tests {
     #[traced_test]
     fn ipv4_packet_too_short() {
         let data = vec![ 0x45, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_micros(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(), &data, PktTime::from_micros(0));
         assert_eq!(ret, Err(ParseErr::Truncated));
     }
 
@@ -289,7 +287,7 @@ mod tests {
     #[traced_test]
     fn ipv4_invalid_version() {
         let data = vec![ 0x55, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_micros(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(), &data, PktTime::from_micros(0));
         assert_eq!(ret, Err(ParseErr::Invalid("")));
         assert!(logs_contain("Invalid protocol version : 5"));
     }
@@ -298,7 +296,7 @@ mod tests {
     #[traced_test]
     fn ipv4_hlen_too_short() {
         let data = vec![ 0x44, 0x00, 0x05, 0xdc, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_micros(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(), &data, PktTime::from_micros(0));
         assert_eq!(ret, Err(ParseErr::Invalid("")));
         assert!(logs_contain("Header length too small"));
     }
@@ -307,7 +305,7 @@ mod tests {
     #[traced_test]
     fn ipv4_totlen_too_short() {
         let data = vec![ 0x45, 0x00, 0x00, 0x14, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_micros(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(), &data, PktTime::from_micros(0));
         assert_eq!(ret, Err(ParseErr::Invalid("")));
         assert!(logs_contain("Total length shorter than header size"));
     }
@@ -316,7 +314,7 @@ mod tests {
     #[traced_test]
     fn ipv4_truncated_pkt() {
         let data = vec![ 0x45, 0x00, 0x00, 0xff, 0xbe, 0xef, 0x00, 0x00, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02 ];
-        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_micros(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(), &data, PktTime::from_micros(0));
         assert_eq!(ret, Err(ParseErr::Truncated));
     }
 
@@ -326,7 +324,7 @@ mod tests {
         let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
 
-        let ret = ProtoIpv4::new(Config::new()).process(&mut pkt, &mut infos);
+        let ret = ProtoIpv4::new().process(&mut pkt, &mut infos);
 
         assert_eq!(ret, Ok(()));
         assert_eq!(pkt.remaining_len(), 1);
@@ -345,7 +343,7 @@ mod tests {
 
         let expect_data = vec![ 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0c];
 
-        let mut ipv4 = ProtoIpv4::new(Config::new());
+        let mut ipv4 = ProtoIpv4::new();
 
         let ret1 = ipv4_parse_test(&mut ipv4, &data1, PktTime::from_micros(0));
         assert_eq!(ret1, Err(ParseErr::Stop));
@@ -366,7 +364,7 @@ mod tests {
     fn ipv4_frag_not_8byte_multiple() {
         // Frag 2 continued data with 0xb data
         let data = vec![ 0x45, 0x00, 0x00, 0x1b, 0x05, 0x39, 0x20, 0x01, 0x40, 0x11, 0xff, 0xff, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b ];
-        let ret = ipv4_parse_test(&mut ProtoIpv4::new(Config::new()), &data, PktTime::from_micros(0));
+        let ret = ipv4_parse_test(&mut ProtoIpv4::new(), &data, PktTime::from_micros(0));
         assert_eq!(ret, Err(ParseErr::Invalid("")));
     }
 }

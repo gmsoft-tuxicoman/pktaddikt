@@ -6,10 +6,12 @@ use crate::output::OutputConfig;
 
 use config::{Config as ConfigLoader, File};
 use serde::Deserialize;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::collections::HashMap;
+use arc_swap::{ArcSwap, Guard};
 
-pub type ConfigRef = Arc<Config>;
+
+static CONFIG: OnceLock<ArcSwap<Config>> = OnceLock::new();
 
 
 #[derive(Debug, Deserialize)]
@@ -33,11 +35,22 @@ impl Default for Config {
 
 impl Config {
 
-    pub fn new() -> ConfigRef {
-        Arc::new(Config::default())
+
+    pub fn init(cfg: Config) {
+        CONFIG.set(ArcSwap::from_pointee(cfg)).unwrap();
     }
 
-    pub fn load(filename: &str) -> Result<Config, config::ConfigError> {
+    #[cfg(not(test))]
+    pub fn get() -> Guard<Arc<Config>> {
+        CONFIG.get().unwrap().load()
+    }
+
+    #[cfg(test)]
+    pub fn get() -> Guard<Arc<Config>> {
+        CONFIG.get_or_init(|| ArcSwap::from_pointee(Config::default())).load()
+    }
+
+    pub fn load_file(filename: &str) -> Result<Config, config::ConfigError> {
 
         ConfigLoader::builder()
             .add_source(File::with_name(filename).required(false))

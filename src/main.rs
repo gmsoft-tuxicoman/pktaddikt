@@ -5,7 +5,6 @@ use crate::output::OutputBuilder;
 use crate::event::EventBus;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
-use std::sync::Arc;
 
 pub mod proto;
 pub mod conntrack;
@@ -54,7 +53,8 @@ fn main() {
 
     let cli_cfg = CliOpts::parse();
 
-    let mut cfg = Config::load(&cli_cfg.config).unwrap();
+    let mut cfg = Config::load_file(&cli_cfg.config).unwrap();
+
 
     if cli_cfg.pcap_file.is_some() {
         cfg.input = InputConfig::PcapFile(PcapFileConfig {
@@ -77,13 +77,13 @@ fn main() {
         };
     }
 
-    let cfg_ref = Arc::new(cfg);
+    Config::init(cfg);
 
     let mut evt_bus = EventBus::new();
 
-    let mut input = Input::new(cfg_ref.clone());
+    let mut input = Input::new();
 
-    let mut outputs = OutputBuilder::build_all(cfg_ref.clone(), &mut evt_bus);
+    let mut outputs = OutputBuilder::build_all(&mut evt_bus);
 
     evt_bus.init();
 

@@ -18,13 +18,11 @@ pub struct ProtoArpInfo {
 
 pub struct ProtoArp {}
 
-impl ProtoArp {
-    pub fn new() -> Self {
+impl ProtoPktProcessor for ProtoArp {
+
+    fn new() -> Self {
         Self {}
     }
-}
-
-impl ProtoPktProcessor for ProtoArp {
 
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 

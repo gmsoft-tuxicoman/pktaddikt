@@ -14,15 +14,11 @@ pub struct ProtoVlanInfo {
 
 pub struct ProtoVlan {}
 
-impl ProtoVlan {
+impl ProtoPktProcessor for ProtoVlan {
 
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {}
     }
-
-}
-
-impl ProtoPktProcessor for ProtoVlan {
 
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 

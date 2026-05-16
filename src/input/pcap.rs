@@ -1,6 +1,6 @@
 use crate::packet::{Packet, PktTime, PktInfoStack};
 use crate::proto::{Proto, Protocols};
-use crate::config::ConfigRef;
+use crate::config::Config;
 use crate::input::InputConfig;
 
 use serde::Deserialize;
@@ -52,27 +52,26 @@ enum PcapCapture {
 
 pub struct InputPcap {
 
-    cfg: ConfigRef,
     capture: PcapCapture,
 
 }
 
 impl InputPcap {
 
-    pub fn new_file(cfg: ConfigRef) -> InputPcap {
-
+    pub fn new_file() -> InputPcap {
+        let cfg = Config::get();
         let InputConfig::PcapFile(ref c) = cfg.input else {
             panic!("Unexpected config");
         };
 
         InputPcap {
-            cfg: cfg.clone(),
             capture: PcapCapture::File(Capture::from_file(&c.file).unwrap())
         }
     }
 
-    pub fn new_interface(cfg: ConfigRef) -> InputPcap {
+    pub fn new_interface() -> InputPcap {
 
+        let cfg = Config::get();
         let InputConfig::PcapInterface(ref c) = cfg.input else {
             panic!("Unexpected config");
         };
@@ -89,7 +88,6 @@ impl InputPcap {
         }
 
         InputPcap {
-            cfg: cfg.clone(),
             capture: PcapCapture::Interface(capture),
         }
     }
@@ -109,7 +107,7 @@ impl InputPcap {
             _ => panic!("Unsupported protocol !"),
         };
 
-        let mut proto_parser = Proto::new(self.cfg.clone());
+        let mut proto_parser = Proto::new();
 
         while let Ok(pcap_pkt) = match &mut self.capture {
             PcapCapture::File(cap) => cap.next_packet(),

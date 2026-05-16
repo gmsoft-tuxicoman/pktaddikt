@@ -1,6 +1,7 @@
-use crate::output::Output;
+use crate::output::{Output, OutputConfig};
 use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind, EventId, EventPayload};
 use crate::packet::PktTime;
+use crate::config::Config;
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -62,9 +63,14 @@ struct ZeekConnLog {
 
 impl OutputLogZeek {
 
-    pub fn new(output_cfg: &LogZeekConfig, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
+    pub fn new(name: &str, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
 
-        let mut path = output_cfg.path.clone();
+        let main_cfg = Config::get();
+        let OutputConfig::LogZeek(cfg) = main_cfg.outputs.get(name).unwrap() else {
+            panic!("Config is not logzeek");
+        };
+
+        let mut path = cfg.path.clone();
         if path.len() > 0 && ! path.ends_with('/') {
             path.push('/');
         }

@@ -6,7 +6,7 @@ use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
-use crate::config::ConfigRef;
+use crate::config::Config;
 use crate::event::EventId;
 
 use std::time::Duration;
@@ -57,7 +57,6 @@ const TCP_TH_RST: u8 = 0x4;
 const TCP_TH_ACK: u8 = 0x10;
 
 pub struct ProtoTcp {
-    cfg: ConfigRef,
     ct: ConntrackTable<ConntrackKeyTcp>,
 }
 
@@ -75,16 +74,14 @@ impl ProtoTcp {
 
 }
 
-impl ProtoTcp {
-    pub fn new(cfg: ConfigRef) -> Self {
+impl ProtoPktProcessor for ProtoTcp {
+
+    fn new() -> Self {
+        let cfg = Config::get();
         Self {
-            cfg: cfg.clone(),
             ct: ConntrackTable::new(cfg.proto.tcp.conntrack_size),
         }
     }
-}
-
-impl ProtoPktProcessor for ProtoTcp {
 
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
@@ -165,14 +162,15 @@ impl ProtoPktProcessor for ProtoTcp {
 
         infos.set_conn_id(cd.get_conn_id().clone());
 
+        let cfg = Config::get();
         let timeout = match cd.get_state() {
-            TcpState::New => self.cfg.proto.tcp.timeout_syn_recv,
-            TcpState::SynRecv => self.cfg.proto.tcp.timeout_syn_recv,
-            TcpState::SynSent => self.cfg.proto.tcp.timeout_syn_sent,
-            TcpState::Established => self.cfg.proto.tcp.timeout_established,
-            TcpState::HalfClosedFwd => self.cfg.proto.tcp.timeout_half_closed,
-            TcpState::HalfClosedRev => self.cfg.proto.tcp.timeout_half_closed,
-            TcpState::Closed => self.cfg.proto.tcp.timeout_closed,
+            TcpState::New => cfg.proto.tcp.timeout_syn_recv,
+            TcpState::SynRecv => cfg.proto.tcp.timeout_syn_recv,
+            TcpState::SynSent => cfg.proto.tcp.timeout_syn_sent,
+            TcpState::Established => cfg.proto.tcp.timeout_established,
+            TcpState::HalfClosedFwd => cfg.proto.tcp.timeout_half_closed,
+            TcpState::HalfClosedRev => cfg.proto.tcp.timeout_half_closed,
+            TcpState::Closed => cfg.proto.tcp.timeout_closed,
         };
 
         ce_locked.set_timeout(Duration::from_secs(timeout), pkt.timestamp());
@@ -196,7 +194,6 @@ mod tests {
     use super::*;
     use crate::packet::PktTime;
     use crate::proto::ProtoTest;
-    use crate::config::Config;
     use crate::proto::ipv4::ProtoIpv4Info;
     use tracing_test::traced_test;
     use std::net::Ipv4Addr;
@@ -227,7 +224,7 @@ mod tests {
 
         infos.proto_push(Protocols::Tcp, None);
 
-        let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);
+        let ret = ProtoTcp::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, Err(ParseErr::Stop));
 
         let check = infos.proto_from_last(1).unwrap();
@@ -248,14 +245,14 @@ mod tests {
     #[test]
     fn tcp_packet_too_short() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00 ];
-        let ret= tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data);
+        let ret= tcp_parse_test(&mut ProtoTcp::new(), &data);
         assert_eq!(ret, Err(ParseErr::Truncated));
     }
 
     #[test]
     fn tcp_header_too_small() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x40, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data) else {
+        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(), &data) else {
             panic!("Unexpected success");
         };
         assert_eq!(ret.invalid_reason(), "Header length too small");
@@ -264,7 +261,7 @@ mod tests {
     #[test]
     fn tcp_header_too_big() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x70, 0x00, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data) else {
+        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(), &data) else {
             panic!("Unexpected succes");
         };
         assert_eq!(ret.invalid_reason(), "Header length bigger than payload size");
@@ -282,7 +279,7 @@ mod tests {
         let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
         let mut infos = PktInfoStack::new(Protocols::Tcp);
 
-        let ret = ProtoTcp::new(Config::new()).process(&mut pkt, &mut infos);
+        let ret = ProtoTcp::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, Err(ParseErr::Stop));
 
         let _ = test.process(&mut pkt, &mut infos);
@@ -293,7 +290,7 @@ mod tests {
     #[traced_test]
     fn tcp_packet_invalid_flags() {
         let data = vec![ 0x00, 0x01, 0x00, 0x02, 0xaa, 0xaa, 0xaa, 0xaa, 0xbb, 0xbb, 0xbb, 0xbb, 0x50, 0x07, 0x00, 0x10, 0xff, 0xff, 0x00, 0x00, 0xcc ];
-        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(Config::new()), &data) else {
+        let Err(ret) = tcp_parse_test(&mut ProtoTcp::new(), &data) else {
             panic!("Unexpected success");
         };
         assert_eq!(ret.invalid_reason(), "More than one SYN/FIN/RST at the same time");

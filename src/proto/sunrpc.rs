@@ -12,10 +12,26 @@ use crate::proto::sunrpc::nfs::ProtoNfs;
 use crate::proto::sunrpc::portmap::ProtoPortmap;
 use crate::proto::sunrpc::mount::ProtoMount;
 use crate::event::EventId;
+use crate::config::Config;
 
 
+use serde::Deserialize;
 use tracing::{debug, trace};
 use smallvec::SmallVec;
+
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SunRpcConfig {
+    pub max_call_queue: usize,
+}
+
+impl Default for SunRpcConfig {
+    fn default() -> Self {
+        Self {
+            max_call_queue: 8,
+        }
+    }
+}
 
 struct ProtoSunRpcCall {
     xid: u32,
@@ -128,6 +144,12 @@ impl ProtoSunRpc {
 
         self.calls.push(call);
 
+        let cfg = Config::get();
+        if self.calls.len() > cfg.proto.sunrpc.max_call_queue {
+            debug!("RPC call queue length bigger than  {}. Dropping last call.", cfg.proto.sunrpc.max_call_queue);
+            self.calls.pop();
+        }
+
         trace!("Call with {} payload for XID {:x}, prog {}, version {}, proc {}", parser.remaining_len(), xid, program, prog_version, proc);
 
         if parser.remaining_len() > 0 {
@@ -220,16 +242,13 @@ pub struct ProtoSunRpcUdp {
     ct: ConntrackTableUnique,
 }
 
-impl ProtoSunRpcUdp {
+impl ProtoPktProcessor for ProtoSunRpcUdp {
 
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             ct: ConntrackTableUnique::new()
         }
     }
-}
-
-impl ProtoPktProcessor for ProtoSunRpcUdp {
 
     // SunRPC over UDP
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {

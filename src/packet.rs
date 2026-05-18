@@ -288,17 +288,23 @@ impl<'a> Packet<'a> {
     }
 
     pub fn to_owned(&self) -> Packet<'static> {
+        let mut range = self.range;
         let pkt_data = match &self.data {
             PacketData::Owned(arc) => PacketData::Owned(arc.clone()),
             PacketData::OwnedVec(vec) => PacketData::OwnedVec(vec.clone()),
-            PacketData::Borrowed(b) => PacketData::Owned(Arc::from(*b)),
+            PacketData::Borrowed(b) => {
+                let data = PacketData::Owned(Arc::from(b[self.range.0 .. self.range.1].to_vec()));
+                range.1 = self.range.1 - self.range.0;
+                range.0 = 0;
+                data
+            },
             PacketData::Zero(len) => PacketData::Zero(*len),
             PacketData::Empty => PacketData::Empty,
         };
         Packet {
             ts: self.ts,
             data: pkt_data,
-            range: self.range,
+            range: range,
         }
     }
 

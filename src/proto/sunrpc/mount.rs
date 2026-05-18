@@ -33,6 +33,7 @@ impl ProtoMount {
 
         match proc {
             1 => self.mnt_call(xid, parser),
+            3 => self.umnt_call(xid, parser),
             _ => Err(ParseErr::Invalid("Unknown MOUNT procedure called"))
         }
     }
@@ -41,6 +42,7 @@ impl ProtoMount {
 
         match proc {
             1 => self.mnt_reply(xid, parser),
+            3 => Ok(()), // UMNT
             _ => Err(ParseErr::Invalid("Unknown MOUNT procedure reply")),
         }
     }
@@ -57,4 +59,9 @@ impl ProtoMount {
         Ok(())
     }
 
+    fn umnt_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+        let path = read_opaque(parser)?;
+        trace!("Requesting umount {}", String::from_utf8_lossy(&path));
+        Ok(())
+    }
 }

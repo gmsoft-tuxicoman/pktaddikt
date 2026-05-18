@@ -53,7 +53,7 @@ pub struct ProtoNfs {
 
     conn_id: EventId,
     conn_info: PktConnInfo,
-//    version_major: u32,
+    version_major: u32,
 
 }
 
@@ -64,36 +64,83 @@ impl ProtoNfs {
     const NFS4_SESSIONID_SIZE: usize = 16;
 
     pub fn new(conn_id: &EventId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
-        if version != 4 {
-            trace!("Only support for NFSv4 for now ... patch welcome");
+        if version != 3 && version != 4 {
+            trace!("Only support for NFSv3 and v4 for now ... patch welcome");
             return None;
         }
 
         Some(Self {
             conn_id: conn_id.clone(),
             conn_info: conn_info.clone(),
-            //version_major: version,
+            version_major: version,
         })
     }
 
     pub fn parse_call<T: Parser>(&self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
 
-        match proc {
-            1 => self.compound_call(xid, parser),
-            _ => Err(ParseErr::Invalid("Unknown NFS procedure in call"))
+
+        match self.version_major {
+            3 => match proc {
+                1 => Ok(()), // GETATTR
+                2 => Ok(()), // SETATTR
+                3 => Ok(()), // LOOKUP
+                4 => Ok(()), // ACCESS
+                5 => Ok(()), // READLINK
+                7 => Ok(()), // WRITE
+                8 => Ok(()), // CREATE
+                9 => Ok(()), // MKDIR
+                10 => Ok(()), // SYMLINK
+                12 => Ok(()), // REMOVE
+                13 => Ok(()), // RMDIR
+                14 => Ok(()), // RENAME
+                15 => Ok(()), // LINK
+                16 => Ok(()), // READDIR
+                18 => Ok(()), // FSSTAT
+                19 => Ok(()), // FSINFO
+                20 => Ok(()), // PATHCONF
+                _ => Err(ParseErr::Invalid("Unknown NFSv3 procedure called"))
+            },
+            4 => match proc {
+                1 => self.v4_compound_call(xid, parser),
+                _ => Err(ParseErr::Invalid("Unknown NFSv4 procedure called"))
+            }
+            _ => Err(ParseErr::Invalid("NFS version not supported"))
         }
     }
 
     pub fn parse_reply<T: Parser>(&self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
 
-        match proc {
-            1 => self.compound_reply(xid, parser),
-            _ => Err(ParseErr::Invalid("Unknown NFS procedure in reply"))
+        match self.version_major {
+            3 => match proc {
+                1 => Ok(()), // GETATTR
+                2 => Ok(()), // SETATTR
+                3 => Ok(()), // LOOKUP
+                4 => Ok(()), // ACCESS
+                5 => Ok(()), // READLINK
+                7 => Ok(()), // WRITE
+                8 => Ok(()), // CREATE
+                9 => Ok(()), // MKDIR
+                10 => Ok(()), // SYMLINK
+                12 => Ok(()), // REMOVE
+                13 => Ok(()), // RMDIR
+                14 => Ok(()), // RENAME
+                15 => Ok(()), // LINK
+                16 => Ok(()), // READDIR
+                18 => Ok(()), // FSSTAT
+                19 => Ok(()), // FSINFO
+                20 => Ok(()), // PATHCONF
+                _ => Err(ParseErr::Invalid("Unknown NFSv3 procedure replied"))
+            },
+            4 => match proc {
+                1 => self.v4_compound_reply(xid, parser),
+                _ => Err(ParseErr::Invalid("Unknown NFSv4 procedure in replied"))
+            },
+            _ => Err(ParseErr::Invalid("NFS version not supported"))
         }
 
     }
 
-    fn compound_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn v4_compound_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         // tag
         skip_opaque(parser)?;
@@ -135,7 +182,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn compound_reply<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn v4_compound_reply<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         let status = parser.read_u32_be()?;
         skip_opaque(parser)?; // tag

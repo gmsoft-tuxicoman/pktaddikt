@@ -1,8 +1,8 @@
 
 use crate::packet::PktTime;
+use crate::base::UniqueId;
 
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, OnceLock};
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumString, AsRefStr, EnumCount, EnumIter, IntoStaticStr};
@@ -14,7 +14,6 @@ use std::borrow::Cow;
 
 
 static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
-static EVENT_ID_COUNTER: AtomicU16 = AtomicU16::new(0);
 
 
 #[derive(Debug, Serialize)]
@@ -86,19 +85,6 @@ impl EventPayload {
         }
     }
 }
-
-#[derive(Debug, Clone, Serialize)]
-pub struct EventId (String);
-
-impl EventId {
-    pub fn new(ts: PktTime) -> EventId {
-
-        let counter = EVENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let val: u128 = ((u64::from(ts) as u128) << 16) | counter as u128;
-        EventId(base62::encode(val))
-    }
-}
-
 
 pub type EventTxChannel = crossbeam_channel::Sender<EventRef>;
 pub type EventRxChannel = crossbeam_channel::Receiver<EventRef>;
@@ -228,7 +214,7 @@ pub type EventRef = Arc<Event>;
 #[derive(Debug, Serialize)]
 pub struct Event {
 
-    pub event_id: EventId,
+    pub event_id: UniqueId,
     pub ts: PktTime,
     pub kind: &'static str,
 
@@ -243,7 +229,7 @@ impl Event {
     pub fn new(ts: PktTime, payload: EventPayload) -> Self {
         let kind = payload.kind();
         Event {
-            event_id: EventId::new(ts),
+            event_id: UniqueId::new(ts),
             ts: ts,
             kind: kind.into(),
             payload: payload,

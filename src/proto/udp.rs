@@ -3,7 +3,8 @@ use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection};
 use crate::packet::{Packet, PktInfoStack, PktTime};
 use crate::config::Config;
-use crate::event::{Event, EventPayload, EventId, EventKind, EventBus};
+use crate::event::{Event, EventPayload, EventKind, EventBus};
+use crate::base::UniqueId;
 use crate::expectation::ExpectationTable;
 
 use std::time::Duration;
@@ -38,7 +39,7 @@ impl Default for UdpConfig {
 
 #[derive(Debug, Serialize)]
 pub struct NetUdpConnectionStart {
-    pub conn_id: EventId,
+    pub conn_id: UniqueId,
     pub src_host: Option<IpAddr>,
     pub dst_host: Option<IpAddr>,
     pub src_port: u16,
@@ -47,7 +48,7 @@ pub struct NetUdpConnectionStart {
 
 #[derive(Debug, Serialize)]
 pub struct NetUdpConnectionEnd {
-    pub conn_id: EventId,
+    pub conn_id: UniqueId,
     pub duration: PktTime,
     pub src_host: Option<IpAddr>,
     pub dst_host: Option<IpAddr>,
@@ -71,7 +72,7 @@ struct ConntrackUdpDir {
 struct ConntrackUdp {
     forward: ConntrackUdpDir,
     reverse: ConntrackUdpDir,
-    conn_id: EventId,
+    conn_id: UniqueId,
     start_ts: PktTime,
     last_ts: PktTime,
     src_port: u16,
@@ -152,7 +153,7 @@ impl ProtoPktProcessor for ProtoUdp {
         let ts = pkt.timestamp();
         let cd = ce_locked.get_or_insert_with(||
             {
-                let conn_id = EventId::new(ts);
+                let conn_id = UniqueId::new(ts);
                 let ip_info = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap());
                 let (src_host, dst_host) = match ip_info {
                     Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),

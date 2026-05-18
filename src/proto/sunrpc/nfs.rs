@@ -1,5 +1,6 @@
 use crate::base::{Parser, ParseErr};
-use crate::event::{EventId, EventBus, EventStr, EventKind, Event, EventPayload};
+use crate::event::{EventBus, EventStr, EventKind, Event, EventPayload};
+use crate::base::UniqueId;
 use crate::packet::PktConnInfo;
 use crate::proto::sunrpc::xdr::*;
 
@@ -10,7 +11,7 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 struct NetNfsBase {
 
-    conn_id: EventId,
+    conn_id: UniqueId,
     #[serde(flatten)]
     conn_info: PktConnInfo,
     xid: u32,
@@ -51,7 +52,7 @@ pub struct NetNfsCreateSessionCall {
 
 pub struct ProtoNfs {
 
-    conn_id: EventId,
+    conn_id: UniqueId,
     conn_info: PktConnInfo,
     version_major: u32,
 
@@ -63,7 +64,7 @@ impl ProtoNfs {
     const NFS4_VERIFIER_SIZE: usize = 8;
     const NFS4_SESSIONID_SIZE: usize = 16;
 
-    pub fn new(conn_id: &EventId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
+    pub fn new(conn_id: &UniqueId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
         if version != 3 && version != 4 {
             trace!("Only support for NFSv3 and v4 for now ... patch welcome");
             return None;

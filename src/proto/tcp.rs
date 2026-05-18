@@ -7,7 +7,7 @@ use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
 use crate::config::Config;
-use crate::event::EventId;
+use crate::base::UniqueId;
 
 use std::time::Duration;
 use serde::Deserialize;
@@ -150,7 +150,7 @@ impl ProtoPktProcessor for ProtoTcp {
 
         let mut ce_locked = ce.lock().unwrap();
         let cd = ce_locked.get_or_insert_with(|| {
-            let conn_id = EventId::new(pkt.timestamp());
+            let conn_id = UniqueId::new(pkt.timestamp());
             infos.set_conn_id(conn_id);
             Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData })
 

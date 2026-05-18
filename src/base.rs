@@ -2,6 +2,23 @@ use crate::packet::{Packet, PktTime};
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicU16, Ordering};
+use serde::Serialize;
+
+static UNIQUE_ID_COUNTER: AtomicU16 = AtomicU16::new(0);
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UniqueId (String);
+
+impl UniqueId {
+    pub fn new(ts: PktTime) -> UniqueId {
+
+        let counter = UNIQUE_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let val: u128 = ((u64::from(ts) as u128) << 16) | counter as u128;
+        UniqueId(base62::encode(val))
+    }
+}
+
 
 /// Return error for Proto and Stream API
 pub enum ParseErr {

@@ -5,7 +5,8 @@ use crate::proto::tcp::seq::TcpSeq;
 use crate::packet::{Packet, PktTime, PktInfoStack};
 use crate::stream::PktStream;
 use crate::proto::{Protocols, ProtoInfo};
-use crate::event::{Event, EventId, EventPayload};
+use crate::event::{Event, EventPayload};
+use crate::base::UniqueId;
 
 use std::collections::BTreeMap;
 use tracing::{debug, trace};
@@ -16,7 +17,7 @@ const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionStart {
-    pub conn_id: EventId,
+    pub conn_id: UniqueId,
     pub src_host: Option<IpAddr>,
     pub dst_host: Option<IpAddr>,
     pub src_port: u16,
@@ -25,7 +26,7 @@ pub struct NetTcpConnectionStart {
 
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionEnd {
-    pub conn_id: EventId,
+    pub conn_id: UniqueId,
     pub duration: PktTime,
     pub src_host: Option<IpAddr>,
     pub dst_host: Option<IpAddr>,
@@ -87,7 +88,7 @@ pub struct ConntrackTcp {
     state: TcpState,
     start_ts: Option<PktTime>,
     last_ts: PktTime,
-    conn_id: EventId,
+    conn_id: UniqueId,
     flow_state: ConntrackTcpFlowState,
     src_port: u16,
     dst_port: u16,
@@ -472,7 +473,7 @@ impl ConntrackTcp {
         self.process_more_packets();
     }
 
-    pub fn get_conn_id(&self) -> &EventId {
+    pub fn get_conn_id(&self) -> &UniqueId {
         &self.conn_id
     }
 
@@ -665,7 +666,7 @@ mod tests {
 
     fn dummy_infos() -> PktInfoStack {
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
-        infos.set_conn_id(EventId::new(PktTime::from_micros(0)));
+        infos.set_conn_id(UniqueId::new(PktTime::from_micros(0)));
 
         let mut info = infos.proto_last_mut();
 

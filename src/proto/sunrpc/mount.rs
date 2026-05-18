@@ -1,6 +1,6 @@
 use crate::base::{Parser, ParseErr};
 use crate::packet::PktConnInfo;
-use crate::event::EventId;
+use crate::base::UniqueId;
 use crate::proto::sunrpc::xdr::*;
 
 use tracing::{debug, trace};
@@ -9,14 +9,14 @@ use tracing::{debug, trace};
 
 pub struct ProtoMount {
 
-    conn_id: EventId,
+    conn_id: UniqueId,
     conn_info: PktConnInfo
 
 }
 
 impl ProtoMount {
 
-    pub fn new(conn_id: &EventId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
+    pub fn new(conn_id: &UniqueId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
 
         if version > 3 {
             debug!("Only support for Mount version up to 3 for now ... patch welcome");

@@ -1,5 +1,6 @@
 use crate::output::{Output, OutputConfig};
-use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind, EventId, EventPayload};
+use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind, EventPayload};
+use crate::base::UniqueId;
 use crate::packet::PktTime;
 use crate::config::Config;
 
@@ -36,7 +37,7 @@ pub struct OutputLogZeek {
 struct ZeekConnLog {
 
     ts: PktTime,
-    uid: EventId,
+    uid: UniqueId,
     #[serde(rename = "id.orig_h")]
     orig_h: Option<IpAddr>,
     #[serde(rename = "id.orig_p")]

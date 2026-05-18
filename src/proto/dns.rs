@@ -1,7 +1,8 @@
 use crate::base::{Parser, ParseErr};
 use crate::proto::ProtoPktProcessor;
 use crate::packet::{Packet, PktInfoStack, PktConnInfo};
-use crate::event::{Event, EventId, EventStr, EventPayload, EventBus, EventKind};
+use crate::event::{Event, EventStr, EventPayload, EventBus, EventKind};
+use crate::base::UniqueId;
 use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::conntrack::{ConntrackDirection, ConntrackTableUnique};
 
@@ -87,7 +88,7 @@ pub enum NetDnsRecordData {
 
 #[derive(Debug, Serialize)]
 pub struct NetDnsMessage {
-    pub conn_id: EventId,
+    pub conn_id: UniqueId,
     pub proto: &'static str,
     #[serde(flatten)]
     pub conn_info: PktConnInfo,
@@ -109,7 +110,7 @@ pub struct NetDnsMessage {
 
 #[derive(Debug)]
 pub struct ProtoDns {
-    conn_id: EventId,
+    conn_id: UniqueId,
     conn_info: PktConnInfo,
     proto: &'static str,
 }

@@ -2,9 +2,8 @@ use crate::base::{Parser, ParseErr};
 use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::packet::{PktInfoStack, PktTime, PktConnInfo};
 use crate::conntrack::ConntrackDirection;
-use crate::event::{EventId, EventKind};
-use crate::event::{Event, EventBus, EventPayload, EventStr};
-use crate::base::{atoi, htoi};
+use crate::event::{Event, EventBus, EventPayload, EventStr, EventKind};
+use crate::base::{atoi, htoi, UniqueId};
 
 use memchr::memchr;
 use tracing::trace;
@@ -13,7 +12,7 @@ use std::cmp;
 
 #[derive(Debug, Serialize)]
 pub struct NetHttpRequestBasic {
-    pub conn_id: EventId,
+    pub conn_id: UniqueId,
     #[serde(flatten)]
     pub conn_info: PktConnInfo,
     pub ts: PktTime,
@@ -31,7 +30,7 @@ pub struct NetHttpRequestFull {
 
 #[derive(Debug, Serialize)]
 pub struct NetHttpResponseBasic {
-    pub conn_id: EventId,
+    pub conn_id: UniqueId,
     #[serde(flatten)]
     pub conn_info: PktConnInfo,
     pub ts: PktTime,
@@ -94,7 +93,7 @@ pub struct ProtoHttp {
 
     client_dir: Option<ConntrackDirection>,
     info: [ProtoHttpStateInfo;2],
-    conn_id: EventId,
+    conn_id: UniqueId,
     conn_info: PktConnInfo,
     last_status: usize,
 }
@@ -500,7 +499,7 @@ mod tests {
     use crate::conntrack::ConntrackDirection;
     use crate::proto::ipv4::ProtoIpv4Info;
     use crate::proto::tcp::ProtoTcpInfo;
-    use crate::event::EventId;
+    use crate::base::UniqueId;
     use std::net::Ipv4Addr;
 
 
@@ -508,7 +507,7 @@ mod tests {
     fn http_parse_basic() {
 
         let mut infos = PktInfoStack::new(Protocols::Ipv4);
-        infos.set_conn_id(EventId::new(PktTime::from_micros(0)));
+        infos.set_conn_id(UniqueId::new(PktTime::from_micros(0)));
 
         let mut info = infos.proto_last_mut();
 

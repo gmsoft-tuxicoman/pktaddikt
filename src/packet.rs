@@ -1,7 +1,7 @@
 use crate::base::{Parser, ParseErr};
 use crate::proto::{Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackRef, ConntrackWeakRef, ConntrackDirection};
-use crate::event::EventId;
+use crate::base::UniqueId;
 use std::sync::Arc;
 use tracing::trace;
 use rangemap::RangeSet;
@@ -89,7 +89,7 @@ pub struct PktConnInfo {
 // Stack of packet info
 pub struct PktInfoStack {
     infos: Vec<PktInfo>,
-    conn_id: Option<EventId>,
+    conn_id: Option<UniqueId>,
 }
 
 // All info about a packet
@@ -146,11 +146,11 @@ impl PktInfoStack {
         self.infos.iter()
     }
 
-    pub fn set_conn_id(&mut self, conn_id: EventId) {
+    pub fn set_conn_id(&mut self, conn_id: UniqueId) {
         self.conn_id = Some(conn_id);
     }
 
-    pub fn get_conn_id(&self) -> Option<&EventId> {
+    pub fn get_conn_id(&self) -> Option<&UniqueId> {
         self.conn_id.as_ref()
     }
 

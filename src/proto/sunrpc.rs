@@ -11,7 +11,7 @@ use crate::conntrack::{ConntrackDirection, ConntrackTableUnique};
 use crate::proto::sunrpc::nfs::ProtoNfs;
 use crate::proto::sunrpc::portmap::ProtoPortmap;
 use crate::proto::sunrpc::mount::ProtoMount;
-use crate::event::EventId;
+use crate::base::UniqueId;
 use crate::config::Config;
 
 
@@ -46,7 +46,7 @@ enum ProtoSunRpcTcpState {
 
 pub struct ProtoSunRpc {
 
-    conn_id: EventId,
+    conn_id: UniqueId,
     conn_info: PktConnInfo,
     prog: Option<ProtoSunRpcProg>,
     version: Option<u32>,

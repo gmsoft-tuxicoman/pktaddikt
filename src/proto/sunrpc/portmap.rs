@@ -1,6 +1,6 @@
 use crate::base::{Parser, ParseErr};
 use crate::packet::PktConnInfo;
-use crate::event::EventId;
+use crate::base::UniqueId;
 use crate::proto::Protocols;
 use crate::base::atoi;
 use crate::expectation::{ExpectationTable, ExpectationEntry, ExpectationType};
@@ -14,14 +14,14 @@ use std::time::Duration;
 
 pub struct ProtoPortmap {
 
-    conn_id: EventId,
+    conn_id: UniqueId,
     conn_info: PktConnInfo
 
 }
 
 impl ProtoPortmap {
 
-    pub fn new(conn_id: &EventId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
+    pub fn new(conn_id: &UniqueId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
         if version != 3 {
             debug!("Only support for Portmap version 3 for now ... patch welcome");
             return None;

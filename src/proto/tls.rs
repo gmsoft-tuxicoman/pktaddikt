@@ -2,7 +2,8 @@ use crate::base::{Parser, ParseErr};
 use crate::stream::{PktStreamProcessor, PktStreamParser, PktSubStream};
 use crate::packet::{PktInfoStack, PktConnInfo};
 use crate::conntrack::ConntrackDirection;
-use crate::event::{EventId, EventStr, EventPayload, Event};
+use crate::event::{EventStr, EventPayload, Event};
+use crate::base::UniqueId;
 use crate::packet::Packet;
 
 
@@ -12,7 +13,7 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct NetTlsClientHello {
-    pub conn_id: EventId,
+    pub conn_id: UniqueId,
     #[serde(flatten)]
     pub conn_info: PktConnInfo,
     pub version: TlsVersion,
@@ -68,7 +69,7 @@ impl Default for ProtoTlsDir {
 pub struct ProtoTls {
 
     dir: [ProtoTlsDir;2],
-    conn_id: EventId,
+    conn_id: UniqueId,
     conn_info: PktConnInfo,
 }
 
@@ -180,7 +181,7 @@ impl ProtoTlsHandshake {
         }
     }
 
-    fn process(&mut self, _dir: ConntrackDirection, parser: &mut PktStreamParser, conn_id: &EventId, conn_info: PktConnInfo) -> Result<(), ParseErr> {
+    fn process(&mut self, _dir: ConntrackDirection, parser: &mut PktStreamParser, conn_id: &UniqueId, conn_info: PktConnInfo) -> Result<(), ParseErr> {
             
         if self.ctype.is_none() {
             let ctype = match parser.read_u8()? {
@@ -226,7 +227,7 @@ impl ProtoTlsHandshake {
         ret
     }
 
-    fn parse_client_hello(&self, parser: &mut Packet, conn_id: &EventId, conn_info: PktConnInfo) -> Result<(), ParseErr> {
+    fn parse_client_hello(&self, parser: &mut Packet, conn_id: &UniqueId, conn_info: PktConnInfo) -> Result<(), ParseErr> {
 
         let mut version = parser.read_u16_be()?;
 

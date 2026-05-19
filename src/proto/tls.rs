@@ -48,7 +48,7 @@ enum ProtoTlsState {
 pub struct ProtoTlsDir {
 
     state: ProtoTlsState,
-    rlen: usize,
+    rlen: u32,
     handshake_stream: PktSubStream,
     handshake_proto: ProtoTlsHandshake,
 }
@@ -81,7 +81,7 @@ impl ProtoTls {
         parser.skip_u16()?; // version
 
         let status = &mut self.dir[dir as usize];
-        status.rlen = parser.read_u16_be()? as usize;
+        status.rlen = parser.read_u16_be()? as u32;
 
         if status.rlen > 16384 {
             return Err(ParseErr::Invalid("TLS Record length > 16384"));
@@ -168,7 +168,7 @@ enum ProtoTlsHandshakeType {
 pub struct ProtoTlsHandshake {
 
     ctype: Option<ProtoTlsHandshakeType>,
-    clen: usize,
+    clen: u32,
 
 }
 
@@ -197,7 +197,7 @@ impl ProtoTlsHandshake {
                 20 => ProtoTlsHandshakeType::Finished,
                 _ => return Err(ParseErr::Invalid("Invalid TLS Handshake content type")),
             };
-            self.clen = parser.read_u24_be()? as usize;
+            self.clen = parser.read_u24_be()?;
 
             if self.clen > 16384 {
                 // According to RFC, record len should be less than 16k (2^14)
@@ -234,7 +234,7 @@ impl ProtoTlsHandshake {
         // Skip random
         parser.skip(32)?;
 
-        let session_id_len = parser.read_u8()? as usize;
+        let session_id_len = parser.read_u8()? as u32;
 
         if session_id_len > 32 {
             return Err(ParseErr::Invalid("TLS Client Hello session ID lenght > 32"));
@@ -244,11 +244,11 @@ impl ProtoTlsHandshake {
 
 
         // Parse and validate cipher suite length
-        let cipher_suite_len = parser.read_u16_be()? as usize;
+        let cipher_suite_len = parser.read_u16_be()? as u32;
         parser.skip(cipher_suite_len)?;
 
         // Parse and validate compression method len
-        let compression_method_len = parser.read_u8()? as usize;
+        let compression_method_len = parser.read_u8()? as u32;
         parser.skip(compression_method_len)?;
 
         // Check for presence of extensions
@@ -259,7 +259,7 @@ impl ProtoTlsHandshake {
         }
 
         // Parse and validate extensions}
-        let extensions_len = parser.read_u16_be()? as usize;
+        let extensions_len = parser.read_u16_be()? as u32;
 
         if extensions_len > parser.remaining_len() {
             return Err(ParseErr::Invalid("Extensions length bigger than TLS Client Hello remaining length"));
@@ -276,7 +276,7 @@ impl ProtoTlsHandshake {
         while parser.remaining_len() > 0 {
 
             let etype = parser.read_u16_be()?;
-            let elen =  parser.read_u16_be()? as usize;
+            let elen =  parser.read_u16_be()? as u32;
 
             let mut epkt = parser.sub_packet(elen)?;
 
@@ -288,7 +288,7 @@ impl ProtoTlsHandshake {
                         // Should be 0 for HostName type
                         return Err(ParseErr::Invalid("TLS SNI ServerNameType should be 0"));
                     }
-                    let name_len = epkt.read_u16_be()? as usize;
+                    let name_len = epkt.read_u16_be()? as u32;
                     let hostname = epkt.read(name_len)?;
                     trace!("Found SNI with hostname: {}", String::from_utf8_lossy(&hostname));
                     server_name = Some(hostname.into());
@@ -304,13 +304,13 @@ impl ProtoTlsHandshake {
                 }
 
                 16 | 17513 | 17613 => { // ALPS | draft-vvv-tls-alps-01
-                    let alpn_len = epkt.read_u16_be()? as usize;
+                    let alpn_len = epkt.read_u16_be()? as u32;
                     if alpn_len > epkt.remaining_len() {
                         return Err(ParseErr::Invalid("TLS ClientHello ALPN extension len > than advertised extension len"));
                     }
                     epkt.shrink(alpn_len);
                     while epkt.remaining_len() > 0 {
-                        let proto_len = epkt.read_u8()? as usize;
+                        let proto_len = epkt.read_u8()? as u32;
                         let proto = epkt.read(proto_len)?;
                         trace!("Found next protocol: {}", String::from_utf8_lossy(&proto));
                         next_proto.push(proto.into());

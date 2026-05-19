@@ -91,14 +91,14 @@ impl ParseErr {
 
 pub trait Parser {
 
-    fn read(&mut self, size: usize) -> Result<Cow<'_, [u8]>, ParseErr>;
+    fn read(&mut self, size: u32) -> Result<Cow<'_, [u8]>, ParseErr>;
     fn read_fixed<const N: usize>(&mut self) -> Result<[u8; N], ParseErr>;
-    fn remaining_len(&self) -> usize;
-    fn skip(&mut self, size: usize) -> Result<(), ParseErr>;
+    fn remaining_len(&self) -> u32;
+    fn skip(&mut self, size: u32) -> Result<(), ParseErr>;
     fn timestamp(&self) -> PktTime;
 
     #[inline]
-    fn has_len(&self, len: usize) -> Result<(), ParseErr> {
+    fn has_len(&self, len: u32) -> Result<(), ParseErr> {
         if self.remaining_len() < len {
             return Err(ParseErr::Truncated);
         }
@@ -156,7 +156,7 @@ pub trait Parser {
     }
 
     #[inline]
-    fn skip_u32s(&mut self, count: usize) -> Result<(), ParseErr> {
+    fn skip_u32s(&mut self, count: u32) -> Result<(), ParseErr> {
         self.skip(4 * count)
     }
 
@@ -166,36 +166,36 @@ pub trait Parser {
     }
 
     #[inline]
-    fn skip_u64s(&mut self, count: usize) -> Result<(), ParseErr> {
+    fn skip_u64s(&mut self, count: u32) -> Result<(), ParseErr> {
         self.skip(8 * count)
     }
 }
 
 // Ascii base 10 to integer
-pub fn atoi(val: &[u8]) -> Option<usize> {
-    let mut ret = 0usize;
+pub fn atoi(val: &[u8]) -> Option<u64> {
+    let mut ret = 0u64;
 
     for &b in val {
         if b < b'0' || b > b'9' {
             return None;
         }
 
-        ret = ret * 10 + (b - b'0') as usize;
+        ret = ret * 10 + (b - b'0') as u64;
     }
     Some(ret)
 }
 
 // Ascii hexadecimal to integer
-pub fn htoi(val: &[u8]) -> Option<usize> {
-    let mut ret = 0usize;
+pub fn htoi(val: &[u8]) -> Option<u64> {
+    let mut ret = 0u64;
 
     for &b in val {
         if b >= b'0' && b  <= b'9' {
-            ret = (ret << 4 ) + (b - b'0') as usize;
+            ret = (ret << 4 ) + (b - b'0') as u64;
         } else if b >= b'a' && b <= b'f' {
-            ret = (ret << 4) + (b - b'a' + 10) as usize;
+            ret = (ret << 4) + (b - b'a' + 10) as u64;
         } else if b >= b'A' && b <= b'F' {
-            ret = (ret << 4) + (b - b'A' + 10) as usize;
+            ret = (ret << 4) + (b - b'A' + 10) as u64;
         } else {
             return None;
         }

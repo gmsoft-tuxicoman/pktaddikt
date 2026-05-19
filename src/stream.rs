@@ -138,8 +138,8 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
     }
 
     #[inline]
-    fn buffered_len(&self) -> usize {
-        let mut len :usize = 0;
+    fn buffered_len(&self) -> u32 {
+        let mut len :u32 = 0;
         for buf in self.pkt_buff.iter() {
             len += buf.remaining_len();
         }
@@ -171,10 +171,10 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
 
         if pkt_id == fake_id {
             // Use self.pkt for last data
-            ret.extend_from_slice(&self.pkt.read_skip(off, 1).unwrap());
+            ret.extend_from_slice(&self.pkt.read_skip(off as u32, 1).unwrap());
         } else {
             // Use first packet left in the buffer
-            ret.extend_from_slice(&self.pkt_buff[0].read_skip(off, 1).unwrap());
+            ret.extend_from_slice(&self.pkt_buff[0].read_skip(off as u32, 1).unwrap());
             if self.pkt_buff[0].remaining_len() == 0 {
                 self.pkt_buff.remove(0);
             }
@@ -201,7 +201,7 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
                 skip += 1;
             }
 
-            let ret = self.pkt.read_skip(off, skip).unwrap();
+            let ret = self.pkt.read_skip(off as u32, skip).unwrap();
             Ok(ret)
 
         } else {
@@ -212,12 +212,12 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
     // Read exact number of bytes or nothing
     #[cold]
     #[inline(never)]
-    fn read_slow(&mut self, mut len: usize) -> Result<Vec<u8>, ParseErr> {
+    fn read_slow(&mut self, mut len: u32) -> Result<Vec<u8>, ParseErr> {
         // Only called when there is something in the buffer
 
         self.has_len(len)?;
 
-        let mut data = Vec::with_capacity(len);
+        let mut data = Vec::with_capacity(len as usize);
 
         while let Some(p) = self.pkt_buff.first_mut() {
             if p.remaining_len() < len {
@@ -247,31 +247,31 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
     fn read_fixed_slow<const N: usize>(&mut self) -> Result<[u8; N], ParseErr> {
         // Only called when there is something in the buffer
         let mut tmp = [0u8; N];
-        let mut offset = 0;
+        let mut offset :usize = 0;
 
-        self.has_len(N)?;
+        self.has_len(N as u32)?;
 
         while let Some(p) = self.pkt_buff.first_mut() {
-            if p.remaining_len() < N - offset {
+            if (p.remaining_len() as usize) < N - offset {
                 // The whole packet will be used
                 let mut p = self.pkt_buff.remove(0);
                 let data = p.remaining_data();
-                tmp[offset .. offset + data.len()].copy_from_slice(data);
+                tmp[offset as usize .. offset as usize + data.len()].copy_from_slice(data);
                 offset += data.len();
             } else {
                 // Use only what we need
-                tmp[offset .. N].copy_from_slice(&p.read(N - offset).unwrap());
+                tmp[offset .. N].copy_from_slice(&p.read((N - offset) as u32).unwrap());
                 return Ok(tmp);
             }
         }
 
-        tmp[offset .. N].copy_from_slice(&self.pkt.read(N - offset).unwrap());
+        tmp[offset .. N].copy_from_slice(&self.pkt.read((N - offset) as u32).unwrap());
         Ok(tmp)
     }
 
     #[cold]
     #[inline(never)]
-    fn skip_slow(&mut self, mut size: usize) -> Result<(), ParseErr> {
+    fn skip_slow(&mut self, mut size: u32) -> Result<(), ParseErr> {
 
         self.has_len(size)?;
         while let Some(p) = self.pkt_buff.first_mut() {
@@ -289,7 +289,7 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
     }
 
     #[inline]
-    pub fn sub_packet(&mut self, size: usize) -> Result<Packet<'_>, ParseErr> {
+    pub fn sub_packet(&mut self, size: u32) -> Result<Packet<'_>, ParseErr> {
         if self.pkt_buff.is_empty() {
             self.pkt.sub_packet(size)
         } else {
@@ -300,16 +300,16 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
 
     #[cold]
     #[inline(never)]
-    fn peek_slow(&self, min_size: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+    fn peek_slow(&self, min_size: u32) -> Result<Cow<'_, [u8]>, ParseErr> {
         if self.pkt_buff[0].remaining_len() >= min_size {
             return Ok(Cow::Borrowed(self.pkt_buff[0].peek()));
         }
 
-        let mut ret = Vec::with_capacity(min_size);
+        let mut ret = Vec::with_capacity(min_size as usize);
 
         for pkt in self.pkt_buff.iter().chain(std::iter::once(& *self.pkt)) {
             ret.extend_from_slice(pkt.peek());
-            if ret.len() >= min_size {
+            if ret.len() as u32 >= min_size {
                 break;
             }
         }
@@ -319,7 +319,7 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
     }
 
     #[inline]
-    pub fn peek(&self, min_size: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+    pub fn peek(&self, min_size: u32) -> Result<Cow<'_, [u8]>, ParseErr> {
         if self.pkt_buff.is_empty() {
             self.pkt.has_len(min_size)?;
             Ok(Cow::Borrowed(self.pkt.peek()))
@@ -336,7 +336,7 @@ impl Parser for PktStreamParser<'_, '_> {
 
 
     #[inline]
-    fn read(&mut self, size: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+    fn read(&mut self, size: u32) -> Result<Cow<'_, [u8]>, ParseErr> {
         if self.pkt_buff.is_empty() {
             self.pkt.read(size)
         } else {
@@ -354,7 +354,7 @@ impl Parser for PktStreamParser<'_, '_> {
     }
 
     #[inline]
-    fn remaining_len(&self) -> usize {
+    fn remaining_len(&self) -> u32 {
         if self.pkt_buff.is_empty() {
             self.pkt.remaining_len()
         } else {
@@ -363,7 +363,7 @@ impl Parser for PktStreamParser<'_, '_> {
     }
 
     #[inline]
-    fn skip(&mut self, size: usize) -> Result<(), ParseErr> {
+    fn skip(&mut self, size: u32) -> Result<(), ParseErr> {
         if self.pkt_buff.is_empty() {
             self.pkt.skip(size)
         } else {

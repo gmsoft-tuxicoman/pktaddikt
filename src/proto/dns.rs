@@ -452,7 +452,7 @@ impl ProtoPktProcessor for ProtoDnsUdp {
 }
 
 pub struct ProtoDnsTcp {
-    tcp_bytes: Option<usize>,
+    tcp_bytes: Option<u32>,
     dns: ProtoDns
 }
 

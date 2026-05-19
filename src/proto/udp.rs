@@ -54,19 +54,19 @@ pub struct NetUdpConnectionEnd {
     pub dst_host: Option<IpAddr>,
     pub src_port: u16,
     pub dst_port: u16,
-    pub fwd_bytes: usize,
-    pub rev_bytes: usize,
-    pub fwd_ip_bytes: usize,
-    pub rev_ip_bytes: usize,
-    pub fwd_pkts: usize,
-    pub rev_pkts: usize,
+    pub fwd_bytes: u64,
+    pub rev_bytes: u64,
+    pub fwd_ip_bytes: u64,
+    pub rev_ip_bytes: u64,
+    pub fwd_pkts: u64,
+    pub rev_pkts: u64,
 }
 
 
 struct ConntrackUdpDir {
-    tot_bytes: usize,
-    tot_ip_bytes: usize,
-    tot_pkts: usize,
+    tot_bytes: u64,
+    tot_ip_bytes: u64,
+    tot_pkts: u64,
 }
 
 struct ConntrackUdp {
@@ -117,7 +117,7 @@ impl ProtoPktProcessor for ProtoUdp {
         pkt.skip_u16()?; // checksum
 
 
-        let data_len = (tot_len as usize) - 8;
+        let data_len = (tot_len as u32) - 8;
         pkt.has_len(data_len)?;
 
         if data_len < pkt.remaining_len() {
@@ -133,7 +133,7 @@ impl ProtoPktProcessor for ProtoUdp {
         };
 
         info.proto_info = Some(ProtoInfo::Udp(proto_info));
-        info.tot_len = tot_len as usize;
+        info.tot_len = tot_len as u32;
         info.data_len = data_len;
 
 
@@ -227,14 +227,14 @@ impl ProtoPktProcessor for ProtoUdp {
 
         match ce_dir {
             ConntrackDirection::Forward => {
-                cd.forward.tot_bytes += pkt.remaining_len();
+                cd.forward.tot_bytes += pkt.remaining_len() as u64;
                 cd.forward.tot_pkts += 1;
-                cd.forward.tot_ip_bytes += ip_len;
+                cd.forward.tot_ip_bytes += ip_len as u64;
             },
             ConntrackDirection::Reverse => {
-                cd.reverse.tot_bytes += pkt.remaining_len();
+                cd.reverse.tot_bytes += pkt.remaining_len() as u64;
                 cd.reverse.tot_pkts += 1;
-                cd.reverse.tot_ip_bytes += ip_len;
+                cd.reverse.tot_ip_bytes += ip_len as u64;
             },
 
         }

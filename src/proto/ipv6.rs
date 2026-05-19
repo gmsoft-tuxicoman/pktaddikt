@@ -74,7 +74,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
                     // Read header length
                     let nhdr_len = pkt.read_u8()?;
                     // Skip header
-                    pkt.skip(nhdr_len as usize)?;
+                    pkt.skip(nhdr_len as u32)?;
                     pkt.read_u8()?
                 }
 
@@ -94,7 +94,7 @@ impl ProtoPktProcessor for ProtoIpv6 {
         };
 
         info.proto_info = Some(ProtoInfo::Ipv6(proto_info));
-        info.tot_len = tot_len as usize;
+        info.tot_len = tot_len as u32;
 
         let a = src.to_bits();
         let b = dst.to_bits();

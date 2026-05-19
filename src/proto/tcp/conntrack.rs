@@ -13,7 +13,7 @@ use tracing::{debug, trace};
 use serde::Serialize;
 use std::net::IpAddr;
 
-const CONNTRACK_TCP_MAX_BUFFER :usize = 1024 * 1024;
+const CONNTRACK_TCP_MAX_BUFFER :u32 = 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionStart {
@@ -32,14 +32,14 @@ pub struct NetTcpConnectionEnd {
     pub dst_host: Option<IpAddr>,
     pub src_port: u16,
     pub dst_port: u16,
-    pub fwd_bytes: usize,
-    pub rev_bytes: usize,
-    pub fwd_ip_bytes: usize,
-    pub rev_ip_bytes: usize,
-    pub fwd_pkts: usize,
-    pub rev_pkts: usize,
-    pub fwd_missed_bytes: usize,
-    pub rev_missed_bytes: usize,
+    pub fwd_bytes: u64,
+    pub rev_bytes: u64,
+    pub fwd_ip_bytes: u64,
+    pub rev_ip_bytes: u64,
+    pub fwd_pkts: u64,
+    pub rev_pkts: u64,
+    pub fwd_missed_bytes: u64,
+    pub rev_missed_bytes: u64,
 }
 
 struct TcpPacket {
@@ -66,11 +66,11 @@ struct ConntrackTcpDir {
     start_seq: Option<TcpSeq>,
     cur_seq: Option<TcpSeq>,
     pkts: BTreeMap<TcpSeq, TcpPacket>,
-    buff_size: usize,
-    tot_bytes: usize,
-    tot_ip_bytes: usize,
-    tot_pkts: usize,
-    missed_bytes: usize,
+    buff_size: u32,
+    tot_bytes: u64,
+    tot_ip_bytes: u64,
+    tot_pkts: u64,
+    missed_bytes: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -172,7 +172,7 @@ impl ConntrackTcp {
         }
 
         if ! is_missed {
-            queue.tot_bytes += data.remaining_len();
+            queue.tot_bytes += data.remaining_len() as u64;
         }
         *queue.cur_seq.as_mut().unwrap() += seq_advance;
 
@@ -299,7 +299,7 @@ impl ConntrackTcp {
         self.state
     }
 
-    pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, data: &mut Packet, ip_len: usize) {
+    pub fn process_packet(&mut self, dir: ConntrackDirection, seq_u32: u32, ack_u32: u32, flags: u8, data: &mut Packet, ip_len: u32) {
 
         let mut seq = TcpSeq(seq_u32);
         let ack = TcpSeq(ack_u32);
@@ -309,7 +309,7 @@ impl ConntrackTcp {
             // Update stats
             let queue = self.get_dir_mut(dir);
             queue.tot_pkts += 1;
-            queue.tot_ip_bytes += ip_len;
+            queue.tot_ip_bytes += ip_len as u64;
         }
 
         // Send the start event
@@ -429,11 +429,11 @@ impl ConntrackTcp {
 
         if seq < cur_seq {
             // Some payload was already process
-            let dupe: usize = (cur_seq - seq).into();
+            let dupe: u32 = (cur_seq - seq).into();
 
             // Skip the part we know about
             data.skip(dupe).unwrap();
-            seq += dupe as u32;
+            seq += dupe;
         }
 
 
@@ -512,9 +512,9 @@ impl ConntrackTcp {
 
                 if pkt.seq < cur_seq {
                     // Trim data
-                    let dupe: usize = (cur_seq - pkt.seq).into();
+                    let dupe: u32 = (cur_seq - pkt.seq).into();
                     pkt.data.skip(dupe).unwrap();
-                    pkt.seq += dupe as u32;
+                    pkt.seq += dupe;
 
                 }
 
@@ -565,8 +565,8 @@ impl ConntrackTcp {
         }
 
         // Find out which direction has a gap
-        let mut gap_fwd: usize = 0;
-        let mut gap_rev: usize = 0;
+        let mut gap_fwd: u32 = 0;
+        let mut gap_rev: u32 = 0;
         let mut ts_fwd: Option<PktTime> = None;
         let mut ts_rev: Option<PktTime> = None;
 
@@ -577,7 +577,7 @@ impl ConntrackTcp {
             let pkt = entry.get();
             ts_fwd = Some(pkt.data.timestamp());
             if let Some(cur_seq) = self.forward.cur_seq {
-                gap_fwd = usize::from(pkt.seq - cur_seq)
+                gap_fwd = (pkt.seq - cur_seq).into();
             } else {
                 // We didn't capture the start of the connections, let's start it now
                 self.forward.start_seq = Some(pkt.seq);
@@ -590,7 +590,7 @@ impl ConntrackTcp {
             let pkt = entry.get();
             ts_rev = Some(pkt.data.timestamp());
             if let Some(cur_seq) = self.reverse.cur_seq {
-                gap_rev = usize::from(pkt.seq - cur_seq);
+                gap_rev = (pkt.seq - cur_seq).into();
                 if gap_rev > 0 {
                     dir = ConntrackDirection::Reverse;
                 }
@@ -617,13 +617,13 @@ impl ConntrackTcp {
                 ConntrackDirection::Reverse => (gap_rev, ts_rev.unwrap())
             };
 
-            self.get_dir_mut(dir).missed_bytes += gap;
+            self.get_dir_mut(dir).missed_bytes += gap as u64;
 
             trace!("Filling gap of {} bytes", gap);
 
             while gap > 0 {
-                let filler_len = match gap > Packet::PKT_ZERO_MAX_LEN {
-                    true => Packet::PKT_ZERO_MAX_LEN,
+                let filler_len = match gap > Packet::PKT_ZERO_MAX_LEN as u32 {
+                    true => Packet::PKT_ZERO_MAX_LEN as u32,
                     false => gap,
 
                 };

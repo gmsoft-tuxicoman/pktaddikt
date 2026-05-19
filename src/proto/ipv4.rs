@@ -114,13 +114,13 @@ impl ProtoPktProcessor for ProtoIpv4 {
         }
 
         // Check that the packet isn't truncated
-        pkt.has_len((tot_len - 20) as usize)?;
+        pkt.has_len((tot_len - 20) as u32)?;
 
         // Skip IP options
-        pkt.skip((hdr_len as usize) - 20)?;
+        pkt.skip((hdr_len as u32) - 20)?;
 
         // Shrink payload to the right size
-        let data_len = (tot_len - hdr_len) as usize;
+        let data_len = (tot_len - hdr_len) as u32;
         if data_len < pkt.remaining_len() {
             pkt.shrink(data_len);
         }
@@ -138,7 +138,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
         };
 
         info.proto_info = Some(ProtoInfo::Ipv4(proto_info));
-        info.tot_len = tot_len as usize;
+        info.tot_len = tot_len as u32;
         info.data_len = data_len;
 
 
@@ -188,7 +188,7 @@ impl ProtoPktProcessor for ProtoIpv4 {
             return Err(ParseErr::Invalid("IP fragment not multiple of 8 bytes"));
         }
 
-        let offset = ((frag_off & IP_OFFSET_MASK) << 3) as usize;
+        let offset = ((frag_off & IP_OFFSET_MASK) << 3) as u32;
 
         let cd = ce_locked.get_or_insert_with(|| Box::new(ConntrackIpv4 { fragments: HashMap::new() }) as ConntrackData)
                     .downcast_mut::<ConntrackIpv4>()

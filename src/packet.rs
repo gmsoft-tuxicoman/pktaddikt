@@ -97,8 +97,8 @@ pub struct PktInfo {
     pub proto: Protocols,
     pub proto_info: Option<ProtoInfo>,
     parent_ce: Option<(ConntrackRef, ConntrackDirection)>,
-    pub tot_len: usize, // Total length of proto header + payload
-    pub data_len: usize, // Payload only length
+    pub tot_len: u32, // Total length of proto header + payload
+    pub data_len: u32, // Payload only length
 }
 
 impl PktInfoStack {
@@ -215,7 +215,7 @@ pub enum PacketData<'a> {
     Borrowed(&'a[u8]),
     Owned(Arc<[u8]>),
     OwnedVec(Arc<Vec<u8>>),
-    Zero(usize),
+    Zero(u32),
     Empty,
 }
 
@@ -228,17 +228,17 @@ impl<'a> PacketData<'a> {
             PacketData::Owned(arc) => &arc,
             PacketData::OwnedVec(vec) => &vec,
             PacketData::Borrowed(b) => b,
-            PacketData::Zero(len) => &PKT_ZERO[0..*len],
+            PacketData::Zero(len) => &PKT_ZERO[0..*len as usize],
             PacketData::Empty => &[],
         }
     }
 
-    fn len(&self) -> usize {
+    fn len(&self) -> u32 {
         match self {
-            PacketData::Owned(arc) => arc.len(),
-            PacketData::OwnedVec(vec) => vec.len(),
-            PacketData::Borrowed(b) => b.len(),
-            PacketData::Zero(len) => *len,
+            PacketData::Owned(arc) => arc.len() as u32,
+            PacketData::OwnedVec(vec) => vec.len() as u32,
+            PacketData::Borrowed(b) => b.len() as u32,
+            PacketData::Zero(len) => *len as u32,
             PacketData::Empty => 0,
         }
     }
@@ -249,7 +249,7 @@ impl<'a> PacketData<'a> {
 pub struct Packet<'a> {
     ts: PktTime,
     data: PacketData<'a>,
-    range: (usize, usize), // Use a tuple instead of Range because Range isn't Copy
+    range: (u32, u32), // Use a tuple instead of Range because Range isn't Copy
 }
 
 
@@ -278,7 +278,7 @@ impl<'a> Packet<'a> {
         }
     }
 
-    pub fn from_zero(ts: PktTime, len: usize) -> Self {
+    pub fn from_zero(ts: PktTime, len: u32) -> Self {
         let pkt_data = PacketData::Zero(len);
         Self {
             ts,
@@ -293,7 +293,7 @@ impl<'a> Packet<'a> {
             PacketData::Owned(arc) => PacketData::Owned(arc.clone()),
             PacketData::OwnedVec(vec) => PacketData::OwnedVec(vec.clone()),
             PacketData::Borrowed(b) => {
-                let data = PacketData::Owned(Arc::from(b[self.range.0 .. self.range.1].to_vec()));
+                let data = PacketData::Owned(Arc::from(b[self.range.0 as usize .. self.range.1 as usize].to_vec()));
                 range.1 = self.range.1 - self.range.0;
                 range.0 = 0;
                 data
@@ -317,24 +317,24 @@ impl<'a> Packet<'a> {
     }
 
     pub fn remaining_data(&mut self) -> &[u8] {
-        let remaining_data = &self.data.as_slice()[self.range.0 .. self.range.1];
+        let remaining_data = &self.data.as_slice()[self.range.0 as usize .. self.range.1 as usize];
         self.range = (0, 0);
         remaining_data
     }
 
     pub fn peek(&self) -> &[u8] {
-        &self.data.as_slice()[self.range.0 .. self.range.1]
+        &self.data.as_slice()[self.range.0 as usize .. self.range.1 as usize]
     }
 
     #[inline]
-    pub fn shrink(&mut self, size: usize) {
+    pub fn shrink(&mut self, size: u32) {
         assert!(self.remaining_len() >= size, "Trying to shrink a packet with a bigger or equal length!");
         self.range.1 -= size;
     }
 
     #[inline]
     // return a sub packet and mark the data as read
-    pub fn sub_packet(&mut self, size: usize) -> Result<Packet<'a>, ParseErr> {
+    pub fn sub_packet(&mut self, size: u32) -> Result<Packet<'a>, ParseErr> {
 
         if size == 0 {
             return Err(ParseErr::Invalid("Requested packet with 0 size"));
@@ -383,9 +383,9 @@ impl<'a> Packet<'a> {
     }
 
     #[inline]
-    pub fn read_skip(&mut self, size: usize, skip: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+    pub fn read_skip(&mut self, size: u32, skip: u32) -> Result<Cow<'_, [u8]>, ParseErr> {
         self.has_len(size + skip)?;
-        let chunk = Cow::Borrowed(&self.data.as_slice()[self.range.0 .. self.range.0 + size]);
+        let chunk = Cow::Borrowed(&self.data.as_slice()[self.range.0 as usize .. (self.range.0 + size) as usize]);
         self.range.0 += size + skip;
         Ok(chunk)
     }
@@ -394,29 +394,29 @@ impl<'a> Packet<'a> {
 impl Parser for Packet<'_> {
 
     #[inline]
-    fn read(&mut self, size: usize) -> Result<Cow<'_, [u8]>, ParseErr> {
+    fn read(&mut self, size: u32) -> Result<Cow<'_, [u8]>, ParseErr> {
         self.has_len(size)?;
-        let chunk = Cow::Borrowed(&self.data.as_slice()[self.range.0 .. self.range.0 + size]);
+        let chunk = Cow::Borrowed(&self.data.as_slice()[self.range.0 as usize .. (self.range.0 + size) as usize]);
         self.range.0 += size;
         Ok(chunk)
     }
 
     #[inline]
     fn read_fixed<const N: usize>(&mut self) -> Result<[u8; N], ParseErr> {
-        self.has_len(N)?;
-        let (chunk, _) = self.data.as_slice()[self.range.0 ..].split_first_chunk::<N>().ok_or(ParseErr::Truncated)?;
+        self.has_len(N as u32)?;
+        let (chunk, _) = self.data.as_slice()[self.range.0 as usize ..].split_first_chunk::<N>().ok_or(ParseErr::Truncated)?;
         let ret: [u8; N] = *chunk;
-        self.range.0 += N;
+        self.range.0 += N as u32;
         Ok(ret)
     }
 
     #[inline]
-    fn remaining_len(&self) -> usize {
+    fn remaining_len(&self) -> u32 {
         self.range.1 - self.range.0
     }
 
     #[inline]
-    fn skip(&mut self, size: usize) -> Result<(), ParseErr> {
+    fn skip(&mut self, size: u32) -> Result<(), ParseErr> {
         self.has_len(size)?;
         self.range.0 += size;
         Ok(())
@@ -434,8 +434,8 @@ impl Parser for Packet<'_> {
 // A packet created by multiple fragments
 pub struct PacketMultipart {
     data: Vec<u8>, // Concatenated data
-    ranges: RangeSet<usize>, // Info tracking about data
-    tot_len: Option<usize> // Total expected length of the reassembled data
+    ranges: RangeSet<u32>, // Info tracking about data
+    tot_len: Option<u32> // Total expected length of the reassembled data
 
 }
 
@@ -446,7 +446,7 @@ impl PacketMultipart {
     pub fn new(capacity: usize) -> Self {
         Self {
             data: Vec::with_capacity(capacity),
-            ranges: RangeSet::<usize>::new(),
+            ranges: RangeSet::<u32>::new(),
             tot_len: None
         }
     }
@@ -455,11 +455,11 @@ impl PacketMultipart {
         self.data
     }
 
-    pub fn add(&mut self, offset: usize, data: &[u8]) {
+    pub fn add(&mut self, offset: u32, data: &[u8]) {
         // This implementation only works for contiguous packets
         // Packets nested or not having proper boundaries will be dropped
 
-        let range = offset..offset+data.len();
+        let range = offset..offset+data.len() as u32;
 
         // Find out if we already have this range
         if self.ranges.iter().any(|r| r.start <= range.start && r.end >= range.end) {
@@ -471,15 +471,15 @@ impl PacketMultipart {
         // Copy the data into the buffer
 
 
-        if self.data.len() == range.start {
+        if self.data.len() as u32 == range.start {
             // Most common case, we can simply append the data
             self.data.extend_from_slice(data);
         } else {
             // Resize if needed then copy
-            if self.data.len() < range.end {
-                self.data.resize(range.end, 0)
+            if (self.data.len() as u32) < range.end {
+                self.data.resize(range.end as usize, 0)
             }
-            self.data[range.start..range.end].copy_from_slice(data);
+            self.data[range.start as usize ..range.end as usize].copy_from_slice(data);
         }
 
         trace!("Part {} -> {} added into multipart {:p}", range.start, range.end, self);
@@ -487,7 +487,7 @@ impl PacketMultipart {
 
     }
 
-    pub fn set_expected_len(&mut self, tot_len: usize) {
+    pub fn set_expected_len(&mut self, tot_len: u32) {
 
         self.tot_len = Some(tot_len);
     }

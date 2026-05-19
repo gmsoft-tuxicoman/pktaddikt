@@ -49,15 +49,15 @@ struct ZeekConnLog {
     proto: &'static str,
     //service: &'static str,
     duration: PktTime,
-    orig_bytes: usize,
-    resp_bytes: usize,
+    orig_bytes: u64,
+    resp_bytes: u64,
     //conn_state
-    missed_bytes: usize,
+    missed_bytes: u64,
     //history
-    orig_pkts: usize,
-    orig_ip_bytes: usize,
-    resp_pkts: usize,
-    resp_ip_bytes: usize,
+    orig_pkts: u64,
+    orig_ip_bytes: u64,
+    resp_pkts: u64,
+    resp_ip_bytes: u64,
     ip_proto: u16,
 }
 

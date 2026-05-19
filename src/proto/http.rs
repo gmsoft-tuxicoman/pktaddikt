@@ -4,6 +4,7 @@ use crate::packet::{PktInfoStack, PktTime, PktConnInfo};
 use crate::conntrack::ConntrackDirection;
 use crate::event::{Event, EventBus, EventPayload, EventStr, EventKind};
 use crate::base::{atoi, htoi, UniqueId};
+//use crate::blob::Blob;
 
 use memchr::memchr;
 use tracing::trace;
@@ -34,7 +35,7 @@ pub struct NetHttpResponseBasic {
     #[serde(flatten)]
     pub conn_info: PktConnInfo,
     pub ts: PktTime,
-    pub status: usize,
+    pub status: u16,
     pub version: String,
     pub reason: EventStr,
 }
@@ -63,8 +64,8 @@ enum ProtoHttpEvent {
 struct ProtoHttpStateInfo {
 
     state: ProtoHttpState,
-    content_len: Option<usize>, // Either full Content-Length or chunk length
-    content_pos: usize,
+    content_len: Option<u64>, // Either full Content-Length or chunk length
+    content_pos: u64,
     chunked: bool,
     event_basic: Option<ProtoHttpEvent>,
 }
@@ -93,9 +94,10 @@ pub struct ProtoHttp {
 
     client_dir: Option<ConntrackDirection>,
     info: [ProtoHttpStateInfo;2],
+    //blob: [Option<Blob>;2],
     conn_id: UniqueId,
     conn_info: PktConnInfo,
-    last_status: usize,
+    last_status: u16,
 }
 
 impl ProtoHttp {
@@ -232,7 +234,7 @@ impl ProtoHttp {
         };
 
         self.info[dir as usize].state = ProtoHttpState::Headers;
-        self.last_status = status_code;
+        self.last_status = status_code as u16;
 
         if ! EventBus::has_subscribers(EventKind::NetHttpResponseBasic) {
             return Ok(());
@@ -245,7 +247,7 @@ impl ProtoHttp {
             conn_info: self.conn_info,
             ts,
             version: String::from_utf8_lossy(version).into_owned(),
-            status: status_code,
+            status: status_code as u16,
             reason: reason.into(),
 
         };
@@ -350,12 +352,13 @@ impl ProtoHttp {
             let mut remaining_len = content_len - self.info[dir as usize].content_pos;
 
             // FIXME This data should be sent to Blob interface
-            let data_len = cmp::min(remaining_len, parser.remaining_len());
+            //let blob = self.blob[dir as usize].get_or_insert_with(|| Blob::new(parser.timestamp()).set_size(content_len));
+            let data_len = cmp::min(remaining_len as u32, parser.remaining_len());
             parser.skip(data_len)?;
 
-            self.info[dir as usize].content_pos += data_len;
+            self.info[dir as usize].content_pos += data_len as u64;
             trace!("Got {} bytes of payload ({}/{})", data_len, self.info[dir as usize].content_pos, content_len);
-            remaining_len -= data_len;
+            remaining_len -= data_len as u64;
 
             if remaining_len == 0 {
                 // Payload done
@@ -370,7 +373,7 @@ impl ProtoHttp {
             let data_len = parser.remaining_len();
             parser.skip(data_len)?;
             trace!("Got {} bytes of payload", data_len);
-            self.info[dir as usize].content_pos += data_len;
+            self.info[dir as usize].content_pos += data_len as u64;
 
         }
 
@@ -389,9 +392,9 @@ impl ProtoHttp {
             if remaining_len > 0 {
                 // remaining_len will be 0 if we go the content but not the CRLF
                 // FIXME actually use the data
-                let data_len = cmp::min(remaining_len, parser.remaining_len());
+                let data_len = cmp::min(remaining_len as u32, parser.remaining_len());
                 parser.skip(data_len)?;
-                self.info[dir as usize].content_pos += data_len;
+                self.info[dir as usize].content_pos += data_len as u64;
                 trace!("Got {} of chunked payload ({}/{})", data_len, self.info[dir as usize].content_pos, chunk_len);
             }
 

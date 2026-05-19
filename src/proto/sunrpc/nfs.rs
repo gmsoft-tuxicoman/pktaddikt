@@ -61,8 +61,8 @@ pub struct ProtoNfs {
 
 impl ProtoNfs {
 
-    const NFS4_VERIFIER_SIZE: usize = 8;
-    const NFS4_SESSIONID_SIZE: usize = 16;
+    const NFS4_VERIFIER_SIZE: u32 = 8;
+    const NFS4_SESSIONID_SIZE: u32 = 16;
 
     pub fn new(conn_id: &UniqueId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
         if version != 3 && version != 4 {
@@ -385,7 +385,7 @@ impl ProtoNfs {
 
         { // csa_fore_chan_attrs
             parser.skip_u32s(6)?;
-            let ca_rdma_ird_len = parser.read_u32_be()? as usize;
+            let ca_rdma_ird_len = parser.read_u32_be()?;
             if ca_rdma_ird_len > 1 {
                 return Err(ParseErr::Invalid("ca_rdma_ird_len > 1 in create_session call"));
             } else if ca_rdma_ird_len > 0 {
@@ -395,7 +395,7 @@ impl ProtoNfs {
 
         { // csa_back_chan_attrs
             parser.skip_u32s(6)?;
-            let ca_rdma_ird_len = parser.read_u32_be()? as usize;
+            let ca_rdma_ird_len = parser.read_u32_be()?;
             if ca_rdma_ird_len > 1 {
                 return Err(ParseErr::Invalid("ca_rdma_ird_len > 1 in create_session call"));
             } else if ca_rdma_ird_len > 0 {
@@ -476,7 +476,7 @@ impl ProtoNfs {
 
         { // csr_fore_chan_attrs
             parser.skip_u32s(6)?;
-            let ca_rdma_ird_len = parser.read_u32_be()? as usize;
+            let ca_rdma_ird_len = parser.read_u32_be()?;
             if ca_rdma_ird_len > 1 {
                 return Err(ParseErr::Invalid("ca_rdma_ird_len > 1 in create_session reply"));
             } else if ca_rdma_ird_len > 0 {
@@ -486,7 +486,7 @@ impl ProtoNfs {
 
         { // csr_back_chan_attrs
             parser.skip_u32s(6)?;
-            let ca_rdma_ird_len = parser.read_u32_be()? as usize;
+            let ca_rdma_ird_len = parser.read_u32_be()?;
             if ca_rdma_ird_len > 1 {
                 return Err(ParseErr::Invalid("ca_rdma_ird_len > 1 in create_session reply"));
             } else if ca_rdma_ird_len > 0 {
@@ -570,7 +570,7 @@ impl ProtoNfs {
 
         trace!("GETATTR CALL");
 
-        let len = parser.read_u32_be()? as usize;
+        let len = parser.read_u32_be()?;
         parser.skip_u32s(len)?;
         Ok(())
     }
@@ -583,7 +583,7 @@ impl ProtoNfs {
             return Ok(());
         }
 
-        let attrmask_len = parser.read_u32_be()? as usize;
+        let attrmask_len = parser.read_u32_be()?;
         parser.skip_u32s(attrmask_len)?; // attrmask
 
         skip_opaque(parser)?; // attr_vals
@@ -689,7 +689,7 @@ impl ProtoNfs {
         trace!("READDIR CALL");
         parser.skip_u64s(2)?; // cookie, cookieverf
         parser.skip_u32s(2)?; // dircount, maxcount
-        let attrmask_len = parser.read_u32_be()? as usize;
+        let attrmask_len = parser.read_u32_be()?;
         parser.skip_u32s(attrmask_len)?; // attrmask
         Ok(())
     }
@@ -716,7 +716,7 @@ impl ProtoNfs {
             let name = read_opaque(parser)?;
             trace!("Found file {}", String::from_utf8_lossy(&name));
 
-            let attrmask_len = parser.read_u32_be()? as usize;
+            let attrmask_len = parser.read_u32_be()?;
             parser.skip_u32s(attrmask_len)?; // attrmask
             skip_opaque(parser)?; // attr_vals
         }
@@ -813,7 +813,7 @@ impl ProtoNfs {
             match rpc_content {
                 0 => { // DATA
                     let d_offset = parser.read_u64_be()?;
-                    let d_length = parser.read_u32_be()? as usize;
+                    let d_length = parser.read_u32_be()?;
                     trace!("Got {} of data from READ_PLUS at offset {}", d_length, d_offset);
                     parser.skip(d_length)?;
                 },

@@ -74,7 +74,7 @@ impl PktStreamProcessor for ProtoTest {
 
         assert_eq!(expect_pkt.data, data.as_ref());
 
-        parser.skip(data.len())?;
+        parser.skip(data.len() as u32)?;
         assert_eq!(expect_pkt.ts, parser.timestamp());
 
         Ok(())

@@ -89,7 +89,7 @@ impl ProtoPktProcessor for ProtoTcp {
         let dport = pkt.read_u16_be()?;
         let seq = pkt.read_u32_be()?;
         let ack = pkt.read_u32_be()?;
-        let hdr_len = ((pkt.read_u8()? & 0xf0) >> 2) as usize;
+        let hdr_len = ((pkt.read_u8()? & 0xf0) >> 2) as u32;
         let flags = pkt.read_u8()?;
         let window = pkt.read_u16_be()?;
         pkt.skip_u32()?; // cksum. urg ptr

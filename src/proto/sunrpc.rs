@@ -130,11 +130,11 @@ impl ProtoSunRpc {
         let proc = parser.read_u32_be()?;
 
         parser.skip_u32()?; // auth_type
-        let auth_len = parser.read_u32_be()? as usize;
+        let auth_len = parser.read_u32_be()?;
         parser.skip(auth_len)?; // auth_pload
 
         parser.skip_u32()?; // verif_type
-        let verif_len = parser.read_u32_be()? as usize;
+        let verif_len = parser.read_u32_be()?;
         parser.skip(verif_len)?;
 
         let call = ProtoSunRpcCall {
@@ -187,7 +187,7 @@ impl ProtoSunRpc {
         match state {
             0 => { // ACCEPTED
                 parser.skip_u32()?; // verif
-                let verif_len = parser.read_u32_be()? as usize;
+                let verif_len = parser.read_u32_be()?;
                 parser.skip(verif_len)?;
                 let accept_state = parser.read_u32_be()?;
 
@@ -269,7 +269,7 @@ impl ProtoPktProcessor for ProtoSunRpcUdp {
 pub struct ProtoSunRpcTcp {
     rpc: ProtoSunRpc,
     state: ProtoSunRpcTcpState,
-    frag_len: usize,
+    frag_len: u32,
 }
 
 impl PktStreamProcessor for ProtoSunRpcTcp {
@@ -288,7 +288,7 @@ impl PktStreamProcessor for ProtoSunRpcTcp {
     fn process(&mut self, _dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
         
         if self.state == ProtoSunRpcTcpState::Header {
-            self.frag_len = (parser.read_u32_be()? & 0x7fffffff) as usize;
+            self.frag_len = parser.read_u32_be()? & 0x7fffffff;
             self.state = ProtoSunRpcTcpState::Body;
         }
 

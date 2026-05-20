@@ -1,5 +1,6 @@
 use crate::base::{Parser, ParseErr};
-use crate::event::{EventBus, EventStr, EventKind, Event, EventPayload};
+use crate::event::{EventStr, EventKind, Event, EventPayload};
+use crate::messagebus::MessageBus;
 use crate::base::UniqueId;
 use crate::packet::PktConnInfo;
 use crate::proto::sunrpc::xdr::*;
@@ -281,7 +282,7 @@ impl ProtoNfs {
             }
         }
 
-        if EventBus::has_subscribers(EventKind::NetNfsExchangeIdCall) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsExchangeIdCall) {
 
             let evt_pload = NetNfsExchangeIdCall {
                 base: NetNfsBase {
@@ -355,7 +356,7 @@ impl ProtoNfs {
             }
         }
 
-        if EventBus::has_subscribers(EventKind::NetNfsExchangeIdReply) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsExchangeIdReply) {
 
             let evt_pload = NetNfsExchangeIdReply {
                 base: NetNfsBase {
@@ -441,7 +442,7 @@ impl ProtoNfs {
             }
         }
 
-        if EventBus::has_subscribers(EventKind::NetNfsCreateSessionCall) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsCreateSessionCall) {
 
             let evt_pload = NetNfsCreateSessionCall {
                 base: NetNfsBase {

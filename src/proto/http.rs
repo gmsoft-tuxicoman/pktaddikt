@@ -2,9 +2,10 @@ use crate::base::{Parser, ParseErr};
 use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::packet::{PktInfoStack, PktTime, PktConnInfo};
 use crate::conntrack::ConntrackDirection;
-use crate::event::{Event, EventBus, EventPayload, EventStr, EventKind};
+use crate::event::{Event, EventPayload, EventStr, EventKind};
+use crate::messagebus::MessageBus;
 use crate::base::{atoi, htoi, UniqueId};
-//use crate::blob::Blob;
+use crate::blob::Blob;
 
 use memchr::memchr;
 use tracing::trace;
@@ -68,6 +69,7 @@ struct ProtoHttpStateInfo {
     content_pos: u64,
     chunked: bool,
     event_basic: Option<ProtoHttpEvent>,
+    blob: Option<Blob>,
 }
 
 impl ProtoHttpStateInfo {
@@ -86,6 +88,7 @@ impl ProtoHttpStateInfo {
             evt.send();
         }
         self.event_basic = None;
+        self.blob = None;
     }
 }
 
@@ -94,7 +97,6 @@ pub struct ProtoHttp {
 
     client_dir: Option<ConntrackDirection>,
     info: [ProtoHttpStateInfo;2],
-    //blob: [Option<Blob>;2],
     conn_id: UniqueId,
     conn_info: PktConnInfo,
     last_status: u16,
@@ -105,8 +107,8 @@ impl ProtoHttp {
     fn parse_first_line(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
 
         // Check if there is any reason to parse Http stuff first
-        if ! (EventBus::has_subscribers(EventKind::NetHttpRequestBasic)
-            || EventBus::has_subscribers(EventKind::NetHttpResponseBasic)) {
+        if ! (MessageBus::event_has_subscribers(EventKind::NetHttpRequestBasic)
+            || MessageBus::event_has_subscribers(EventKind::NetHttpResponseBasic)) {
             // All done, nothing to parse
             return Err(ParseErr::Stop);
         }
@@ -203,7 +205,7 @@ impl ProtoHttp {
         }
         self.info[dir as usize].state = ProtoHttpState::Headers;
 
-        if ! EventBus::has_subscribers(EventKind::NetHttpRequestBasic) {
+        if ! MessageBus::event_has_subscribers(EventKind::NetHttpRequestBasic) {
             return Ok(());
         }
 
@@ -236,7 +238,7 @@ impl ProtoHttp {
         self.info[dir as usize].state = ProtoHttpState::Headers;
         self.last_status = status_code as u16;
 
-        if ! EventBus::has_subscribers(EventKind::NetHttpResponseBasic) {
+        if ! MessageBus::event_has_subscribers(EventKind::NetHttpResponseBasic) {
             return Ok(());
         }
 
@@ -351,10 +353,10 @@ impl ProtoHttp {
         if let Some(content_len) = self.info[dir as usize].content_len {
             let mut remaining_len = content_len - self.info[dir as usize].content_pos;
 
-            // FIXME This data should be sent to Blob interface
-            //let blob = self.blob[dir as usize].get_or_insert_with(|| Blob::new(parser.timestamp()).set_size(content_len));
+            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp()).set_size(content_len));
             let data_len = cmp::min(remaining_len as u32, parser.remaining_len());
-            parser.skip(data_len)?;
+
+            blob.data(self.info[dir as usize].content_pos, parser.sub_packet(data_len)?);
 
             self.info[dir as usize].content_pos += data_len as u64;
             trace!("Got {} bytes of payload ({}/{})", data_len, self.info[dir as usize].content_pos, content_len);
@@ -367,11 +369,11 @@ impl ProtoHttp {
 
             }
         } else {
-            // No Content-Lenght, must be a HTTP/1.0 response containing the whole body
+            // No Content-Length, must be a HTTP/1.0 response containing the whole body
 
-            // FIXME, actually use the data
+            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp()));
             let data_len = parser.remaining_len();
-            parser.skip(data_len)?;
+            blob.data(self.info[dir as usize].content_pos, parser.sub_packet(data_len)?);
             trace!("Got {} bytes of payload", data_len);
             self.info[dir as usize].content_pos += data_len as u64;
 
@@ -453,6 +455,7 @@ impl PktStreamProcessor for ProtoHttp {
                 content_pos: 0,
                 chunked: false,
                 event_basic: None,
+                blob: None,
             },
              ProtoHttpStateInfo {
                 state: ProtoHttpState::FirstLine,
@@ -460,6 +463,7 @@ impl PktStreamProcessor for ProtoHttp {
                 content_pos: 0,
                 chunked: false,
                 event_basic: None,
+                blob: None,
             } ],
             client_dir: None,
             last_status: 0,

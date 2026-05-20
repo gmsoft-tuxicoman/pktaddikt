@@ -1,5 +1,6 @@
 use crate::output::{Output, OutputConfig};
-use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind};
+use crate::event::{Event, EventKind};
+use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::output::EventPayload::NetDnsMessage;
 use crate::proto::dns::NetDnsRecordData;
 use crate::config::Config;
@@ -43,9 +44,9 @@ pub struct OutputDns2NftSet {
 
 impl OutputDns2NftSet {
 
-    pub fn new(name: &str, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
+    pub fn new(name: &str, msg_bus: &mut MessageBus, tx: &MessageTxChannel) -> Box<dyn Output> {
 
-        evt_bus.subscribe_kind(EventKind::NetDnsMessage, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetDnsMessage, tx);
         let main_cfg = Config::get();
 
         let OutputConfig::Dns2NftSet(cfg) = main_cfg.outputs.get(name).unwrap() else {
@@ -94,88 +95,92 @@ impl OutputDns2NftSet {
             set_v6,
         })
     }
+
+    fn process_event(&self, event: &Event) {
+
+        let NetDnsMessage(msg) = &event.payload else {
+            panic!("Wrong event kind received");
+        };
+
+        // We need answers !
+        if ! msg.is_response || msg.answer_count == 0 {
+            return;
+        }
+
+        let mut ips: SmallVec<[(IpAddr, u32); 10]> = SmallVec::new();
+
+
+        let qname = String::from_utf8_lossy(&msg.qname);
+
+        let mut matched = false;
+        for m in &self.matches {
+            if qname.contains(m) {
+                matched = true;
+                break;
+            }
+        }
+
+        if ! matched {
+            return;
+        }
+
+        for a in msg.answers.as_ref().unwrap() {
+
+            let ip = match a.data {
+                NetDnsRecordData::A(ipv4) => (IpAddr::V4(ipv4), a.ttl),
+                NetDnsRecordData::AAAA(ipv6) => (IpAddr::V6(ipv6), a.ttl),
+                _ => continue
+            };
+
+            trace!("Adding ip from matched hostname: {} -> {} (ttl: {})", qname, ip.0, ip.1);
+            ips.push(ip);
+        }
+
+        if ips.len() == 0 {
+            // No matched ip
+            return;
+        }
+
+
+        let mut batch = Batch::new();
+        for ip in &ips {
+
+            let elem = expr::Elem {
+                val: Box::new(expr::Expression::String(Cow::Owned(ip.0.to_string()))),
+                timeout: Some(ip.1),
+                ..Default::default()
+            };
+
+            batch.add(schema::NfListObject::Element(schema::Element {
+                family: types::NfFamily::INet,
+                table: Cow::Borrowed(&self.table),
+                name: match ip.0 {
+                    IpAddr::V4(_) => Cow::Borrowed(&self.set_v4),
+                    IpAddr::V6(_) => Cow::Borrowed(&self.set_v6),
+                },
+                elem: vec![expr::Expression::Named(expr::NamedExpression::Elem(elem))].into(),
+            }));
+
+        }
+
+        trace!("Applying batch !");
+
+        helper::apply_ruleset(&batch.to_nftables()).unwrap();
+    }
 }
 
 impl Output for OutputDns2NftSet {
 
-    fn run(self: Box<Self>, rx: EventRxChannel) {
+    fn run(self: Box<Self>, rx: MessageRxChannel) {
 
-        for event in rx {
-            if event.kind() == EventKind::SysShutdown {
-                break;
+        for msg in rx {
+
+            match msg.as_ref() {
+                Message::Shutdown => break,
+                Message::Event(e) => self.process_event(e),
+                _ => panic!("Unexpected message type"),
             }
-
-            let NetDnsMessage(msg) = &event.payload else {
-                panic!("Wrong event kind received");
-            };
-
-            // We need answers !
-            if ! msg.is_response || msg.answer_count == 0 {
-                continue;
-            }
-
-            let mut ips: SmallVec<[(IpAddr, u32); 10]> = SmallVec::new();
-
-
-            let qname = String::from_utf8_lossy(&msg.qname);
-
-            let mut matched = false;
-            for m in &self.matches {
-                if qname.contains(m) {
-                    matched = true;
-                    break;
-                }
-            }
-
-            if ! matched {
-                continue;
-            }
-
-            for a in msg.answers.as_ref().unwrap() {
-
-                let ip = match a.data {
-                    NetDnsRecordData::A(ipv4) => (IpAddr::V4(ipv4), a.ttl),
-                    NetDnsRecordData::AAAA(ipv6) => (IpAddr::V6(ipv6), a.ttl),
-                    _ => continue
-                };
-
-                trace!("Adding ip from matched hostname: {} -> {} (ttl: {})", qname, ip.0, ip.1);
-                ips.push(ip);
-            }
-
-            if ips.len() == 0 {
-                // No matched ip
-                continue;
-            }
-
-
-            let mut batch = Batch::new();
-            for ip in &ips {
-
-                let elem = expr::Elem {
-                    val: Box::new(expr::Expression::String(Cow::Owned(ip.0.to_string()))),
-                    timeout: Some(ip.1),
-                    ..Default::default()
-                };
-
-                batch.add(schema::NfListObject::Element(schema::Element {
-                    family: types::NfFamily::INet,
-                    table: Cow::Borrowed(&self.table),
-                    name: match ip.0 {
-                        IpAddr::V4(_) => Cow::Borrowed(&self.set_v4),
-                        IpAddr::V6(_) => Cow::Borrowed(&self.set_v6),
-                    },
-                    elem: vec![expr::Expression::Named(expr::NamedExpression::Elem(elem))].into(),
-                }));
-
-            }
-
-            trace!("Applying batch !");
-
-            helper::apply_ruleset(&batch.to_nftables()).unwrap();
         }
-
-
     }
 
 }

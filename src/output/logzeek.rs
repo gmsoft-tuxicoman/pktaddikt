@@ -1,5 +1,6 @@
 use crate::output::{Output, OutputConfig};
-use crate::event::{EventTxChannel, EventRxChannel, EventBus, EventKind, EventPayload};
+use crate::event::{Event, EventKind, EventPayload};
+use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::base::UniqueId;
 use crate::packet::PktTime;
 use crate::config::Config;
@@ -64,7 +65,7 @@ struct ZeekConnLog {
 
 impl OutputLogZeek {
 
-    pub fn new(name: &str, evt_bus: &mut EventBus, tx: &EventTxChannel) -> Box<dyn Output> {
+    pub fn new(name: &str, msg_bus: &mut MessageBus, tx: &MessageTxChannel) -> Box<dyn Output> {
 
         let main_cfg = Config::get();
         let OutputConfig::LogZeek(cfg) = main_cfg.outputs.get(name).unwrap() else {
@@ -82,77 +83,80 @@ impl OutputLogZeek {
         let writer = BufWriter::new(file);
 
 
-        evt_bus.subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
-        evt_bus.subscribe_kind(EventKind::NetUdpConnectionEnd, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetUdpConnectionEnd, tx);
 
         Box::new(Self { conn_log: writer })
     }
 
+    fn process_event(&mut self, event: &Event) {
+        let log = match &event.payload {
+            EventPayload::NetTcpConnectionEnd(p) => {
+                ZeekConnLog {
+                    ts: event.ts,
+                    uid: p.conn_id.clone(),
+                    orig_h: p.src_host,
+                    orig_p: p.src_port,
+                    resp_h: p.dst_host,
+                    resp_p: p.dst_port,
+                    proto: "tcp",
+                    //service: &'static str,
+                    duration: p.duration,
+                    orig_bytes: p.fwd_bytes,
+                    resp_bytes: p.rev_bytes,
+                    //conn_state
+                    missed_bytes: p.fwd_missed_bytes + p.rev_missed_bytes,
+                    //history
+                    orig_pkts: p.fwd_pkts,
+                    orig_ip_bytes: p.fwd_ip_bytes,
+                    resp_pkts: p.rev_pkts,
+                    resp_ip_bytes: p.rev_ip_bytes,
+                    ip_proto: 6,
+                }
+            },
+            EventPayload::NetUdpConnectionEnd(p) => {
+                ZeekConnLog {
+                    ts: event.ts,
+                    uid: p.conn_id.clone(),
+                    orig_h: p.src_host,
+                    orig_p: p.src_port,
+                    resp_h: p.dst_host,
+                    resp_p: p.dst_port,
+                    proto: "udp",
+                    //service: &'static str,
+                    duration: p.duration,
+                    orig_bytes: p.fwd_bytes,
+                    resp_bytes: p.rev_bytes,
+                    //conn_state
+                    missed_bytes: 0,
+                    //history
+                    orig_pkts: p.fwd_pkts,
+                    orig_ip_bytes: p.fwd_ip_bytes,
+                    resp_pkts: p.rev_pkts,
+                    resp_ip_bytes: p.rev_ip_bytes,
+                    ip_proto: 17,
+                }
+            }
+            _ => panic!("Wrong event received")
+        };
+
+
+        to_writer(&mut self.conn_log, &log).unwrap(); // FIXME clean the unwrap
+        if writeln!(&mut self.conn_log).is_err() {
+            panic!("Error while writing into file."); // FIXME clean this up
+        }
+    }
 }
 
 impl Output for OutputLogZeek {
 
-    fn run(mut self: Box<Self>, rx: EventRxChannel) {
-        for event in rx {
+    fn run(mut self: Box<Self>, rx: MessageRxChannel) {
+        for msg in rx {
 
-            if event.kind() == EventKind::SysShutdown {
-                break;
-            }
-
-            let log = match &event.payload {
-                EventPayload::NetTcpConnectionEnd(p) => {
-                    ZeekConnLog {
-                        ts: event.ts,
-                        uid: p.conn_id.clone(),
-                        orig_h: p.src_host,
-                        orig_p: p.src_port,
-                        resp_h: p.dst_host,
-                        resp_p: p.dst_port,
-                        proto: "tcp",
-                        //service: &'static str,
-                        duration: p.duration,
-                        orig_bytes: p.fwd_bytes,
-                        resp_bytes: p.rev_bytes,
-                        //conn_state
-                        missed_bytes: p.fwd_missed_bytes + p.rev_missed_bytes,
-                        //history
-                        orig_pkts: p.fwd_pkts,
-                        orig_ip_bytes: p.fwd_ip_bytes,
-                        resp_pkts: p.rev_pkts,
-                        resp_ip_bytes: p.rev_ip_bytes,
-                        ip_proto: 6,
-                    }
-                },
-                EventPayload::NetUdpConnectionEnd(p) => {
-                    ZeekConnLog {
-                        ts: event.ts,
-                        uid: p.conn_id.clone(),
-                        orig_h: p.src_host,
-                        orig_p: p.src_port,
-                        resp_h: p.dst_host,
-                        resp_p: p.dst_port,
-                        proto: "udp",
-                        //service: &'static str,
-                        duration: p.duration,
-                        orig_bytes: p.fwd_bytes,
-                        resp_bytes: p.rev_bytes,
-                        //conn_state
-                        missed_bytes: 0,
-                        //history
-                        orig_pkts: p.fwd_pkts,
-                        orig_ip_bytes: p.fwd_ip_bytes,
-                        resp_pkts: p.rev_pkts,
-                        resp_ip_bytes: p.rev_ip_bytes,
-                        ip_proto: 17,
-                    }
-                }
-                _ => panic!("Wrong event received")
-            };
-
-
-            to_writer(&mut self.conn_log, &log).unwrap(); // FIXME clean the unwrap
-            if writeln!(&mut self.conn_log).is_err() {
-                panic!("Error while writing into file."); // FIXME clean this up
+            match msg.as_ref() {
+                Message::Shutdown => break,
+                Message::Event(e) => self.process_event(e),
+                _ => panic!("Unknown message type"),
             }
         }
     }

@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::input::{Input, InputConfig};
 use crate::input::pcap::{PcapFileConfig, PcapInterfaceConfig};
 use crate::output::OutputBuilder;
-use crate::event::EventBus;
+use crate::messagebus::MessageBus;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
@@ -17,7 +17,8 @@ pub mod input;
 pub mod output;
 pub mod base;
 pub mod expectation;
-//pub mod blob;
+pub mod blob;
+pub mod messagebus;
 
 
 #[derive(Parser, Debug)]
@@ -80,13 +81,13 @@ fn main() {
 
     Config::init(cfg);
 
-    let mut evt_bus = EventBus::new();
+    let mut msg_bus = MessageBus::new();
 
     let mut input = Input::new();
 
-    let mut outputs = OutputBuilder::build_all(&mut evt_bus);
+    let mut outputs = OutputBuilder::build_all(&mut msg_bus);
 
-    evt_bus.init();
+    msg_bus.init();
 
 
     input.main_loop();

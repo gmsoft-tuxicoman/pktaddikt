@@ -5,6 +5,7 @@ use crate::input::InputConfig;
 
 use serde::Deserialize;
 use pcap::{Capture, Linktype, Offline, Active};
+use tracing::warn;
 
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +54,7 @@ enum PcapCapture {
 pub struct InputPcap {
 
     capture: PcapCapture,
+    truncated_warning: bool,
 
 }
 
@@ -65,7 +67,8 @@ impl InputPcap {
         };
 
         InputPcap {
-            capture: PcapCapture::File(Capture::from_file(&c.file).unwrap())
+            capture: PcapCapture::File(Capture::from_file(&c.file).unwrap()),
+            truncated_warning: false,
         }
     }
 
@@ -89,6 +92,7 @@ impl InputPcap {
 
         InputPcap {
             capture: PcapCapture::Interface(capture),
+            truncated_warning: false,
         }
     }
 
@@ -113,6 +117,11 @@ impl InputPcap {
             PcapCapture::File(cap) => cap.next_packet(),
             PcapCapture::Interface(cap) => cap.next_packet(),
         } {
+
+            if pcap_pkt.header.caplen < pcap_pkt.header.len && self.truncated_warning == false {
+                warn!("Some packets were truncated during capture !");
+                self.truncated_warning = true;
+            }
 
             let ts = PktTime::from_timeval(pcap_pkt.header.ts.tv_sec, pcap_pkt.header.ts.tv_usec);
 

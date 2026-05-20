@@ -3,6 +3,7 @@ use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::ops::Deref;
 use serde::Serialize;
 
 static UNIQUE_ID_COUNTER: AtomicU16 = AtomicU16::new(0);
@@ -16,6 +17,14 @@ impl UniqueId {
         let counter = UNIQUE_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let val: u128 = ((u64::from(ts) as u128) << 16) | counter as u128;
         UniqueId(base62::encode(val))
+    }
+}
+
+impl Deref for UniqueId {
+    type Target = String;
+
+    fn deref(&self) -> &String {
+        &self.0
     }
 }
 

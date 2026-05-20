@@ -3,7 +3,8 @@ use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection};
 use crate::packet::{Packet, PktInfoStack, PktTime};
 use crate::config::Config;
-use crate::event::{Event, EventPayload, EventKind, EventBus};
+use crate::event::{Event, EventPayload, EventKind};
+use crate::messagebus::MessageBus;
 use crate::base::UniqueId;
 use crate::expectation::ExpectationTable;
 
@@ -183,7 +184,7 @@ impl ProtoPktProcessor for ProtoUdp {
                     }
                 );
 
-                if EventBus::has_subscribers(EventKind::NetUdpConnectionStart) {
+                if MessageBus::event_has_subscribers(EventKind::NetUdpConnectionStart) {
 
                     let evt_pload = NetUdpConnectionStart {
                         conn_id: conn_id.clone(),
@@ -248,7 +249,7 @@ impl ProtoPktProcessor for ProtoUdp {
 impl Drop for ConntrackUdp {
 
     fn drop(&mut self) {
-        if ! (EventBus::has_subscribers(EventKind::NetUdpConnectionEnd)) {
+        if ! (MessageBus::event_has_subscribers(EventKind::NetUdpConnectionEnd)) {
             return;
         }
 

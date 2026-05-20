@@ -1,7 +1,8 @@
 use crate::base::{Parser, ParseErr};
 use crate::proto::ProtoPktProcessor;
 use crate::packet::{Packet, PktInfoStack, PktConnInfo};
-use crate::event::{Event, EventStr, EventPayload, EventBus, EventKind};
+use crate::event::{Event, EventStr, EventPayload, EventKind};
+use crate::messagebus::MessageBus;
 use crate::base::UniqueId;
 use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::conntrack::{ConntrackDirection, ConntrackTableUnique};
@@ -436,7 +437,7 @@ impl ProtoPktProcessor for ProtoDnsUdp {
     // DNS over UDP
     fn process(&mut self, pkt: &mut Packet, infos: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        if ! (EventBus::has_subscribers(EventKind::NetDnsMessage)) {
+        if ! (MessageBus::event_has_subscribers(EventKind::NetDnsMessage)) {
             return Ok(());
         }
 
@@ -471,7 +472,7 @@ impl PktStreamProcessor for ProtoDnsTcp {
     // DNS over TCP
     fn process(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
 
-        if ! (EventBus::has_subscribers(EventKind::NetDnsMessage)) {
+        if ! (MessageBus::event_has_subscribers(EventKind::NetDnsMessage)) {
             return Err(ParseErr::Stop);
         }
 

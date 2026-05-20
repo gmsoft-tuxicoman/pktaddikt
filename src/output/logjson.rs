@@ -6,6 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use serde::Deserialize;
 use serde_json::to_writer;
+use tracing::error;
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -28,7 +29,7 @@ impl Default for LogJsonConfig {
 }
 
 pub struct OutputLogJson {
-    writer: BufWriter<File>,
+    writer: Option<BufWriter<File>>,
 }
 
 
@@ -47,7 +48,7 @@ impl OutputLogJson {
             msg_bus.event_subscribe_glob(evt_name, tx).expect(&format!("Event {} does not exists", evt_name));
         }
 
-        Box::new(Self { writer })
+        Box::new(Self { writer: Some(writer) })
     }
 
 }
@@ -57,12 +58,37 @@ impl Output for OutputLogJson {
     fn run(mut self: Box<Self>, rx: MessageRxChannel) {
         for msg in rx {
 
+            if self.writer.is_none() {
+                // There was an error writing the logs
+                // Keep processing the messages but don't attempt to write
+            }
+
             match msg.as_ref() {
-                Message::Shutdown => break,
+                Message::Shutdown => {
+                    if self.writer.is_none() {
+                        break;
+                    }
+                    if let Err(e) = self.writer.as_mut().unwrap().flush() {
+                        error!("Error flushing the log file: {}", e);
+                    }
+                    break;
+                }
                 Message::Event(e) => {
-                    to_writer(&mut self.writer, &e).unwrap(); // FIXME clean the unwrap
-                    if writeln!(&mut self.writer).is_err() {
-                        panic!("Error while writing into file."); // FIXME clean this up
+
+                    let Some(mut writer) = self.writer.as_mut() else {
+                        // Writer had some failure
+                        // Continue processing the messages but discard the content
+                        continue;
+                    };
+                    if let Err(err) = to_writer(&mut writer, &e) {
+                        error!("Error serializing logs: {}", err);
+                        self.writer = None;
+                        return;
+                    }
+                    if let Err(err) = writeln!(&mut writer) {
+                        error!("Error writing to log file: {}", err);
+                        self.writer = None;
+                        return;
                     }
                 },
                 _ => panic!("Unknown message type")

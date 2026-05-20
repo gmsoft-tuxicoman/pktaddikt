@@ -10,6 +10,7 @@ use std::io::{BufWriter, Write};
 use serde::{Deserialize, Serialize};
 use serde_json::to_writer;
 use std::net::IpAddr;
+use tracing::error;
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -30,7 +31,7 @@ impl Default for LogZeekConfig {
 }
 
 pub struct OutputLogZeek {
-    conn_log: BufWriter<File>,
+    conn_log: Option<BufWriter<File>>,
 }
 
 
@@ -86,10 +87,17 @@ impl OutputLogZeek {
         msg_bus.event_subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
         msg_bus.event_subscribe_kind(EventKind::NetUdpConnectionEnd, tx);
 
-        Box::new(Self { conn_log: writer })
+        Box::new(Self { conn_log: Some(writer) })
     }
 
     fn process_event(&mut self, event: &Event) {
+
+        if self.conn_log.is_none() {
+            // There was an error writing the logs
+            // Keep processing the messages but don't attempt to write
+            return;
+        }
+
         let log = match &event.payload {
             EventPayload::NetTcpConnectionEnd(p) => {
                 ZeekConnLog {
@@ -140,12 +148,20 @@ impl OutputLogZeek {
             _ => panic!("Wrong event received")
         };
 
+        let mut conn_log = self.conn_log.as_mut().unwrap();
 
-        to_writer(&mut self.conn_log, &log).unwrap(); // FIXME clean the unwrap
-        if writeln!(&mut self.conn_log).is_err() {
-            panic!("Error while writing into file."); // FIXME clean this up
+        if let Err(e) = to_writer(&mut conn_log, &log) {
+            error!("Error serializing the logs: {}", e);
+            self.conn_log = None;
+            return;
+        }
+        if let Err(e) = writeln!(&mut conn_log) {
+            error!("Error writing to the log file: {}", e);
+            self.conn_log = None;
+            return;
         }
     }
+
 }
 
 impl Output for OutputLogZeek {
@@ -154,7 +170,15 @@ impl Output for OutputLogZeek {
         for msg in rx {
 
             match msg.as_ref() {
-                Message::Shutdown => break,
+                Message::Shutdown => {
+                    if self.conn_log.is_none() {
+                        break;
+                    }
+                    if let Err(e) = self.conn_log.as_mut().unwrap().flush() {
+                        error!("Error flushing the log file: {}", e);
+                    }
+                    break;
+                }
                 Message::Event(e) => self.process_event(e),
                 _ => panic!("Unknown message type"),
             }

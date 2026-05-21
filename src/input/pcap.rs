@@ -23,7 +23,7 @@ impl Default for PcapInterfaceConfig {
         Self {
             iface: "eth0".to_string(),
             promisc: true,
-            snaplen: 1550,
+            snaplen: 65535,
             buffer_size: 16777216,
             filter: None,
         }

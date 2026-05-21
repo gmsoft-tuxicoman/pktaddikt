@@ -58,12 +58,7 @@ impl Output for OutputLogJson {
     fn run(mut self: Box<Self>, rx: MessageRxChannel) {
         for msg in rx {
 
-            if self.writer.is_none() {
-                // There was an error writing the logs
-                // Keep processing the messages but don't attempt to write
-            }
-
-            match msg.as_ref() {
+            match msg {
                 Message::Shutdown => {
                     if self.writer.is_none() {
                         break;
@@ -80,15 +75,15 @@ impl Output for OutputLogJson {
                         // Continue processing the messages but discard the content
                         continue;
                     };
-                    if let Err(err) = to_writer(&mut writer, &e) {
+                    if let Err(err) = to_writer(&mut writer, e.as_ref()) {
                         error!("Error serializing logs: {}", err);
                         self.writer = None;
-                        return;
+                        continue;
                     }
                     if let Err(err) = writeln!(&mut writer) {
                         error!("Error writing to log file: {}", err);
                         self.writer = None;
-                        return;
+                        continue;
                     }
                 },
                 _ => panic!("Unknown message type")

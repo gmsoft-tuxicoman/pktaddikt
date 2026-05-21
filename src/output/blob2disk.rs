@@ -122,9 +122,9 @@ impl Output for OutputBlob2Disk {
 
         for msg in rx {
 
-            match msg.as_ref() {
+            match msg {
                 Message::Shutdown => break,
-                Message::BlobMsg(msg) => self.process_blobmsg(msg),
+                Message::BlobMsg(msg) => self.process_blobmsg(&msg),
                 _ => panic!("Uknown message type"),
             }
         }

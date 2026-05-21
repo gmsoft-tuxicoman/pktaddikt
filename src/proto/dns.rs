@@ -350,7 +350,7 @@ impl ProtoDns {
             evt_pload.additionals = Some(additionals);
         }
         let evt = Event::new(parser.timestamp(), EventPayload::NetDnsMessage(evt_pload));
-        evt.send();
+        MessageBus::publish_event(evt);
         Ok(())
     }
 

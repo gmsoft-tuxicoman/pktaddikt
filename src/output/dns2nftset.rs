@@ -1,5 +1,5 @@
 use crate::output::{Output, OutputConfig};
-use crate::event::{Event, EventKind};
+use crate::event::{EventRef, EventKind};
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::output::EventPayload::NetDnsMessage;
 use crate::proto::dns::NetDnsRecordData;
@@ -96,7 +96,7 @@ impl OutputDns2NftSet {
         })
     }
 
-    fn process_event(&self, event: &Event) {
+    fn process_event(&self, event: EventRef) {
 
         let NetDnsMessage(msg) = &event.payload else {
             panic!("Wrong event kind received");
@@ -175,7 +175,7 @@ impl Output for OutputDns2NftSet {
 
         for msg in rx {
 
-            match msg.as_ref() {
+            match msg {
                 Message::Shutdown => break,
                 Message::Event(e) => self.process_event(e),
                 _ => panic!("Unexpected message type"),

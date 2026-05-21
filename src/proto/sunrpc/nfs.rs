@@ -4,51 +4,63 @@ use crate::messagebus::MessageBus;
 use crate::base::UniqueId;
 use crate::packet::PktConnInfo;
 use crate::proto::sunrpc::xdr::*;
+use crate::blob::Blob;
 
 use tracing::{debug, trace};
 use serde::Serialize;
+use std::collections::HashMap;
+use std::net::IpAddr;
 
 
 #[derive(Debug, Serialize)]
-struct NetNfsBase {
+pub struct NetNfsBase {
 
-    conn_id: UniqueId,
-    #[serde(flatten)]
-    conn_info: PktConnInfo,
-    xid: u32,
+    pub conn_id: UniqueId,
+    pub client: Option<IpAddr>,
+    pub server: Option<IpAddr>,
+    pub xid: u32,
 
 }
 
 #[derive(Debug, Serialize)]
-pub struct NetNfsExchangeIdCall {
+pub struct NetNfsCallExchangeId {
 
     #[serde(flatten)]
-    base: NetNfsBase,
-    co_ownerid: EventStr,
-    nii_domain: Option<EventStr>,
-    nii_name: Option<EventStr>,
+    pub base: NetNfsBase,
+    pub co_ownerid: EventStr,
+    pub nii_domain: Option<EventStr>,
+    pub nii_name: Option<EventStr>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct NetNfsExchangeIdReply {
+pub struct NetNfsReplyExchangeId {
 
     #[serde(flatten)]
-    base: NetNfsBase,
-    so_major_id: EventStr,
-    eir_server_scope: EventStr,
-    nii_domain: Option<EventStr>,
-    nii_name: Option<EventStr>,
+    pub base: NetNfsBase,
+    pub so_major_id: EventStr,
+    pub eir_server_scope: EventStr,
+    pub nii_domain: Option<EventStr>,
+    pub nii_name: Option<EventStr>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct NetNfsCreateSessionCall {
+pub struct NetNfsCallCreateSession {
 
     #[serde(flatten)]
-    base: NetNfsBase,
-    machine_name: Option<EventStr>,
-    uid: Option<u32>,
-    gid: Option<u32>,
+    pub base: NetNfsBase,
+    pub machine_name: Option<EventStr>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
 
+}
+
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsCallWrite {
+
+    #[serde(flatten)]
+    pub base: NetNfsBase,
+    pub filehandle: Vec<u8>,
 }
 
 pub struct ProtoNfs {
@@ -56,6 +68,9 @@ pub struct ProtoNfs {
     conn_id: UniqueId,
     conn_info: PktConnInfo,
     version_major: u32,
+    blobs: HashMap<Vec<u8>, Blob>,
+    server: Option<IpAddr>,
+    client: Option<IpAddr>,
 
 }
 
@@ -75,11 +90,19 @@ impl ProtoNfs {
             conn_id: conn_id.clone(),
             conn_info: conn_info.clone(),
             version_major: version,
+            blobs: HashMap::new(),
+            server: None,
+            client: None,
         })
     }
 
-    pub fn parse_call<T: Parser>(&self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
+    pub fn parse_call<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
 
+        if self.server.is_none() {
+            // ConnInfo will be in the right direction for the first call/reply
+            self.client = self.conn_info.src_host.clone();
+            self.server = self.conn_info.dst_host.clone();
+        }
 
         match self.version_major {
             3 => match proc {
@@ -88,7 +111,8 @@ impl ProtoNfs {
                 3 => Ok(()), // LOOKUP
                 4 => Ok(()), // ACCESS
                 5 => Ok(()), // READLINK
-                7 => Ok(()), // WRITE
+                6 => Ok(()), // READ
+                7 => self.v3_write_call(xid, parser),
                 8 => Ok(()), // CREATE
                 9 => Ok(()), // MKDIR
                 10 => Ok(()), // SYMLINK
@@ -110,7 +134,13 @@ impl ProtoNfs {
         }
     }
 
-    pub fn parse_reply<T: Parser>(&self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
+    pub fn parse_reply<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
+
+        if self.server.is_none() {
+            // ConnInfo will be in the right direction for the first call/reply
+            self.client = self.conn_info.dst_host.clone();
+            self.server = self.conn_info.src_host.clone();
+        }
 
         match self.version_major {
             3 => match proc {
@@ -119,6 +149,7 @@ impl ProtoNfs {
                 3 => Ok(()), // LOOKUP
                 4 => Ok(()), // ACCESS
                 5 => Ok(()), // READLINK
+                6 => Ok(()), // READ
                 7 => Ok(()), // WRITE
                 8 => Ok(()), // CREATE
                 9 => Ok(()), // MKDIR
@@ -139,6 +170,46 @@ impl ProtoNfs {
             },
             _ => Err(ParseErr::Invalid("NFS version not supported"))
         }
+
+    }
+
+    fn event_base(&self, xid: u32) -> NetNfsBase {
+        NetNfsBase {
+            conn_id: self.conn_id.clone(),
+            server: self.server.clone(),
+            client: self.client.clone(),
+            xid,
+        }
+    }
+
+    fn v3_write_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsCallWrite) &&
+           ! MessageBus::blob_has_subscribers() {
+            // Nobody is listening to this
+            return Ok(());
+        }
+
+        let timestamp = parser.timestamp();
+        let file = read_opaque(parser)?;
+        let offset = parser.read_u64_be()?;
+        parser.skip_u32s(2)?; // count, stable
+        let len = parser.read_u32_be()?;
+
+        let data = parser.sub_packet(len)?;
+
+        let evt_pload = NetNfsCallWrite {
+            base: self.event_base(xid),
+            filehandle: file.clone(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsCallWrite(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        let blob = self.blobs.entry(file).or_insert_with(|| Blob::new(timestamp, Some(evt)));
+        blob.data(offset, data);
+
+        Ok(())
 
     }
 
@@ -282,21 +353,17 @@ impl ProtoNfs {
             }
         }
 
-        if MessageBus::event_has_subscribers(EventKind::NetNfsExchangeIdCall) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsCallExchangeId) {
 
-            let evt_pload = NetNfsExchangeIdCall {
-                base: NetNfsBase {
-                    conn_id: self.conn_id.clone(),
-                    conn_info: self.conn_info.clone(),
-                    xid,
-                },
+            let evt_pload = NetNfsCallExchangeId {
+                base: self.event_base(xid),
                 co_ownerid: co_ownerid.into(),
                 nii_domain: nii_domain.map(Into::into),
                 nii_name: nii_name.map(Into::into),
             };
 
-            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsExchangeIdCall(evt_pload));
-            evt.send();
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsCallExchangeId(evt_pload));
+            MessageBus::publish_event(evt);
         }
         Ok(())
     }
@@ -356,22 +423,18 @@ impl ProtoNfs {
             }
         }
 
-        if MessageBus::event_has_subscribers(EventKind::NetNfsExchangeIdReply) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsReplyExchangeId) {
 
-            let evt_pload = NetNfsExchangeIdReply {
-                base: NetNfsBase {
-                    conn_id: self.conn_id.clone(),
-                    conn_info: self.conn_info.clone(),
-                    xid,
-                },
+            let evt_pload = NetNfsReplyExchangeId {
+                base: self.event_base(xid),
                 so_major_id: so_major_id.into(),
                 eir_server_scope: eir_server_scope.into(),
                 nii_domain: nii_domain.map(Into::into),
                 nii_name: nii_name.map(Into::into),
             };
 
-            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsExchangeIdReply(evt_pload));
-            evt.send();
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsReplyExchangeId(evt_pload));
+            MessageBus::publish_event(evt);
         }
 
         Ok(())
@@ -442,21 +505,17 @@ impl ProtoNfs {
             }
         }
 
-        if MessageBus::event_has_subscribers(EventKind::NetNfsCreateSessionCall) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsCallCreateSession) {
 
-            let evt_pload = NetNfsCreateSessionCall {
-                base: NetNfsBase {
-                    conn_id: self.conn_id.clone(),
-                    conn_info: self.conn_info.clone(),
-                    xid,
-                },
+            let evt_pload = NetNfsCallCreateSession {
+                base: self.event_base(xid),
                 machine_name: machine_name.map(Into::into),
                 uid,
                 gid,
             };
 
-            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsCreateSessionCall(evt_pload));
-            evt.send();
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsCallCreateSession(evt_pload));
+            MessageBus::publish_event(evt);
         }
 
         Ok(())

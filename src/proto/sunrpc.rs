@@ -109,7 +109,7 @@ impl ProtoSunRpc {
                 }
             }
         }
-        let prog = match &self.prog {
+        let mut prog = match &mut self.prog {
             Some(p) => p,
             None => return Err(ParseErr::Stop)
         };
@@ -153,7 +153,7 @@ impl ProtoSunRpc {
         trace!("Call with {} payload for XID {:x}, prog {}, version {}, proc {}", parser.remaining_len(), xid, program, prog_version, proc);
 
         if parser.remaining_len() > 0 {
-            match prog {
+            match &mut prog {
                 ProtoSunRpcProg::Portmap(p) => p.parse_call(xid, proc, &mut parser),
                 ProtoSunRpcProg::Nfs(p) => p.parse_call(xid, proc, &mut parser),
                 ProtoSunRpcProg::Mount(p) => p.parse_call(xid, proc, &mut parser),
@@ -176,7 +176,7 @@ impl ProtoSunRpc {
             return Err(ParseErr::Invalid("Matching RPC call not found base on XID"));
         }
 
-        let prog = match &self.prog {
+        let mut prog = match &mut self.prog {
             Some(p) => p,
             None => return Err(ParseErr::Stop),
         };
@@ -199,7 +199,7 @@ impl ProtoSunRpc {
 
 
                 if parser.remaining_len() > 0 {
-                    match prog {
+                    match &mut prog {
                         ProtoSunRpcProg::Portmap(p) => p.parse_reply(xid, call.proc, &mut parser),
                         ProtoSunRpcProg::Nfs(p) => p.parse_reply(xid, call.proc, &mut parser),
                         ProtoSunRpcProg::Mount(p) => p.parse_reply(xid, call.proc, &mut parser),

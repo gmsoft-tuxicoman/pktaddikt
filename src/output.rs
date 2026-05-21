@@ -4,19 +4,20 @@ use crate::output::logzeek::{OutputLogZeek, LogZeekConfig};
 #[cfg(feature = "with_nftables")]
 use crate::output::dns2nftset::{OutputDns2NftSet, Dns2NftSetConfig};
 use crate::output::blob2disk::{OutputBlob2Disk, Blob2DiskConfig};
+use crate::output::nfsmirror::{OutputNfsMirror, NfsMirrorConfig};
 use crate::config::Config;
 use crate::event::EventPayload;
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 
 use serde::Deserialize;
 use crossbeam_channel;
-use std::sync::Arc;
 
 pub mod logjson;
 pub mod logzeek;
 #[cfg(feature = "with_nftables")]
 pub mod dns2nftset;
 pub mod blob2disk;
+pub mod nfsmirror;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type" )]
@@ -31,6 +32,8 @@ pub enum OutputConfig {
     Dns2NftSet(Dns2NftSetConfig),
     #[serde(rename = "blob2disk")]
     Blob2Disk(Blob2DiskConfig),
+    #[serde(rename = "nfsmirror")]
+    NfsMirror(NfsMirrorConfig),
 }
 
 pub trait Output: Send + 'static {
@@ -89,6 +92,7 @@ impl OutputBuilder {
             OutputConfig::LogZeek(_) => OutputLogZeek::new(name, msg_bus, tx),
             OutputConfig::Dns2NftSet(_) => OutputDns2NftSet::new(name, msg_bus, tx),
             OutputConfig::Blob2Disk(_) => OutputBlob2Disk::new(name, msg_bus, tx),
+            OutputConfig::NfsMirror(_) => OutputNfsMirror::new(name, msg_bus, tx),
         }
 
     }
@@ -96,7 +100,7 @@ impl OutputBuilder {
     pub fn join(&mut self) {
 
         for output in self.outputs.drain(..) {
-            output.tx.send(Arc::new(Message::Shutdown)).unwrap();
+            output.tx.send(Message::Shutdown).unwrap();
             output.thread.join().unwrap();
         }
 

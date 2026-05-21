@@ -5,6 +5,7 @@ use crate::conntrack::ConntrackDirection;
 use crate::event::{EventStr, EventPayload, Event};
 use crate::base::UniqueId;
 use crate::packet::Packet;
+use crate::messagebus::MessageBus;
 
 
 use tracing::trace;
@@ -340,7 +341,7 @@ impl ProtoTlsHandshake {
 
 
         let evt = Event::new(parser.timestamp(), EventPayload::NetTlsClientHello(evt_pload));
-        evt.send();
+        MessageBus::publish_event(evt);
 
 
         Ok(())

@@ -1,13 +1,12 @@
-
 use crate::packet::PktTime;
 use crate::base::UniqueId;
-use crate::messagebus::MessageBus;
 
 use std::fmt::Debug;
 use strum_macros::{EnumString, AsRefStr, EnumCount, EnumIter, IntoStaticStr};
 use serde::{Serialize, Serializer};
 use std::ops::Deref;
 use std::borrow::Cow;
+use std::sync::Arc;
 
 #[repr(usize)]
 #[derive(Debug, Copy, Clone, PartialEq, EnumString, AsRefStr, EnumCount, EnumIter, IntoStaticStr)]
@@ -29,12 +28,14 @@ pub enum EventKind {
     NetDnsMessage,
     #[strum(serialize = "net.tls.clienthello")]
     NetTlsClientHello,
-    #[strum(serialize = "net.nfs.exchange_id.call")]
-    NetNfsExchangeIdCall,
-    #[strum(serialize = "net.nfs.exchange_id.reply")]
-    NetNfsExchangeIdReply,
-    #[strum(serialize = "net.nfs.create_session.call")]
-    NetNfsCreateSessionCall,
+    #[strum(serialize = "net.nfs.call.exchange_id")]
+    NetNfsCallExchangeId,
+    #[strum(serialize = "net.nfs.reply.exchange_id")]
+    NetNfsReplyExchangeId,
+    #[strum(serialize = "net.nfs.call.create_session")]
+    NetNfsCallCreateSession,
+    #[strum(serialize = "net.nfs.call.write")]
+    NetNfsCallWrite,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,9 +50,10 @@ pub enum EventPayload {
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
-    NetNfsExchangeIdCall(crate::proto::sunrpc::nfs::NetNfsExchangeIdCall),
-    NetNfsExchangeIdReply(crate::proto::sunrpc::nfs::NetNfsExchangeIdReply),
-    NetNfsCreateSessionCall(crate::proto::sunrpc::nfs::NetNfsCreateSessionCall),
+    NetNfsCallExchangeId(crate::proto::sunrpc::nfs::NetNfsCallExchangeId),
+    NetNfsReplyExchangeId(crate::proto::sunrpc::nfs::NetNfsReplyExchangeId),
+    NetNfsCallCreateSession(crate::proto::sunrpc::nfs::NetNfsCallCreateSession),
+    NetNfsCallWrite(crate::proto::sunrpc::nfs::NetNfsCallWrite),
 }
 
 impl EventPayload {
@@ -65,12 +67,15 @@ impl EventPayload {
             EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
             EventPayload::NetTlsClientHello(_) => EventKind::NetTlsClientHello,
-            EventPayload::NetNfsExchangeIdCall(_) => EventKind::NetNfsExchangeIdCall,
-            EventPayload::NetNfsExchangeIdReply(_) => EventKind::NetNfsExchangeIdReply,
-            EventPayload::NetNfsCreateSessionCall(_) => EventKind::NetNfsCreateSessionCall,
+            EventPayload::NetNfsCallExchangeId(_) => EventKind::NetNfsCallExchangeId,
+            EventPayload::NetNfsReplyExchangeId(_) => EventKind::NetNfsReplyExchangeId,
+            EventPayload::NetNfsCallCreateSession(_) => EventKind::NetNfsCallCreateSession,
+            EventPayload::NetNfsCallWrite(_) => EventKind::NetNfsCallWrite,
         }
     }
 }
+
+pub type EventRef = Arc<Event>;
 
 #[derive(Debug, Serialize)]
 pub struct Event {
@@ -87,20 +92,14 @@ pub struct Event {
 
 impl Event {
 
-    pub fn new(ts: PktTime, payload: EventPayload) -> Self {
+    pub fn new(ts: PktTime, payload: EventPayload) -> EventRef {
         let kind = payload.kind();
-        Event {
+        Arc::new(Event {
             event_id: UniqueId::new(ts),
             ts: ts,
             kind: kind.into(),
             payload: payload,
-        }
-    }
-
-    pub fn send(self) {
-
-        MessageBus::publish_event(self);
-
+        })
     }
 
     pub fn kind(&self) -> EventKind {

@@ -194,7 +194,7 @@ impl ProtoPktProcessor for ProtoUdp {
                         dst_host: cd.dst_host,
                     };
                     let evt = Event::new(cd.start_ts, EventPayload::NetUdpConnectionStart(evt_pload));
-                    evt.send();
+                    MessageBus::publish_event(evt);
                 }
                 cd
 
@@ -269,7 +269,7 @@ impl Drop for ConntrackUdp {
         };
 
         let evt = Event::new(self.last_ts, EventPayload::NetUdpConnectionEnd(evt_pload));
-        evt.send();
+        MessageBus::publish_event(evt);
     }
 
 }

@@ -1,14 +1,13 @@
-use crate::event::{Event, EventKind};
+use crate::event::{EventKind, EventRef};
 use crate::blob::BlobMsg;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use strum::{EnumCount, IntoEnumIterator};
 use tracing::{debug, trace};
 
-type MessageRef = Arc<Message>;
 
-pub type MessageTxChannel = crossbeam_channel::Sender<MessageRef>;
-pub type MessageRxChannel = crossbeam_channel::Receiver<MessageRef>;
+pub type MessageTxChannel = crossbeam_channel::Sender<Message>;
+pub type MessageRxChannel = crossbeam_channel::Receiver<Message>;
 
 
 static MESSAGE_BUS: OnceLock<MessageBus> = OnceLock::new();
@@ -112,28 +111,35 @@ impl MessageBus {
         msg_bus.event_subs[id].len() > 0
     }
 
+    pub fn blob_has_subscribers() -> bool {
+        let Some(msg_bus) = MESSAGE_BUS.get() else {
+            // Happens during test when event bus is not initialized
+            // So pretend there is a subscriber so that parsing etc is done
+            return true;
+        };
+        msg_bus.blob_subs.len() != 0
+    }
+
     pub fn blob_subscribe(&mut self, tx: &MessageTxChannel) {
         self.blob_subs.push(tx.clone());
     }
 
     #[cfg(test)]
-    pub fn publish_event(evt: Event) {
+    pub fn publish_event(evt: EventRef) {
         trace!("Publishing message {:?}", evt.kind());
     }
 
     #[cfg(not(test))]
-    pub fn publish_event(evt: Event) {
+    pub fn publish_event(evt: EventRef) {
 
         trace!("Publishing event {:?}", evt.kind());
         let msg_bus = MESSAGE_BUS.get().unwrap();
 
         let evt_kind = evt.kind();
-        let msg = Message::Event(evt);
-        let msg_ref = Arc::new(msg);
 
         let id = evt_kind as usize;
         for sub in &msg_bus.event_subs[id] {
-            sub.send(msg_ref.clone()).unwrap();
+            sub.send(Message::Event(evt.clone())).unwrap();
         }
 
     }
@@ -143,11 +149,8 @@ impl MessageBus {
         trace!("Publishing BlobMsg");
         let msg_bus = MESSAGE_BUS.get().unwrap();
 
-        let msg = Message::BlobMsg(blob_msg);
-        let msg_ref = Arc::new(msg);
-
         for sub in & msg_bus.blob_subs {
-            sub.send(msg_ref.clone()).unwrap();
+            sub.send(Message::BlobMsg(blob_msg.clone())).unwrap();
         }
     }
 }
@@ -157,6 +160,6 @@ impl MessageBus {
 pub enum Message {
 
     Shutdown,
-    Event(Event),
+    Event(EventRef),
     BlobMsg(BlobMsg),
 }

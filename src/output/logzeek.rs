@@ -1,5 +1,5 @@
 use crate::output::{Output, OutputConfig};
-use crate::event::{Event, EventKind, EventPayload};
+use crate::event::{EventRef, EventKind, EventPayload};
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::base::UniqueId;
 use crate::packet::PktTime;
@@ -90,7 +90,7 @@ impl OutputLogZeek {
         Box::new(Self { conn_log: Some(writer) })
     }
 
-    fn process_event(&mut self, event: &Event) {
+    fn process_event(&mut self, event: EventRef) {
 
         if self.conn_log.is_none() {
             // There was an error writing the logs
@@ -169,7 +169,7 @@ impl Output for OutputLogZeek {
     fn run(mut self: Box<Self>, rx: MessageRxChannel) {
         for msg in rx {
 
-            match msg.as_ref() {
+            match msg {
                 Message::Shutdown => {
                     if self.conn_log.is_none() {
                         break;

@@ -7,6 +7,7 @@ use crate::stream::PktStream;
 use crate::proto::{Protocols, ProtoInfo};
 use crate::event::{Event, EventPayload};
 use crate::base::UniqueId;
+use crate::messagebus::MessageBus;
 
 use std::collections::BTreeMap;
 use tracing::{debug, trace};
@@ -292,7 +293,7 @@ impl ConntrackTcp {
 
         };
         let evt = Event::new(self.last_ts, EventPayload::NetTcpConnectionEnd(evt_pload));
-        evt.send();
+        MessageBus::publish_event(evt);
     }
 
     pub fn get_state(&self) -> TcpState {
@@ -324,7 +325,7 @@ impl ConntrackTcp {
             };
 
             let evt = Event::new(data.timestamp(), EventPayload::NetTcpConnectionStart(evt_pload));
-            evt.send();
+            MessageBus::publish_event(evt);
         }
 
         if self.last_ts < data.timestamp() {

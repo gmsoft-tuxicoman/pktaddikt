@@ -85,7 +85,7 @@ impl ProtoHttpStateInfo {
                 ProtoHttpEvent::RequestBasic(p) => Event::new(p.ts, EventPayload::NetHttpRequestBasic(p)),
                 ProtoHttpEvent::ResponseBasic(p) => Event::new(p.ts, EventPayload::NetHttpResponseBasic(p)),
             };
-            evt.send();
+            MessageBus::publish_event(evt);
         }
         self.event_basic = None;
         self.blob = None;
@@ -272,7 +272,7 @@ impl ProtoHttp {
                     ProtoHttpEvent::RequestBasic(p) => Event::new(p.ts, EventPayload::NetHttpRequestBasic(p)),
                     ProtoHttpEvent::ResponseBasic(p) => Event::new(p.ts, EventPayload::NetHttpResponseBasic(p)),
                 };
-                evt.send();
+                MessageBus::publish_event(evt);
             }
 
             if self.info[dir as usize].chunked && self.info[dir as usize].content_len.is_some() {
@@ -353,7 +353,7 @@ impl ProtoHttp {
         if let Some(content_len) = self.info[dir as usize].content_len {
             let mut remaining_len = content_len - self.info[dir as usize].content_pos;
 
-            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp()).set_size(content_len));
+            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp(), None).set_size(content_len));
             let data_len = cmp::min(remaining_len as u32, parser.remaining_len());
 
             blob.data(self.info[dir as usize].content_pos, parser.sub_packet(data_len)?);
@@ -371,7 +371,7 @@ impl ProtoHttp {
         } else {
             // No Content-Length, must be a HTTP/1.0 response containing the whole body
 
-            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp()));
+            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp(), None));
             let data_len = parser.remaining_len();
             blob.data(self.info[dir as usize].content_pos, parser.sub_packet(data_len)?);
             trace!("Got {} bytes of payload", data_len);

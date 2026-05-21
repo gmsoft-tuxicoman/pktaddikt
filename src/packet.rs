@@ -333,32 +333,6 @@ impl<'a> Packet<'a> {
     }
 
     #[inline]
-    // return a sub packet and mark the data as read
-    pub fn sub_packet(&mut self, size: u32) -> Result<Packet<'a>, ParseErr> {
-
-        if size == 0 {
-            return Err(ParseErr::Invalid("Requested packet with 0 size"));
-        }
-
-        self.has_len(size)?;
-
-        let pkt_data = match &self.data {
-            PacketData::Owned(arc) => PacketData::Owned(arc.clone()),
-            PacketData::OwnedVec(vec) => PacketData::OwnedVec(vec.clone()),
-            PacketData::Borrowed(b) => PacketData::Borrowed(b),
-            PacketData::Zero(len) => PacketData::Zero(*len),
-            PacketData::Empty => PacketData::Empty,
-        };
-        let range = (self.range.0, self.range.0 + size);
-        self.range.0 += size;
-        Ok(Packet {
-            ts: self.ts,
-            data: pkt_data,
-            range: range,
-        })
-    }
-
-    #[inline]
     // return an owned parser
     pub fn to_parser(&mut self) -> Packet<'a> {
 
@@ -420,6 +394,32 @@ impl Parser for Packet<'_> {
         self.has_len(size)?;
         self.range.0 += size;
         Ok(())
+    }
+
+    #[inline]
+    // return a sub packet and mark the data as read
+    fn sub_packet(&mut self, size: u32) -> Result<Packet<'_>, ParseErr> {
+
+        if size == 0 {
+            return Err(ParseErr::Invalid("Requested packet with 0 size"));
+        }
+
+        self.has_len(size)?;
+
+        let pkt_data = match &self.data {
+            PacketData::Owned(arc) => PacketData::Owned(arc.clone()),
+            PacketData::OwnedVec(vec) => PacketData::OwnedVec(vec.clone()),
+            PacketData::Borrowed(b) => PacketData::Borrowed(b),
+            PacketData::Zero(len) => PacketData::Zero(*len),
+            PacketData::Empty => PacketData::Empty,
+        };
+        let range = (self.range.0, self.range.0 + size);
+        self.range.0 += size;
+        Ok(Packet {
+            ts: self.ts,
+            data: pkt_data,
+            range: range,
+        })
     }
 
     #[inline]

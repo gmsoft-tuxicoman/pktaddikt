@@ -104,6 +104,7 @@ pub trait Parser {
     fn read_fixed<const N: usize>(&mut self) -> Result<[u8; N], ParseErr>;
     fn remaining_len(&self) -> u32;
     fn skip(&mut self, size: u32) -> Result<(), ParseErr>;
+    fn sub_packet(&mut self, size: u32) -> Result<Packet<'_>, ParseErr>;
     fn timestamp(&self) -> PktTime;
 
     #[inline]

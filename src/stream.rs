@@ -288,16 +288,6 @@ impl<'a, 'b> PktStreamParser<'a, 'b> {
         Ok(())
     }
 
-    #[inline]
-    pub fn sub_packet(&mut self, size: u32) -> Result<Packet<'_>, ParseErr> {
-        if self.pkt_buff.is_empty() {
-            self.pkt.sub_packet(size)
-        } else {
-            Ok(Packet::from_vec(self.pkt.timestamp(), Arc::new(self.read_slow(size)?)))
-        }
-
-    }
-
     #[cold]
     #[inline(never)]
     fn peek_slow(&self, min_size: u32) -> Result<Cow<'_, [u8]>, ParseErr> {
@@ -369,6 +359,16 @@ impl Parser for PktStreamParser<'_, '_> {
         } else {
             self.skip_slow(size)
         }
+    }
+
+    #[inline]
+    fn sub_packet(&mut self, size: u32) -> Result<Packet<'_>, ParseErr> {
+        if self.pkt_buff.is_empty() {
+            self.pkt.sub_packet(size)
+        } else {
+            Ok(Packet::from_vec(self.pkt.timestamp(), Arc::new(self.read_slow(size)?)))
+        }
+
     }
 
     #[inline]

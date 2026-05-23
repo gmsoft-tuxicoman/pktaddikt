@@ -28,14 +28,18 @@ pub enum EventKind {
     NetDnsMessage,
     #[strum(serialize = "net.tls.clienthello")]
     NetTlsClientHello,
-    #[strum(serialize = "net.nfs.call.exchange_id")]
-    NetNfsCallExchangeId,
-    #[strum(serialize = "net.nfs.reply.exchange_id")]
-    NetNfsReplyExchangeId,
-    #[strum(serialize = "net.nfs.call.create_session")]
-    NetNfsCallCreateSession,
-    #[strum(serialize = "net.nfs.call.write")]
-    NetNfsCallWrite,
+    #[strum(serialize = "net.nfsv3.call.write")]
+    NetNfsV3CallWrite,
+    #[strum(serialize = "net.nfsv3.call.create")]
+    NetNfsV3CallCreate,
+    #[strum(serialize = "net.nfsv3.reply.create")]
+    NetNfsV3ReplyCreate,
+    #[strum(serialize = "net.nfsv4.call.exchange_id")]
+    NetNfsV4CallExchangeId,
+    #[strum(serialize = "net.nfsv4.reply.exchange_id")]
+    NetNfsV4ReplyExchangeId,
+    #[strum(serialize = "net.nfsv4.call.create_session")]
+    NetNfsV4CallCreateSession,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,10 +54,12 @@ pub enum EventPayload {
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
-    NetNfsCallExchangeId(crate::proto::sunrpc::nfs::NetNfsCallExchangeId),
-    NetNfsReplyExchangeId(crate::proto::sunrpc::nfs::NetNfsReplyExchangeId),
-    NetNfsCallCreateSession(crate::proto::sunrpc::nfs::NetNfsCallCreateSession),
-    NetNfsCallWrite(crate::proto::sunrpc::nfs::NetNfsCallWrite),
+    NetNfsV3CallCreate(crate::proto::sunrpc::nfsv3::NetNfsV3CallCreate),
+    NetNfsV3ReplyCreate(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyCreate),
+    NetNfsV3CallWrite(crate::proto::sunrpc::nfsv3::NetNfsV3CallWrite),
+    NetNfsV4CallExchangeId(crate::proto::sunrpc::nfsv4::NetNfsV4CallExchangeId),
+    NetNfsV4ReplyExchangeId(crate::proto::sunrpc::nfsv4::NetNfsV4ReplyExchangeId),
+    NetNfsV4CallCreateSession(crate::proto::sunrpc::nfsv4::NetNfsV4CallCreateSession),
 }
 
 impl EventPayload {
@@ -67,10 +73,12 @@ impl EventPayload {
             EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
             EventPayload::NetTlsClientHello(_) => EventKind::NetTlsClientHello,
-            EventPayload::NetNfsCallExchangeId(_) => EventKind::NetNfsCallExchangeId,
-            EventPayload::NetNfsReplyExchangeId(_) => EventKind::NetNfsReplyExchangeId,
-            EventPayload::NetNfsCallCreateSession(_) => EventKind::NetNfsCallCreateSession,
-            EventPayload::NetNfsCallWrite(_) => EventKind::NetNfsCallWrite,
+            EventPayload::NetNfsV4CallExchangeId(_) => EventKind::NetNfsV4CallExchangeId,
+            EventPayload::NetNfsV4ReplyExchangeId(_) => EventKind::NetNfsV4ReplyExchangeId,
+            EventPayload::NetNfsV4CallCreateSession(_) => EventKind::NetNfsV4CallCreateSession,
+            EventPayload::NetNfsV3CallWrite(_) => EventKind::NetNfsV3CallWrite,
+            EventPayload::NetNfsV3CallCreate(_) => EventKind::NetNfsV3CallCreate,
+            EventPayload::NetNfsV3ReplyCreate(_) => EventKind::NetNfsV3ReplyCreate,
         }
     }
 }

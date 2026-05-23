@@ -1,6 +1,7 @@
 pub mod xdr;
 pub mod portmap;
-pub mod nfs;
+pub mod nfsv3;
+pub mod nfsv4;
 pub mod mount;
 
 use crate::base::{Parser, ParseErr};
@@ -8,7 +9,8 @@ use crate::proto::ProtoPktProcessor;
 use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::packet::{Packet, PktInfoStack, PktConnInfo};
 use crate::conntrack::{ConntrackDirection, ConntrackTableUnique};
-use crate::proto::sunrpc::nfs::ProtoNfs;
+use crate::proto::sunrpc::nfsv3::ProtoNfsV3;
+use crate::proto::sunrpc::nfsv4::ProtoNfsV4;
 use crate::proto::sunrpc::portmap::ProtoPortmap;
 use crate::proto::sunrpc::mount::ProtoMount;
 use crate::base::UniqueId;
@@ -55,7 +57,8 @@ pub struct ProtoSunRpc {
 }
 
 enum ProtoSunRpcProg {
-    Nfs(ProtoNfs),
+    NfsV3(ProtoNfsV3),
+    NfsV4(ProtoNfsV4),
     Portmap(ProtoPortmap),
     Mount(ProtoMount),
 }
@@ -95,10 +98,12 @@ impl ProtoSunRpc {
                     Some(p) => Some(ProtoSunRpcProg::Portmap(p)),
                     None => None,
                 },
-                100003 => match ProtoNfs::new(&self.conn_id, self.conn_info, prog_version) {
-                    Some(p) => Some(ProtoSunRpcProg::Nfs(p)),
-                    None => None,
+                100003 => match prog_version {
+                    3 => Some(ProtoSunRpcProg::NfsV3(ProtoNfsV3::new(&self.conn_id, self.conn_info))),
+                    4 => Some(ProtoSunRpcProg::NfsV4(ProtoNfsV4::new(&self.conn_id, self.conn_info))),
+                    _ => return Err(ParseErr::Invalid("Invalid NFS version")),
                 },
+
                 100005 => match ProtoMount::new(&self.conn_id, self.conn_info, prog_version) {
                     Some(p) => Some(ProtoSunRpcProg::Mount(p)),
                     None => None,
@@ -155,7 +160,8 @@ impl ProtoSunRpc {
         if parser.remaining_len() > 0 {
             match &mut prog {
                 ProtoSunRpcProg::Portmap(p) => p.parse_call(xid, proc, &mut parser),
-                ProtoSunRpcProg::Nfs(p) => p.parse_call(xid, proc, &mut parser),
+                ProtoSunRpcProg::NfsV3(p) => p.parse_call(xid, proc, &mut parser),
+                ProtoSunRpcProg::NfsV4(p) => p.parse_call(xid, proc, &mut parser),
                 ProtoSunRpcProg::Mount(p) => p.parse_call(xid, proc, &mut parser),
             }
         } else {
@@ -201,7 +207,8 @@ impl ProtoSunRpc {
                 if parser.remaining_len() > 0 {
                     match &mut prog {
                         ProtoSunRpcProg::Portmap(p) => p.parse_reply(xid, call.proc, &mut parser),
-                        ProtoSunRpcProg::Nfs(p) => p.parse_reply(xid, call.proc, &mut parser),
+                        ProtoSunRpcProg::NfsV3(p) => p.parse_reply(xid, call.proc, &mut parser),
+                        ProtoSunRpcProg::NfsV4(p) => p.parse_reply(xid, call.proc, &mut parser),
                         ProtoSunRpcProg::Mount(p) => p.parse_reply(xid, call.proc, &mut parser),
                     }
                 } else {

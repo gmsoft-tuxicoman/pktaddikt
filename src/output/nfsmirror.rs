@@ -51,7 +51,8 @@ impl OutputNfsMirror {
         };
 
         msg_bus.blob_subscribe(tx);
-        msg_bus.event_subscribe_glob("net.nfs.*", tx).unwrap();
+        msg_bus.event_subscribe_glob("net.nfsv3.*", tx).unwrap();
+        msg_bus.event_subscribe_glob("net.nfsv4.*", tx).unwrap();
 
         let path = PathBuf::from(cfg.path.clone());
 
@@ -63,7 +64,7 @@ impl OutputNfsMirror {
 
     fn process_blob_begin(&mut self, msg: &BlobMsgBegin) {
         let Some(event) = &msg.event else { return };
-        let EventPayload::NetNfsCallWrite(pload) = &event.payload else { return };
+        let EventPayload::NetNfsV3CallWrite(pload) = &event.payload else { return };
         trace!("Got new blob for file handle {:?}", pload.filehandle);
 
         let Some(server) = &pload.base.server else { return };

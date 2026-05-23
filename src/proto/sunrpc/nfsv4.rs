@@ -10,10 +10,11 @@ use tracing::{debug, trace};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::time::Duration;
 
 
 #[derive(Debug, Serialize)]
-pub struct NetNfsBase {
+pub struct NetNfsV4Base {
 
     pub conn_id: UniqueId,
     pub client: Option<IpAddr>,
@@ -23,20 +24,20 @@ pub struct NetNfsBase {
 }
 
 #[derive(Debug, Serialize)]
-pub struct NetNfsCallExchangeId {
+pub struct NetNfsV4CallExchangeId {
 
     #[serde(flatten)]
-    pub base: NetNfsBase,
+    pub base: NetNfsV4Base,
     pub co_ownerid: EventStr,
     pub nii_domain: Option<EventStr>,
     pub nii_name: Option<EventStr>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct NetNfsReplyExchangeId {
+pub struct NetNfsV4ReplyExchangeId {
 
     #[serde(flatten)]
-    pub base: NetNfsBase,
+    pub base: NetNfsV4Base,
     pub so_major_id: EventStr,
     pub eir_server_scope: EventStr,
     pub nii_domain: Option<EventStr>,
@@ -44,30 +45,20 @@ pub struct NetNfsReplyExchangeId {
 }
 
 #[derive(Debug, Serialize)]
-pub struct NetNfsCallCreateSession {
+pub struct NetNfsV4CallCreateSession {
 
     #[serde(flatten)]
-    pub base: NetNfsBase,
+    pub base: NetNfsV4Base,
     pub machine_name: Option<EventStr>,
     pub uid: Option<u32>,
     pub gid: Option<u32>,
 
 }
 
-
-#[derive(Debug, Serialize)]
-pub struct NetNfsCallWrite {
-
-    #[serde(flatten)]
-    pub base: NetNfsBase,
-    pub filehandle: Vec<u8>,
-}
-
-pub struct ProtoNfs {
+pub struct ProtoNfsV4 {
 
     conn_id: UniqueId,
     conn_info: PktConnInfo,
-    version_major: u32,
     blobs: HashMap<Vec<u8>, Blob>,
     server: Option<IpAddr>,
     client: Option<IpAddr>,
@@ -75,25 +66,20 @@ pub struct ProtoNfs {
 }
 
 
-impl ProtoNfs {
+impl ProtoNfsV4 {
 
     const NFS4_VERIFIER_SIZE: u32 = 8;
     const NFS4_SESSIONID_SIZE: u32 = 16;
 
-    pub fn new(conn_id: &UniqueId, conn_info: PktConnInfo, version: u32) -> Option<Self> {
-        if version != 3 && version != 4 {
-            trace!("Only support for NFSv3 and v4 for now ... patch welcome");
-            return None;
-        }
+    pub fn new(conn_id: &UniqueId, conn_info: PktConnInfo) -> Self {
 
-        Some(Self {
+        Self {
             conn_id: conn_id.clone(),
             conn_info: conn_info.clone(),
-            version_major: version,
             blobs: HashMap::new(),
             server: None,
             client: None,
-        })
+        }
     }
 
     pub fn parse_call<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
@@ -104,116 +90,9 @@ impl ProtoNfs {
             self.server = self.conn_info.dst_host.clone();
         }
 
-        match self.version_major {
-            3 => match proc {
-                1 => Ok(()), // GETATTR
-                2 => Ok(()), // SETATTR
-                3 => Ok(()), // LOOKUP
-                4 => Ok(()), // ACCESS
-                5 => Ok(()), // READLINK
-                6 => Ok(()), // READ
-                7 => self.v3_write_call(xid, parser),
-                8 => Ok(()), // CREATE
-                9 => Ok(()), // MKDIR
-                10 => Ok(()), // SYMLINK
-                12 => Ok(()), // REMOVE
-                13 => Ok(()), // RMDIR
-                14 => Ok(()), // RENAME
-                15 => Ok(()), // LINK
-                16 => Ok(()), // READDIR
-                18 => Ok(()), // FSSTAT
-                19 => Ok(()), // FSINFO
-                20 => Ok(()), // PATHCONF
-                _ => Err(ParseErr::Invalid("Unknown NFSv3 procedure called"))
-            },
-            4 => match proc {
-                1 => self.v4_compound_call(xid, parser),
-                _ => Err(ParseErr::Invalid("Unknown NFSv4 procedure called"))
-            }
-            _ => Err(ParseErr::Invalid("NFS version not supported"))
+        if proc != 1 { // NFSv4 only has COMPOUND
+            return Err(ParseErr::Invalid("Unknown NFSv4 procedure called"));
         }
-    }
-
-    pub fn parse_reply<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
-
-        if self.server.is_none() {
-            // ConnInfo will be in the right direction for the first call/reply
-            self.client = self.conn_info.dst_host.clone();
-            self.server = self.conn_info.src_host.clone();
-        }
-
-        match self.version_major {
-            3 => match proc {
-                1 => Ok(()), // GETATTR
-                2 => Ok(()), // SETATTR
-                3 => Ok(()), // LOOKUP
-                4 => Ok(()), // ACCESS
-                5 => Ok(()), // READLINK
-                6 => Ok(()), // READ
-                7 => Ok(()), // WRITE
-                8 => Ok(()), // CREATE
-                9 => Ok(()), // MKDIR
-                10 => Ok(()), // SYMLINK
-                12 => Ok(()), // REMOVE
-                13 => Ok(()), // RMDIR
-                14 => Ok(()), // RENAME
-                15 => Ok(()), // LINK
-                16 => Ok(()), // READDIR
-                18 => Ok(()), // FSSTAT
-                19 => Ok(()), // FSINFO
-                20 => Ok(()), // PATHCONF
-                _ => Err(ParseErr::Invalid("Unknown NFSv3 procedure replied"))
-            },
-            4 => match proc {
-                1 => self.v4_compound_reply(xid, parser),
-                _ => Err(ParseErr::Invalid("Unknown NFSv4 procedure in replied"))
-            },
-            _ => Err(ParseErr::Invalid("NFS version not supported"))
-        }
-
-    }
-
-    fn event_base(&self, xid: u32) -> NetNfsBase {
-        NetNfsBase {
-            conn_id: self.conn_id.clone(),
-            server: self.server.clone(),
-            client: self.client.clone(),
-            xid,
-        }
-    }
-
-    fn v3_write_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
-
-        if ! MessageBus::event_has_subscribers(EventKind::NetNfsCallWrite) &&
-           ! MessageBus::blob_has_subscribers() {
-            // Nobody is listening to this
-            return Ok(());
-        }
-
-        let timestamp = parser.timestamp();
-        let file = read_opaque(parser)?;
-        let offset = parser.read_u64_be()?;
-        parser.skip_u32s(2)?; // count, stable
-        let len = parser.read_u32_be()?;
-
-        let data = parser.sub_packet(len)?;
-
-        let evt_pload = NetNfsCallWrite {
-            base: self.event_base(xid),
-            filehandle: file.clone(),
-        };
-
-        let evt = Event::new(timestamp, EventPayload::NetNfsCallWrite(evt_pload));
-        MessageBus::publish_event(evt.clone());
-
-        let blob = self.blobs.entry(file).or_insert_with(|| Blob::new(timestamp, Some(evt)));
-        blob.data(offset, data);
-
-        Ok(())
-
-    }
-
-    fn v4_compound_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         // tag
         skip_opaque(parser)?;
@@ -227,24 +106,24 @@ impl ProtoNfs {
 
             let opcode = parser.read_u32_be()?;
             match opcode {
-                3 => self.v4_access_call(xid, parser),
-                8 => self.v4_delegreturn_call(xid, parser),
-                9 => self.v4_getattr_call(xid, parser),
-                10 => self.v4_getfh_call(xid, parser),
-                15 => self.v4_lookup_call(xid, parser),
-                18 => self.v4_open_call(xid, parser),
-                22 => self.v4_putfh_call(xid, parser),
-                24 => self.v4_putrootfh_call(xid, parser),
-                26 => self.v4_readdir_call(xid, parser),
-                42 => self.v4_exchange_id_call(xid, parser),
-                43 => self.v4_create_session_call(xid, parser),
-                44 => self.v4_destroy_session_call(xid, parser),
-                46 => self.v4_get_dir_delegation_call(xid, parser),
-                52 => self.v4_secinfo_no_name_call(xid, parser),
-                53 => self.v4_sequence_call(xid, parser),
-                57 => self.v4_destroy_client_id_call(xid, parser),
-                58 => self.v4_reclaim_complete_call(xid, parser),
-                68 => self.v4_read_plus_call(xid, parser),
+                3 => self.access_call(xid, parser),
+                8 => self.delegreturn_call(xid, parser),
+                9 => self.getattr_call(xid, parser),
+                10 => self.getfh_call(xid, parser),
+                15 => self.lookup_call(xid, parser),
+                18 => self.open_call(xid, parser),
+                22 => self.putfh_call(xid, parser),
+                24 => self.putrootfh_call(xid, parser),
+                26 => self.readdir_call(xid, parser),
+                42 => self.exchange_id_call(xid, parser),
+                43 => self.create_session_call(xid, parser),
+                44 => self.destroy_session_call(xid, parser),
+                46 => self.get_dir_delegation_call(xid, parser),
+                52 => self.secinfo_no_name_call(xid, parser),
+                53 => self.sequence_call(xid, parser),
+                57 => self.destroy_client_id_call(xid, parser),
+                58 => self.reclaim_complete_call(xid, parser),
+                68 => self.read_plus_call(xid, parser),
                 _ => {
                     debug!("Unknown NFS opcode {}", opcode);
                     return Err(ParseErr::Invalid("Unknown NFS opcode in COMPOUND call"));
@@ -255,7 +134,17 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_compound_reply<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    pub fn parse_reply<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T) -> Result<(), ParseErr> {
+
+        if self.server.is_none() {
+            // ConnInfo will be in the right direction for the first call/reply
+            self.client = self.conn_info.dst_host.clone();
+            self.server = self.conn_info.src_host.clone();
+        }
+
+        if proc != 1 { // NFSv4 only has COMPOUND
+            return Err(ParseErr::Invalid("Unknown NFSv4 procedure in replied"));
+        }
 
         let status = parser.read_u32_be()?;
         skip_opaque(parser)?; // tag
@@ -269,24 +158,24 @@ impl ProtoNfs {
             let opcode = parser.read_u32_be()?;
             let status = parser.read_u32_be()?;
             match opcode {
-                3 => self.v4_access_reply(xid, status, parser),
-                8 => self.v4_delegreturn_reply(xid, status, parser),
-                9 => self.v4_getattr_reply(xid, status, parser),
-                10 => self.v4_getfh_reply(xid, status, parser),
-                15 => self.v4_lookup_reply(xid, status, parser),
-                18 => self.v4_open_reply(xid, status, parser),
-                22 => self.v4_putfh_reply(xid, status, parser),
-                24 => self.v4_putrootfh_reply(xid, status, parser),
-                26 => self.v4_readdir_reply(xid, status, parser),
-                42 => self.v4_exchange_id_reply(xid, status, parser),
-                43 => self.v4_create_session_reply(xid, status, parser),
-                44 => self.v4_destroy_session_reply(xid, status, parser),
-                46 => self.v4_get_dir_delegation_reply(xid, status, parser),
-                52 => self.v4_secinfo_no_name_reply(xid, status, parser),
-                53 => self.v4_sequence_reply(xid, status, parser),
-                57 => self.v4_destroy_client_id_reply(xid, status, parser),
-                58 => self.v4_reclaim_complete_reply(xid, status, parser),
-                68 => self.v4_read_plus_reply(xid, status, parser),
+                3 => self.access_reply(xid, status, parser),
+                8 => self.delegreturn_reply(xid, status, parser),
+                9 => self.getattr_reply(xid, status, parser),
+                10 => self.getfh_reply(xid, status, parser),
+                15 => self.lookup_reply(xid, status, parser),
+                18 => self.open_reply(xid, status, parser),
+                22 => self.putfh_reply(xid, status, parser),
+                24 => self.putrootfh_reply(xid, status, parser),
+                26 => self.readdir_reply(xid, status, parser),
+                42 => self.exchange_id_reply(xid, status, parser),
+                43 => self.create_session_reply(xid, status, parser),
+                44 => self.destroy_session_reply(xid, status, parser),
+                46 => self.get_dir_delegation_reply(xid, status, parser),
+                52 => self.secinfo_no_name_reply(xid, status, parser),
+                53 => self.sequence_reply(xid, status, parser),
+                57 => self.destroy_client_id_reply(xid, status, parser),
+                58 => self.reclaim_complete_reply(xid, status, parser),
+                68 => self.read_plus_reply(xid, status, parser),
                 _ => {
                     debug!("Unknown NFS opcode {}", opcode);
                     return Err(ParseErr::Invalid("Unknown NFS opcode in COMPOUND reply"));
@@ -298,7 +187,16 @@ impl ProtoNfs {
 
     }
 
-    fn v4_exchange_id_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn event_base(&self, xid: u32) -> NetNfsV4Base {
+        NetNfsV4Base {
+            conn_id: self.conn_id.clone(),
+            server: self.server.clone(),
+            client: self.client.clone(),
+            xid,
+        }
+    }
+
+    fn exchange_id_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("EXCHANGE_ID CALL");
 
@@ -309,7 +207,7 @@ impl ProtoNfs {
         { // eia_clientowner
 
             // co_verifier
-            parser.skip(ProtoNfs::NFS4_VERIFIER_SIZE)?;
+            parser.skip(ProtoNfsV4::NFS4_VERIFIER_SIZE)?;
             // co_ownerid
             co_ownerid = read_opaque(parser)?;
             trace!("Found owner id : {}", String::from_utf8_lossy(&co_ownerid));
@@ -353,22 +251,22 @@ impl ProtoNfs {
             }
         }
 
-        if MessageBus::event_has_subscribers(EventKind::NetNfsCallExchangeId) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsV4CallExchangeId) {
 
-            let evt_pload = NetNfsCallExchangeId {
+            let evt_pload = NetNfsV4CallExchangeId {
                 base: self.event_base(xid),
                 co_ownerid: co_ownerid.into(),
                 nii_domain: nii_domain.map(Into::into),
                 nii_name: nii_name.map(Into::into),
             };
 
-            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsCallExchangeId(evt_pload));
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsV4CallExchangeId(evt_pload));
             MessageBus::publish_event(evt);
         }
         Ok(())
     }
 
-    fn v4_exchange_id_reply<T: Parser>(&self, xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn exchange_id_reply<T: Parser>(&self, xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("EXCHANGE_ID REPLY");
 
@@ -423,9 +321,9 @@ impl ProtoNfs {
             }
         }
 
-        if MessageBus::event_has_subscribers(EventKind::NetNfsReplyExchangeId) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsV4ReplyExchangeId) {
 
-            let evt_pload = NetNfsReplyExchangeId {
+            let evt_pload = NetNfsV4ReplyExchangeId {
                 base: self.event_base(xid),
                 so_major_id: so_major_id.into(),
                 eir_server_scope: eir_server_scope.into(),
@@ -433,14 +331,14 @@ impl ProtoNfs {
                 nii_name: nii_name.map(Into::into),
             };
 
-            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsReplyExchangeId(evt_pload));
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsV4ReplyExchangeId(evt_pload));
             MessageBus::publish_event(evt);
         }
 
         Ok(())
     }
 
-    fn v4_create_session_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn create_session_call<T: Parser>(&self, xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("CREATE_SESSION CALL");
 
@@ -505,16 +403,16 @@ impl ProtoNfs {
             }
         }
 
-        if MessageBus::event_has_subscribers(EventKind::NetNfsCallCreateSession) {
+        if MessageBus::event_has_subscribers(EventKind::NetNfsV4CallCreateSession) {
 
-            let evt_pload = NetNfsCallCreateSession {
+            let evt_pload = NetNfsV4CallCreateSession {
                 base: self.event_base(xid),
                 machine_name: machine_name.map(Into::into),
                 uid,
                 gid,
             };
 
-            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsCallCreateSession(evt_pload));
+            let evt = Event::new(parser.timestamp(), EventPayload::NetNfsV4CallCreateSession(evt_pload));
             MessageBus::publish_event(evt);
         }
 
@@ -522,7 +420,7 @@ impl ProtoNfs {
 
     }
 
-    fn v4_create_session_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn create_session_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("CREATE_SESSION REPLY");
 
@@ -531,7 +429,7 @@ impl ProtoNfs {
             return Ok(());
         }
 
-        parser.skip(ProtoNfs::NFS4_SESSIONID_SIZE)?; // csr_sessionid
+        parser.skip(ProtoNfsV4::NFS4_SESSIONID_SIZE)?; // csr_sessionid
         parser.skip_u32s(2)?; // csr_sequence, csr_flags
 
         { // csr_fore_chan_attrs
@@ -557,17 +455,17 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_sequence_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn sequence_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SEQUENCE CALL");
 
-        parser.skip(ProtoNfs::NFS4_SESSIONID_SIZE)?; // sa_sessionid
+        parser.skip(ProtoNfsV4::NFS4_SESSIONID_SIZE)?; // sa_sessionid
         parser.skip_u32s(4)?; // sa_sequenceid, sa_slotid, sa_highest_slotid, sa_cachethis
 
         Ok(())
     }
 
-    fn v4_sequence_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn sequence_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SEQUENCE REPLY");
 
@@ -576,13 +474,13 @@ impl ProtoNfs {
             return Ok(());
         }
 
-        parser.skip(ProtoNfs::NFS4_SESSIONID_SIZE)?; // sr_sessionid
+        parser.skip(ProtoNfsV4::NFS4_SESSIONID_SIZE)?; // sr_sessionid
         parser.skip_u32s(5)?; // sr_sequenceid, sr_slotid, sr_highest_slotid, sr_target_highest_slotid, sr_status_flags
 
         Ok(())
     }
 
-    fn v4_reclaim_complete_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn reclaim_complete_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
         trace!("RECLAIM_COMPLETE CALL");
 
         parser.skip_u32()?; // rca_one_fs
@@ -590,31 +488,31 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_reclaim_complete_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
+    fn reclaim_complete_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("RECLAIM_COMPLETE REPLY");
         Ok(())
     }
 
-    fn v4_putrootfh_call<T: Parser>(&self, _xid: u32, _parser: &mut T) -> Result<(), ParseErr> {
+    fn putrootfh_call<T: Parser>(&self, _xid: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("PUTROOTFH CALL");
         Ok(())
     }
 
-    fn v4_putrootfh_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
+    fn putrootfh_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("PUTROOTFH REPLY");
         Ok(())
     }
 
-    fn v4_getfh_call<T: Parser>(&self, _xid: u32, _parser: &mut T) -> Result<(), ParseErr> {
+    fn getfh_call<T: Parser>(&self, _xid: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GETFH CALL");
         Ok(())
     }
 
-    fn v4_getfh_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn getfh_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GETFH REPLY");
 
@@ -626,7 +524,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_getattr_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn getattr_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GETATTR CALL");
 
@@ -635,7 +533,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_getattr_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn getattr_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GETATTR REPLY");
 
@@ -651,7 +549,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_secinfo_no_name_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn secinfo_no_name_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SECINFO_NO_NAME CALL");
 
@@ -659,14 +557,14 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_secinfo_no_name_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn secinfo_no_name_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("SECINFO_NO_NAME REPLY");
         skip_opaque(parser)?; // SECINFO4res<>
         Ok(())
     }
 
-    fn v4_putfh_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn putfh_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("PUTFH CALL");
 
@@ -674,40 +572,40 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_putfh_reply<T: Parser>(&self, _xid: u32, _status: u32, _arser: &mut T) -> Result<(), ParseErr> {
+    fn putfh_reply<T: Parser>(&self, _xid: u32, _status: u32, _arser: &mut T) -> Result<(), ParseErr> {
 
         trace!("PUTFH REPLY");
         Ok(())
     }
 
-    fn v4_access_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn access_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("ACCESS CALL");
         parser.skip_u32()?;
         Ok(())
     }
 
-    fn v4_access_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn access_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("ACCESS REPLY");
         parser.skip_u32s(2)?; // supported, access
         Ok(())
     }
 
-    fn v4_lookup_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn lookup_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("LOOKUP CALL");
         skip_opaque(parser)?; // objname
         Ok(())
     }
 
-    fn v4_lookup_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
+    fn lookup_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("LOOKUP REPLY");
         Ok(())
     }
 
-    fn v4_get_dir_delegation_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn get_dir_delegation_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GET_DIR_DELEGATION CALL");
         parser.skip_u32()?; // gdda_signal_deleg_avail
@@ -721,7 +619,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_get_dir_delegation_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn get_dir_delegation_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("GET_DIR_DELEGATION REPLY");
 
@@ -744,7 +642,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_readdir_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn readdir_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("READDIR CALL");
         parser.skip_u64s(2)?; // cookie, cookieverf
@@ -754,7 +652,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_readdir_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn readdir_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("READDIR REPLY");
 
@@ -762,7 +660,7 @@ impl ProtoNfs {
             return Ok(());
         }
 
-        parser.skip(ProtoNfs::NFS4_VERIFIER_SIZE)?; // cookieverf
+        parser.skip(ProtoNfsV4::NFS4_VERIFIER_SIZE)?; // cookieverf
 
         loop {
             let present = parser.read_u32_be()?;
@@ -787,7 +685,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_open_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn open_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("OPEN CALL");
         parser.skip_u32s(3)?; // seqid, share_access, share_deny
@@ -798,7 +696,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_open_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn open_reply<T: Parser>(&self, _xid: u32, status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("OPEN REPLY");
 
@@ -850,7 +748,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_read_plus_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn read_plus_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("READ_PLUS CALL");
 
@@ -860,7 +758,7 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_read_plus_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn read_plus_reply<T: Parser>(&self, _xid: u32, _status: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("READ_PLUS REPLY");
 
@@ -893,40 +791,40 @@ impl ProtoNfs {
         Ok(())
     }
 
-    fn v4_delegreturn_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn delegreturn_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DELEGRETURN CALL");
         parser.skip(16)?;
         Ok(())
     }
 
-    fn v4_delegreturn_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
+    fn delegreturn_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DELEGRETURN REPLY");
         Ok(())
     }
 
-    fn v4_destroy_session_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn destroy_session_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_SESSION CALL");
-        parser.skip(ProtoNfs::NFS4_SESSIONID_SIZE)?;
+        parser.skip(ProtoNfsV4::NFS4_SESSIONID_SIZE)?;
         Ok(())
     }
 
-    fn v4_destroy_session_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
+    fn destroy_session_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_SESSION REPLY");
         Ok(())
     }
 
-    fn v4_destroy_client_id_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+    fn destroy_client_id_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_CLIENT_ID CALL");
         parser.skip_u64()?;
         Ok(())
     }
 
-    fn v4_destroy_client_id_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
+    fn destroy_client_id_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_CLIENT_ID REPLY");
         Ok(())

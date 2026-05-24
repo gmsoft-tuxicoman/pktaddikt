@@ -38,6 +38,10 @@ pub enum EventKind {
     NetNfsV3CallCreate,
     #[strum(serialize = "net.nfsv3.reply.create")]
     NetNfsV3ReplyCreate,
+    #[strum(serialize = "net.nfsv3.call.mkdir")]
+    NetNfsV3CallMkdir,
+    #[strum(serialize = "net.nfsv3.reply.mkdir")]
+    NetNfsV3ReplyMkdir,
     #[strum(serialize = "net.nfsv3.call.rename")]
     NetNfsV3CallRename,
     #[strum(serialize = "net.nfsv3.reply.rename")]
@@ -64,9 +68,11 @@ pub enum EventPayload {
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
     NetMountCallMnt(crate::proto::sunrpc::mount::NetMountCallMnt),
     NetMountReplyMnt(crate::proto::sunrpc::mount::NetMountReplyMnt),
+    NetNfsV3CallWrite(crate::proto::sunrpc::nfsv3::NetNfsV3CallWrite),
     NetNfsV3CallCreate(crate::proto::sunrpc::nfsv3::NetNfsV3CallCreate),
     NetNfsV3ReplyCreate(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyCreate),
-    NetNfsV3CallWrite(crate::proto::sunrpc::nfsv3::NetNfsV3CallWrite),
+    NetNfsV3CallMkdir(crate::proto::sunrpc::nfsv3::NetNfsV3CallMkdir),
+    NetNfsV3ReplyMkdir(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyMkdir),
     NetNfsV3CallRename(crate::proto::sunrpc::nfsv3::NetNfsV3CallRename),
     NetNfsV3ReplyRename(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyRename),
     NetNfsV4CallExchangeId(crate::proto::sunrpc::nfsv4::NetNfsV4CallExchangeId),
@@ -90,6 +96,8 @@ impl EventPayload {
             EventPayload::NetNfsV3CallWrite(_) => EventKind::NetNfsV3CallWrite,
             EventPayload::NetNfsV3CallCreate(_) => EventKind::NetNfsV3CallCreate,
             EventPayload::NetNfsV3ReplyCreate(_) => EventKind::NetNfsV3ReplyCreate,
+            EventPayload::NetNfsV3CallMkdir(_) => EventKind::NetNfsV3CallMkdir,
+            EventPayload::NetNfsV3ReplyMkdir(_) => EventKind::NetNfsV3ReplyMkdir,
             EventPayload::NetNfsV3CallRename(_) => EventKind::NetNfsV3CallRename,
             EventPayload::NetNfsV3ReplyRename(_) => EventKind::NetNfsV3ReplyRename,
             EventPayload::NetNfsV4CallExchangeId(_) => EventKind::NetNfsV4CallExchangeId,

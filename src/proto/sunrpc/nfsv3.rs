@@ -61,6 +61,34 @@ pub struct NetNfsV3ReplyCreate {
 }
 
 #[derive(Debug, Serialize)]
+pub struct NetNfsV3CallMkdir {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub parent: Vec<u8>,
+    pub dirname: EventStr,
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplyMkdir {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub status: u32,
+    pub parent: Vec<u8>,
+    pub dirhandle: Option<Vec<u8>>,
+    pub dirname: EventStr,
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    pub ctime: Option<Duration>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct NetNfsV3CallRename {
 
     #[serde(flatten)]
@@ -125,7 +153,7 @@ impl ProtoNfsV3 {
             6 => Ok(None), // READ
             7 => self.write_call(xid, parser),
             8 => self.create_call(xid, parser),
-            9 => Ok(None), // MKDIR
+            9 => self.mkdir_call(xid, parser),
             10 => Ok(None), // SYMLINK
             12 => Ok(None), // REMOVE
             13 => Ok(None), // RMDIR
@@ -156,7 +184,7 @@ impl ProtoNfsV3 {
             6 => Ok(()), // READ
             7 => Ok(()), // WRITE
             8 => self.create_reply(xid, parser, event),
-            9 => Ok(()), // MKDIR
+            9 => self.mkdir_reply(xid, parser, event),
             10 => Ok(()), // SYMLINK
             12 => Ok(()), // REMOVE
             13 => Ok(()), // RMDIR
@@ -313,6 +341,100 @@ impl ProtoNfsV3 {
 
     }
 
+    fn mkdir_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallMkdir) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyMkdir) {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let parent = read_opaque(parser)?;
+        let dirname = read_opaque(parser)?;
+
+        let mut mode: Option<u32> = None;
+        let mut uid: Option<u32> = None;
+        let mut gid: Option<u32> = None;
+
+        if parser.read_u32_be()? == 1 {
+            mode = Some(parser.read_u32_be()?);
+        }
+        if parser.read_u32_be()? == 1 {
+            uid = Some(parser.read_u32_be()?);
+        }
+        if parser.read_u32_be()? == 1 {
+            gid = Some(parser.read_u32_be()?);
+        }
+
+        let evt_pload = NetNfsV3CallMkdir {
+            base: self.event_base(xid),
+            parent,
+            dirname: dirname.into(),
+            mode,
+            uid,
+            gid,
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallMkdir(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+    }
+
+    fn mkdir_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyMkdir) {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallMkdir(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let mut dirhandle: Option<Vec<u8>> = None;
+        let mut mode: Option<u32> = None;
+        let mut uid: Option<u32> = None;
+        let mut gid: Option<u32> = None;
+        let mut ctime: Option<Duration> = None;
+
+        if status == 0 {
+            if parser.read_u32_be()? == 1 {
+                dirhandle = Some(read_opaque(parser)?);
+            }
+
+            if parser.read_u32_be()? == 1 { // attributes_follow
+                parser.skip_u32()?; // type, always directory
+                mode = Some(parser.read_u32_be()?);
+                parser.skip_u32()?; // nlink
+                uid = Some(parser.read_u32_be()?);
+                gid = Some(parser.read_u32_be()?);
+                parser.skip_u64s(7)?; // size, used, rdev, fsid, fileid, atime, mtime
+
+                let ctime_sec = parser.read_u32_be()?;
+                let ctime_nsec = parser.read_u32_be()?;
+                ctime = Some(Duration::new(ctime_sec as u64, ctime_nsec));
+
+            }
+        }
+
+        let evt_pload = NetNfsV3ReplyMkdir {
+            base: self.event_base(xid),
+            status,
+            parent: call_pload.parent.clone(),
+            dirhandle,
+            dirname: call_pload.dirname.clone(),
+            mode,
+            uid,
+            gid,
+            ctime,
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyMkdir(evt_pload));
+        MessageBus::publish_event(evt);
+
+        Ok(())
+    }
     fn rename_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
 
         if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallRename) &&

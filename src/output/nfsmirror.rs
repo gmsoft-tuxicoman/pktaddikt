@@ -3,7 +3,7 @@ use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message}
 use crate::config::Config;
 use crate::blob::{BlobMsg, BlobMsgBegin, BlobMsgData, BlobMsgEnd};
 use crate::event::{EventPayload, EventRef, EventKind};
-use crate::base::{Parser, ParseErr};
+use crate::base::Parser;
 
 
 use std::collections::HashMap;
@@ -57,6 +57,7 @@ impl OutputNfsMirror {
         msg_bus.blob_subscribe(tx);
         msg_bus.event_subscribe_kind(EventKind::NetMountReplyMnt, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyCreate, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyMkdir, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
 
         let path = PathBoundary::<()>::try_new_create(cfg.path.clone()).unwrap();
@@ -122,6 +123,7 @@ impl OutputNfsMirror {
         match event.kind() {
             EventKind::NetMountReplyMnt => self.process_mnt(event),
             EventKind::NetNfsV3ReplyCreate => self.process_v3_create(event),
+            EventKind::NetNfsV3ReplyMkdir => self.process_v3_mkdir(event),
             EventKind::NetNfsV3ReplyRename => self.process_v3_rename(event),
             _ => unreachable!()
         }
@@ -133,9 +135,9 @@ impl OutputNfsMirror {
         // Save the mount point file handle and tries to create the basic directory structure
 
         let EventPayload::NetMountReplyMnt(ref pload) = event.as_ref().payload else { unreachable!(); };
-        let server = &pload.server else { return };
         let Some(filehandle) = &pload.filehandle else { return; };
         let key: NfsFileHandleKey =(pload.server.clone(), filehandle.clone());
+        let server = pload.server.to_string();
 
         if pload.path.len() < 1 {
             debug!("Empty path in mount");
@@ -145,7 +147,7 @@ impl OutputNfsMirror {
         // Create the by-path directory and insert it in the hashmap
 
         let path_str = String::from_utf8_lossy(&pload.path);
-        let path = match self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-path").unwrap().strict_join(&path_str[1..]) {
+        let path = match self.path.clone().strict_join(&server).unwrap().strict_join("by-path").unwrap().strict_join(&path_str[1..]) {
             Ok(path) => path,
             Err(e) => {
                 debug!("Invalid path \"{}\" in mount request : {}", path_str, e);
@@ -162,7 +164,7 @@ impl OutputNfsMirror {
 
         // Create the by-fh directory
 
-        let byfh_path = self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-fh").unwrap();
+        let byfh_path = self.path.clone().strict_join(&server).unwrap().strict_join("by-fh").unwrap();
         if let Err(e) = byfh_path.create_dir_all() {
             error!("Unable to create directory {}: {}", byfh_path.strictpath_display(), e);
         }
@@ -200,7 +202,7 @@ impl OutputNfsMirror {
         let by_fh = self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-fh").unwrap().strict_join(byfh_name).unwrap();
 
 
-        let fh_file = match OpenOptions::new().write(true).create(true).truncate(truncate).open(&by_fh.interop_path()) {
+        let _fh_file = match OpenOptions::new().write(true).create(true).truncate(truncate).open(&by_fh.interop_path()) {
             Ok(file) => file,
             Err(e) => {
                 error!("Unable to open file {} for writing: {}", by_fh.strictpath_display(), e);
@@ -219,6 +221,35 @@ impl OutputNfsMirror {
             return;
         }
     }
+
+    fn process_v3_mkdir(&mut self, event: &EventRef) {
+
+        let EventPayload::NetNfsV3ReplyMkdir(ref pload) = event.as_ref().payload else { unreachable!(); };
+        if pload.status != 0 { return; }; // Mkdir didn't happen
+        let dirname = String::from_utf8_lossy(&pload.dirname);
+
+        let Some(server) = pload.base.server else { return };
+        let Some(dirhandle) = &pload.dirhandle else { return };
+        let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
+
+        let Some(parent) = self.directories.get(&parent_key) else {
+            debug!("Mkdir parent directory not known for {:?}", parent_key);
+            return;
+        };
+
+        let dir_path = parent.clone().strict_join(&*dirname).unwrap();
+        if let Err(e) = dir_path.create_dir_all() {
+            error!("Unable to create directory {}: {}", dir_path.strictpath_display(), e);
+        }
+
+        let new_key: NfsFileHandleKey = (server, dirhandle.clone());
+
+        trace!("Created directory {} ({:?})", dir_path.strictpath_display(), &new_key);
+
+        self.directories.insert(new_key, dir_path);
+
+    }
+
     fn process_v3_rename(&mut self, event: &EventRef) {
 
         let EventPayload::NetNfsV3ReplyRename(ref pload) = event.as_ref().payload else { unreachable!(); };
@@ -246,7 +277,7 @@ impl OutputNfsMirror {
         let to_name = to_parent.clone().strict_join(&*to_filename).unwrap();
 
         if let Err(e) = rename(from_name.interop_path(), to_name.interop_path()) {
-            error!("Unable to rename {} to {}", from_name.strictpath_display(), to_name.strictpath_display());
+            error!("Unable to rename {} to {}: {}", from_name.strictpath_display(), to_name.strictpath_display(), e);
             return;
         }
 

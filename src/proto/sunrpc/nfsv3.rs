@@ -60,6 +60,30 @@ pub struct NetNfsV3ReplyCreate {
     pub ctime: Option<Duration>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3CallRename {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub from_fh: Vec<u8>,
+    pub from_name: EventStr,
+    pub to_fh: Vec<u8>,
+    pub to_name: EventStr,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplyRename {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub status: u32,
+    pub from_fh: Vec<u8>,
+    pub from_name: EventStr,
+    pub to_fh: Vec<u8>,
+    pub to_name: EventStr,
+
+}
 pub struct ProtoNfsV3 {
 
     conn_id: UniqueId,
@@ -105,7 +129,7 @@ impl ProtoNfsV3 {
             10 => Ok(None), // SYMLINK
             12 => Ok(None), // REMOVE
             13 => Ok(None), // RMDIR
-            14 => Ok(None), // RENAME
+            14 => self.rename_call(xid, parser),
             15 => Ok(None), // LINK
             16 => Ok(None), // READDIR
             18 => Ok(None), // FSSTAT
@@ -136,7 +160,7 @@ impl ProtoNfsV3 {
             10 => Ok(()), // SYMLINK
             12 => Ok(()), // REMOVE
             13 => Ok(()), // RMDIR
-            14 => Ok(()), // RENAME
+            14 => self.rename_reply(xid, parser, event),
             15 => Ok(()), // LINK
             16 => Ok(()), // READDIR
             18 => Ok(()), // FSSTAT
@@ -287,5 +311,58 @@ impl ProtoNfsV3 {
 
         Ok(None)
 
+    }
+
+    fn rename_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallRename) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyRename) {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let from_fh = read_opaque(parser)?;
+        let from_name = read_opaque(parser)?;
+        let to_fh = read_opaque(parser)?;
+        let to_name = read_opaque(parser)?;
+
+        let evt_pload = NetNfsV3CallRename {
+            base: self.event_base(xid),
+            from_fh,
+            from_name: from_name.into(),
+            to_fh,
+            to_name: to_name.into(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallRename(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+    }
+
+    fn rename_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyRename) {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallRename(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let evt_pload = NetNfsV3ReplyRename {
+            base: self.event_base(xid),
+            status,
+            from_fh: call_pload.from_fh.clone(),
+            from_name: call_pload.from_name.clone(),
+            to_fh: call_pload.to_fh.clone(),
+            to_name: call_pload.to_name.clone(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyRename(evt_pload));
+        MessageBus::publish_event(evt);
+
+        Ok(())
     }
 }

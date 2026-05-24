@@ -15,6 +15,7 @@ use crate::proto::sunrpc::portmap::ProtoPortmap;
 use crate::proto::sunrpc::mount::ProtoMount;
 use crate::base::UniqueId;
 use crate::config::Config;
+use crate::event::EventRef;
 
 
 use serde::Deserialize;
@@ -38,6 +39,14 @@ impl Default for SunRpcConfig {
 struct ProtoSunRpcCall {
     xid: u32,
     proc: u32,
+    data: ProtoSunRpcCallData,
+}
+
+enum ProtoSunRpcCallData {
+    None,
+    Mount(Option<EventRef>),
+    NfsV3(Option<EventRef>),
+    NfsV4(Option<Vec<EventRef>>),
 }
 
 #[derive(PartialEq)]
@@ -142,9 +151,35 @@ impl ProtoSunRpc {
         let verif_len = parser.read_u32_be()?;
         parser.skip(verif_len)?;
 
-        let call = ProtoSunRpcCall {
+        let mut call = ProtoSunRpcCall {
             xid,
             proc,
+            data: ProtoSunRpcCallData::None,
+        };
+
+        trace!("Call with {} payload for XID {:x}, prog {}, version {}, proc {}", parser.remaining_len(), xid, program, prog_version, proc);
+
+        let ret = if parser.remaining_len() > 0 {
+            match &mut prog {
+                ProtoSunRpcProg::Portmap(p) => p.parse_call(xid, proc, &mut parser),
+                ProtoSunRpcProg::NfsV3(p) => match p.parse_call(xid, proc, &mut parser) {
+                    Ok(evt) => {
+                        call.data = ProtoSunRpcCallData::NfsV3(evt);
+                        Ok(())
+                    },
+                    Err(e) => Err(e),
+                },
+                ProtoSunRpcProg::NfsV4(p) => p.parse_call(xid, proc, &mut parser),
+                ProtoSunRpcProg::Mount(p) => match p.parse_call(xid, proc, &mut parser) {
+                    Ok(evt) => {
+                        call.data = ProtoSunRpcCallData::Mount(evt);
+                        Ok(())
+                    },
+                    Err(e) => Err(e),
+                }
+            }
+        } else {
+            Ok(())
         };
 
         self.calls.push(call);
@@ -155,18 +190,8 @@ impl ProtoSunRpc {
             self.calls.pop();
         }
 
-        trace!("Call with {} payload for XID {:x}, prog {}, version {}, proc {}", parser.remaining_len(), xid, program, prog_version, proc);
+        ret
 
-        if parser.remaining_len() > 0 {
-            match &mut prog {
-                ProtoSunRpcProg::Portmap(p) => p.parse_call(xid, proc, &mut parser),
-                ProtoSunRpcProg::NfsV3(p) => p.parse_call(xid, proc, &mut parser),
-                ProtoSunRpcProg::NfsV4(p) => p.parse_call(xid, proc, &mut parser),
-                ProtoSunRpcProg::Mount(p) => p.parse_call(xid, proc, &mut parser),
-            }
-        } else {
-            Ok(())
-        }
     }
 
 
@@ -207,9 +232,15 @@ impl ProtoSunRpc {
                 if parser.remaining_len() > 0 {
                     match &mut prog {
                         ProtoSunRpcProg::Portmap(p) => p.parse_reply(xid, call.proc, &mut parser),
-                        ProtoSunRpcProg::NfsV3(p) => p.parse_reply(xid, call.proc, &mut parser),
+                        ProtoSunRpcProg::NfsV3(p) => {
+                            let ProtoSunRpcCallData::NfsV3(data) = call.data else { unreachable!(); };
+                            p.parse_reply(xid, call.proc, &mut parser, data)
+                        }
                         ProtoSunRpcProg::NfsV4(p) => p.parse_reply(xid, call.proc, &mut parser),
-                        ProtoSunRpcProg::Mount(p) => p.parse_reply(xid, call.proc, &mut parser),
+                        ProtoSunRpcProg::Mount(p) => {
+                            let ProtoSunRpcCallData::Mount(data) = call.data else { unreachable!(); };
+                            p.parse_reply(xid, call.proc, &mut parser, data)
+                        }
                     }
                 } else {
                     return Ok(());

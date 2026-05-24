@@ -2,18 +2,21 @@ use crate::output::{Output, OutputConfig};
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::config::Config;
 use crate::blob::{BlobMsg, BlobMsgBegin, BlobMsgData, BlobMsgEnd};
-use crate::event::EventPayload;
-use crate::base::Parser;
+use crate::event::{EventPayload, EventRef, EventKind};
+use crate::base::{Parser, ParseErr};
 
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use strict_path::{StrictPath, PathBoundary};
 use serde::Deserialize;
-use std::fs::{File, create_dir_all};
+use std::fs::{File, OpenOptions, hard_link};
 use std::io::{Seek, SeekFrom, Write};
-use tracing::{error, trace};
+use std::net::IpAddr;
+use tracing::{error, debug, trace};
 
 
+
+type NfsFileHandleKey = (IpAddr, Vec<u8>);
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -36,7 +39,8 @@ impl Default for NfsMirrorConfig {
 pub struct OutputNfsMirror {
 
     blobs: HashMap<u64, File>,
-    path: PathBuf,
+    directories: HashMap<NfsFileHandleKey, StrictPath>,
+    path: PathBoundary,
 }
 
 
@@ -51,13 +55,14 @@ impl OutputNfsMirror {
         };
 
         msg_bus.blob_subscribe(tx);
-        msg_bus.event_subscribe_glob("net.nfsv3.*", tx).unwrap();
-        msg_bus.event_subscribe_glob("net.nfsv4.*", tx).unwrap();
+        msg_bus.event_subscribe_kind(EventKind::NetMountReplyMnt, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyCreate, tx);
 
-        let path = PathBuf::from(cfg.path.clone());
+        let path = PathBoundary::<()>::try_new_create(cfg.path.clone()).unwrap();
 
         Box::new(Self {
             blobs: HashMap::new(),
+            directories: HashMap::new(),
             path,
         })
     }
@@ -70,17 +75,19 @@ impl OutputNfsMirror {
         let Some(server) = &pload.base.server else { return };
 
         let filename = pload.filehandle.iter().map(|b| format!("{:02X}", b)).collect::<String>();
-        let path = self.path.clone().join(server.to_string()).join("by-fh").join(filename);
+        let filepath = self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-fh").unwrap().strict_join(filename).unwrap();
 
-        if let Some(parent) = path.parent() {
-            if let Err(e) = create_dir_all(parent) {
-                error!("Error while creating the parent directories for {}: {}", path.display(), e);
+        if let Err(e) = filepath.create_parent_dir_all() {
+            error!("Unable to create parent path : {}", e);
+            return;
+        };
+
+        let file = match OpenOptions::new().write(true).create(true).truncate(false).open(&filepath.interop_path()) {
+            Ok(file) => file,
+            Err(e) => {
+                error!("Unable to open file {} for writing: {}", filepath.strictpath_display(), e);
                 return;
             }
-        }
-        let Ok(file) = File::create(&path) else {
-            error!("Unable to open file {} for writing", path.display());
-            return;
         };
 
         self.blobs.insert(msg.id, file);
@@ -108,6 +115,100 @@ impl OutputNfsMirror {
     fn process_blob_end(&mut self, msg: &BlobMsgEnd) {
         self.blobs.remove(&msg.id);
     }
+
+    fn process_event(&mut self, event: &EventRef) {
+
+        match event.kind() {
+            EventKind::NetMountReplyMnt => self.process_mnt(event),
+            EventKind::NetNfsV3ReplyCreate => self.process_v3_create(event),
+            _ => unreachable!()
+        }
+
+    }
+
+    fn process_mnt(&mut self, event: &EventRef) {
+
+        // Save the mount point file handle and tries to create the basic directory structure
+
+        let EventPayload::NetMountReplyMnt(ref pload) = event.as_ref().payload else { unreachable!(); };
+        let server = &pload.server else { return };
+        let Some(filehandle) = &pload.filehandle else { return; };
+        let key: NfsFileHandleKey =(pload.server.clone(), filehandle.clone());
+
+        if pload.path.len() < 1 {
+            debug!("Empty path in mount");
+            return;
+        }
+
+        let path_str = String::from_utf8_lossy(&pload.path);
+
+        let path = match self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-path").unwrap().strict_join(&path_str[1..]) {
+            Ok(path) => path,
+            Err(e) => {
+                debug!("Invalid path \"{}\" in mount request : {}", path_str, e);
+                return;
+            }
+        };
+
+        if let Err(e) = path.create_dir_all() {
+            error!("Unable to create directory {}: {}", path.strictpath_display(), e);
+        }
+
+        self.directories.insert(key, path);
+
+
+        trace!("Mount of {} with handle {:?}", path_str, filehandle);
+    }
+
+    fn process_v3_create(&mut self, event: &EventRef) {
+
+        // Create an empty file in by-fh and the corresponding hard link in by-path
+
+        let EventPayload::NetNfsV3ReplyCreate(ref pload) = event.as_ref().payload else { unreachable!(); };
+        let filename = String::from_utf8_lossy(&pload.filename);
+        trace!("File {} created under parent {:?}", filename, pload.parent);
+
+        let Some(server) = pload.base.server else { return };
+        let Some(filehandle) = &pload.filehandle else { return };
+        let key: NfsFileHandleKey = (server, pload.parent.clone());
+
+        let Some(parent) = self.directories.get(&key) else {
+            debug!("Parent directory not known for {:?}", key);
+            return;
+        };
+
+        let mut truncate = false;
+
+        if let Some(size) = &pload.size {
+            if *size == 0 {
+                truncate = true;
+            }
+        }
+
+        // Create the file in by-fh to make sure it exists. truncate it if needed.
+        let byfh_name = filehandle.iter().map(|b| format!("{:02X}", b)).collect::<String>();
+        let by_fh = self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-fh").unwrap().strict_join(byfh_name).unwrap();
+
+
+        let fh_file = match OpenOptions::new().write(true).create(true).truncate(truncate).open(&by_fh.interop_path()) {
+            Ok(file) => file,
+            Err(e) => {
+                error!("Unable to open file {} for writing: {}", by_fh.strictpath_display(), e);
+                return;
+            }
+        };
+
+        // Create the hard link in by-path to the file in by-fh
+        let by_path = parent.clone().strict_join(&*filename).unwrap();
+        if let Err(e) = by_path.create_parent_dir_all() {
+            error!("Unable to create parent path : {}", e);
+            return;
+        };
+        if let Err(e) = hard_link(by_fh.interop_path(), by_path.interop_path()) {
+            error!("Unable to hardlink {} -> {}: {}", by_path.strictpath_display(), by_fh.strictpath_display(), e);
+            return;
+        }
+    }
 }
 
 
@@ -119,7 +220,7 @@ impl Output for OutputNfsMirror {
         for msg in rx {
             match msg {
                 Message::Shutdown => break,
-                Message::Event(_) => continue, // Wil implement later
+                Message::Event(e) => self.process_event(&e),
                 Message::BlobMsg(BlobMsg::Begin(b)) => self.process_blob_begin(&b),
                 Message::BlobMsg(BlobMsg::Data(d)) => self.process_blob_data(&d),
                 Message::BlobMsg(BlobMsg::End(e)) => self.process_blob_end(&e),

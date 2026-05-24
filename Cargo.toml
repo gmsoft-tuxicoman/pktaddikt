@@ -25,6 +25,7 @@ clap = { version = "4.6", features = ["derive"] }
 smallvec = "1.15"
 nftables = { version = "0.6", optional = true }
 arc-swap = "1.9"
+strict-path = "0.2"
 
 
 [dev-dependencies]

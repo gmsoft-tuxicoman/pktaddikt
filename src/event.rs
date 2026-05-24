@@ -28,6 +28,10 @@ pub enum EventKind {
     NetDnsMessage,
     #[strum(serialize = "net.tls.clienthello")]
     NetTlsClientHello,
+    #[strum(serialize = "net.mount.call.mnt")]
+    NetMountCallMnt,
+    #[strum(serialize = "net.mount.reply.mnt")]
+    NetMountReplyMnt,
     #[strum(serialize = "net.nfsv3.call.write")]
     NetNfsV3CallWrite,
     #[strum(serialize = "net.nfsv3.call.create")]
@@ -54,6 +58,8 @@ pub enum EventPayload {
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
+    NetMountCallMnt(crate::proto::sunrpc::mount::NetMountCallMnt),
+    NetMountReplyMnt(crate::proto::sunrpc::mount::NetMountReplyMnt),
     NetNfsV3CallCreate(crate::proto::sunrpc::nfsv3::NetNfsV3CallCreate),
     NetNfsV3ReplyCreate(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyCreate),
     NetNfsV3CallWrite(crate::proto::sunrpc::nfsv3::NetNfsV3CallWrite),
@@ -73,12 +79,14 @@ impl EventPayload {
             EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
             EventPayload::NetTlsClientHello(_) => EventKind::NetTlsClientHello,
-            EventPayload::NetNfsV4CallExchangeId(_) => EventKind::NetNfsV4CallExchangeId,
-            EventPayload::NetNfsV4ReplyExchangeId(_) => EventKind::NetNfsV4ReplyExchangeId,
-            EventPayload::NetNfsV4CallCreateSession(_) => EventKind::NetNfsV4CallCreateSession,
+            EventPayload::NetMountCallMnt(_) => EventKind::NetMountCallMnt,
+            EventPayload::NetMountReplyMnt(_) => EventKind::NetMountReplyMnt,
             EventPayload::NetNfsV3CallWrite(_) => EventKind::NetNfsV3CallWrite,
             EventPayload::NetNfsV3CallCreate(_) => EventKind::NetNfsV3CallCreate,
             EventPayload::NetNfsV3ReplyCreate(_) => EventKind::NetNfsV3ReplyCreate,
+            EventPayload::NetNfsV4CallExchangeId(_) => EventKind::NetNfsV4CallExchangeId,
+            EventPayload::NetNfsV4ReplyExchangeId(_) => EventKind::NetNfsV4ReplyExchangeId,
+            EventPayload::NetNfsV4CallCreateSession(_) => EventKind::NetNfsV4CallCreateSession,
         }
     }
 }
@@ -119,7 +127,7 @@ impl Event {
 /// String stored as Vec<u8> and serialized to string
 /// This allow quick storage in parsing process
 /// And slower deserialization in output process
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EventStr(Vec<u8>);
 
 impl Serialize for EventStr {

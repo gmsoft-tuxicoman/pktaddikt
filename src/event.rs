@@ -36,6 +36,10 @@ pub enum EventKind {
     NetMountCallMnt,
     #[strum(serialize = "net.mount.reply.mnt")]
     NetMountReplyMnt,
+    #[strum(serialize = "net.nfsv3.call.lookup")]
+    NetNfsV3CallLookup,
+    #[strum(serialize = "net.nfsv3.reply.lookup")]
+    NetNfsV3ReplyLookup,
     #[strum(serialize = "net.nfsv3.call.read")]
     NetNfsV3CallRead,
     #[strum(serialize = "net.nfsv3.reply.read")]
@@ -78,6 +82,8 @@ pub enum EventPayload {
     NetPortmapReplyGetport(crate::proto::sunrpc::portmap::NetPortmapReplyGetport),
     NetMountCallMnt(crate::proto::sunrpc::mount::NetMountCallMnt),
     NetMountReplyMnt(crate::proto::sunrpc::mount::NetMountReplyMnt),
+    NetNfsV3CallLookup(crate::proto::sunrpc::nfsv3::NetNfsV3CallLookup),
+    NetNfsV3ReplyLookup(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyLookup),
     NetNfsV3CallRead(crate::proto::sunrpc::nfsv3::NetNfsV3CallRead),
     NetNfsV3ReplyRead(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyRead),
     NetNfsV3CallWrite(crate::proto::sunrpc::nfsv3::NetNfsV3CallWrite),
@@ -107,6 +113,8 @@ impl EventPayload {
             EventPayload::NetPortmapReplyGetport(_) => EventKind::NetPortmapReplyGetport,
             EventPayload::NetMountCallMnt(_) => EventKind::NetMountCallMnt,
             EventPayload::NetMountReplyMnt(_) => EventKind::NetMountReplyMnt,
+            EventPayload::NetNfsV3CallLookup(_) => EventKind::NetNfsV3CallLookup,
+            EventPayload::NetNfsV3ReplyLookup(_) => EventKind::NetNfsV3ReplyLookup,
             EventPayload::NetNfsV3CallRead(_) => EventKind::NetNfsV3CallRead,
             EventPayload::NetNfsV3ReplyRead(_) => EventKind::NetNfsV3ReplyRead,
             EventPayload::NetNfsV3CallWrite(_) => EventKind::NetNfsV3CallWrite,

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use strict_path::{StrictPath, PathBoundary};
 use serde::Deserialize;
 use std::fs::{File, OpenOptions, hard_link, rename};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write, ErrorKind};
 use std::net::IpAddr;
 use tracing::{error, debug, trace};
 
@@ -39,7 +39,7 @@ impl Default for NfsMirrorConfig {
 pub struct OutputNfsMirror {
 
     blobs: HashMap<u64, File>,
-    directories: HashMap<NfsFileHandleKey, StrictPath>,
+    pathmap: HashMap<NfsFileHandleKey, StrictPath>,
     path: PathBoundary,
 }
 
@@ -56,6 +56,7 @@ impl OutputNfsMirror {
 
         msg_bus.blob_subscribe(tx);
         msg_bus.event_subscribe_kind(EventKind::NetMountReplyMnt, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyLookup, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyCreate, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyMkdir, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
@@ -64,7 +65,7 @@ impl OutputNfsMirror {
 
         Box::new(Self {
             blobs: HashMap::new(),
-            directories: HashMap::new(),
+            pathmap: HashMap::new(),
             path,
         })
     }
@@ -128,6 +129,7 @@ impl OutputNfsMirror {
 
         match event.kind() {
             EventKind::NetMountReplyMnt => self.process_mnt(event),
+            EventKind::NetNfsV3ReplyLookup => self.process_v3_lookup(event),
             EventKind::NetNfsV3ReplyCreate => self.process_v3_create(event),
             EventKind::NetNfsV3ReplyMkdir => self.process_v3_mkdir(event),
             EventKind::NetNfsV3ReplyRename => self.process_v3_rename(event),
@@ -165,7 +167,7 @@ impl OutputNfsMirror {
             error!("Unable to create directory {}: {}", path.strictpath_display(), e);
         }
 
-        self.directories.insert(key, path);
+        self.pathmap.insert(key, path);
 
 
         // Create the by-fh directory
@@ -178,19 +180,77 @@ impl OutputNfsMirror {
         trace!("Mount of {} with handle {:?}", path_str, filehandle);
     }
 
+    fn process_v3_lookup(&mut self, event: &EventRef) {
+
+        // Store the mapping in the pathmap
+
+        let EventPayload::NetNfsV3ReplyLookup(ref pload) = event.as_ref().payload else { unreachable!(); };
+        let name = String::from_utf8_lossy(&pload.name);
+
+        let Some(server) = pload.base.server else { return };
+        let Some(filehandle) = &pload.filehandle else { return };
+        let Some(ftype) = pload.r#type else { return };
+        let key: NfsFileHandleKey = (server, pload.parent.clone());
+
+        let Some(parent) = self.pathmap.get(&key) else {
+            debug!("Parent directory not known for {:?}", key);
+            return;
+        };
+
+        let new_path = parent.clone().strict_join(&*name).unwrap(); // FIXME don't unwrap
+
+
+        if ftype == 2 {
+            debug!("Found new directory {}", new_path.strictpath_display());
+            let new_key: NfsFileHandleKey = (server, filehandle.clone());
+            self.pathmap.insert(new_key, new_path);
+            return;
+        } else if ftype != 1 {
+            debug!("Not tracking non regular file {}", new_path.strictpath_display());
+            return;
+        }
+
+        // Create the file in by-fh to make sure it exists. truncate it if needed.
+        let byfh_name = filehandle.iter().map(|b| format!("{:02X}", b)).collect::<String>();
+        let by_fh = self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-fh").unwrap().strict_join(byfh_name).unwrap();
+
+
+        let _fh_file = match OpenOptions::new().write(true).create(true).truncate(false).open(&by_fh.interop_path()) {
+            Ok(file) => file,
+            Err(e) => {
+                error!("Unable to open file {} for writing: {}", by_fh.strictpath_display(), e);
+                return;
+            }
+        };
+
+        // Create the hard link in by-path to the file in by-fh
+        if let Err(e) = new_path.create_parent_dir_all() {
+            error!("Unable to create parent path : {}", e);
+            return;
+        };
+
+        trace!("Creating file {} -> {}", by_fh.strictpath_display(), new_path.strictpath_display());
+
+        if let Err(e) = hard_link(by_fh.interop_path(), new_path.interop_path()) {
+            if e.kind() != ErrorKind::AlreadyExists {
+                error!("Unable to hardlink {} -> {}: {}", new_path.strictpath_display(), by_fh.strictpath_display(), e);
+            }
+            return;
+        }
+    }
+
     fn process_v3_create(&mut self, event: &EventRef) {
 
         // Create an empty file in by-fh and the corresponding hard link in by-path
 
         let EventPayload::NetNfsV3ReplyCreate(ref pload) = event.as_ref().payload else { unreachable!(); };
         let filename = String::from_utf8_lossy(&pload.filename);
-        trace!("File {} created under parent {:?}", filename, pload.parent);
 
         let Some(server) = pload.base.server else { return };
         let Some(filehandle) = &pload.filehandle else { return };
         let key: NfsFileHandleKey = (server, pload.parent.clone());
 
-        let Some(parent) = self.directories.get(&key) else {
+        let Some(parent) = self.pathmap.get(&key) else {
             debug!("Parent directory not known for {:?}", key);
             return;
         };
@@ -217,13 +277,18 @@ impl OutputNfsMirror {
         };
 
         // Create the hard link in by-path to the file in by-fh
-        let by_path = parent.clone().strict_join(&*filename).unwrap();
+        let by_path = parent.clone().strict_join(&*filename).unwrap(); // FIXME don't unwrap
         if let Err(e) = by_path.create_parent_dir_all() {
             error!("Unable to create parent path : {}", e);
             return;
         };
+
+        trace!("Creating file {} -> {}", by_fh.strictpath_display(), by_path.strictpath_display());
+
         if let Err(e) = hard_link(by_fh.interop_path(), by_path.interop_path()) {
-            error!("Unable to hardlink {} -> {}: {}", by_path.strictpath_display(), by_fh.strictpath_display(), e);
+            if e.kind() != ErrorKind::AlreadyExists {
+                error!("Unable to hardlink {} -> {}: {}", by_path.strictpath_display(), by_fh.strictpath_display(), e);
+            }
             return;
         }
     }
@@ -238,7 +303,7 @@ impl OutputNfsMirror {
         let Some(dirhandle) = &pload.dirhandle else { return };
         let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
 
-        let Some(parent) = self.directories.get(&parent_key) else {
+        let Some(parent) = self.pathmap.get(&parent_key) else {
             debug!("Mkdir parent directory not known for {:?}", parent_key);
             return;
         };
@@ -252,7 +317,7 @@ impl OutputNfsMirror {
 
         trace!("Created directory {} ({:?})", dir_path.strictpath_display(), &new_key);
 
-        self.directories.insert(new_key, dir_path);
+        self.pathmap.insert(new_key, dir_path);
 
     }
 
@@ -264,13 +329,13 @@ impl OutputNfsMirror {
         let Some(server) = pload.base.server else { return };
 
         let from_key: NfsFileHandleKey = (server, pload.from_fh.clone());
-        let Some(from_parent) = self.directories.get(&from_key) else {
+        let Some(from_parent) = self.pathmap.get(&from_key) else {
             debug!("Rename from parent directory not known for {:?}", from_key);
             return;
         };
 
         let to_key: NfsFileHandleKey = (server, pload.to_fh.clone());
-        let Some(to_parent) = self.directories.get(&to_key) else {
+        let Some(to_parent) = self.pathmap.get(&to_key) else {
             debug!("Rename to parent directory not known for {:?}", to_key);
             return;
         };
@@ -286,6 +351,8 @@ impl OutputNfsMirror {
             error!("Unable to rename {} to {}: {}", from_name.strictpath_display(), to_name.strictpath_display(), e);
             return;
         }
+
+        trace!("Renamed {} -> {}", from_name.strictpath_display(), to_name.strictpath_display());
 
     }
 }

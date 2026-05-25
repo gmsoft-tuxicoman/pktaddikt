@@ -24,6 +24,38 @@ pub struct NetNfsV3Base {
 }
 
 #[derive(Debug, Serialize)]
+pub struct NetNfsV3CallLookup {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub parent: Vec<u8>,
+    pub name: EventStr,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplyLookup {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub parent: Vec<u8>,
+    pub name: EventStr,
+    pub status: u32,
+    pub filehandle: Option<Vec<u8>>,
+    pub r#type: Option<u32>,
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    pub size: Option<u64>,
+    pub used: Option<u64>,
+    pub atime: Option<Duration>,
+    pub mtime: Option<Duration>,
+    pub ctime: Option<Duration>,
+
+
+}
+
+#[derive(Debug, Serialize)]
 pub struct NetNfsV3CallRead {
 
     #[serde(flatten)]
@@ -178,7 +210,7 @@ impl ProtoNfsV3 {
         match proc {
             1 => Ok(None), // GETATTR
             2 => Ok(None), // SETATTR
-            3 => Ok(None), // LOOKUP
+            3 => self.lookup_call(xid, parser),
             4 => Ok(None), // ACCESS
             5 => Ok(None), // READLINK
             6 => self.read_call(xid, parser),
@@ -214,7 +246,7 @@ impl ProtoNfsV3 {
         match proc {
             1 => Ok(()), // GETATTR
             2 => Ok(()), // SETATTR
-            3 => Ok(()), // LOOKUP
+            3 => self.lookup_reply(xid, parser, event),
             4 => Ok(()), // ACCESS
             5 => Ok(()), // READLINK
             6 => self.read_reply(xid, parser, event),
@@ -246,6 +278,106 @@ impl ProtoNfsV3 {
             client: self.client.clone(),
             xid,
         }
+    }
+
+    fn lookup_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallLookup) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyLookup) {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let parent = read_opaque(parser)?;
+        let name = read_opaque(parser)?;
+
+        let evt_pload = NetNfsV3CallLookup {
+            base: self.event_base(xid),
+            parent,
+            name: name.into(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallLookup(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+    }
+
+    fn lookup_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyLookup) {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallLookup(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let mut filehandle: Option<Vec<u8>> = None;
+        let mut r#type: Option<u32>  = None;
+        let mut mode: Option<u32> = None;
+        let mut uid: Option<u32> = None;
+        let mut gid: Option<u32> = None;
+        let mut size: Option<u64> = None;
+        let mut used: Option<u64> = None;
+        let mut atime: Option<Duration> = None;
+        let mut mtime: Option<Duration> = None;
+        let mut ctime: Option<Duration> = None;
+        let mut count: Option<u32> = None;
+        let mut eof: Option<bool> = None;
+
+        if status == 0 {
+
+            filehandle = Some(read_opaque(parser)?);
+
+            if parser.read_u32_be()? == 1 { // attributes_follow
+                r#type = Some(parser.read_u32_be()?);
+
+                mode = Some(parser.read_u32_be()?);
+                parser.skip_u32()?; // nlink
+                uid = Some(parser.read_u32_be()?);
+                gid = Some(parser.read_u32_be()?);
+                size = Some(parser.read_u64_be()?);
+                used = Some(parser.read_u64_be()?);
+                parser.skip_u64s(3)?; // rdev, fsid, fileid
+
+                let atime_sec = parser.read_u32_be()?;
+                let atime_nsec = parser.read_u32_be()?;
+                atime = Some(Duration::new(atime_sec as u64, atime_nsec));
+
+                let mtime_sec = parser.read_u32_be()?;
+                let mtime_nsec = parser.read_u32_be()?;
+                mtime = Some(Duration::new(mtime_sec as u64, mtime_nsec));
+
+                let ctime_sec = parser.read_u32_be()?;
+                let ctime_nsec = parser.read_u32_be()?;
+                ctime = Some(Duration::new(ctime_sec as u64, ctime_nsec));
+
+            }
+        }
+
+
+        let evt_pload = NetNfsV3ReplyLookup {
+            base: self.event_base(xid),
+            status,
+            parent: call_pload.parent.clone(),
+            name: call_pload.name.clone(),
+            filehandle,
+            r#type,
+            mode,
+            uid,
+            gid,
+            size,
+            used,
+            atime,
+            mtime,
+            ctime,
+        };
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyLookup(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(())
     }
 
     fn read_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {

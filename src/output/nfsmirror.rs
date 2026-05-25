@@ -200,15 +200,20 @@ impl OutputNfsMirror {
         let new_path = parent.clone().strict_join(&*name).unwrap(); // FIXME don't unwrap
 
 
-        if ftype == 2 {
-            debug!("Found new directory {}", new_path.strictpath_display());
+        if ftype == 2 { // Directory
+            trace!("Found new directory {}", new_path.strictpath_display());
+            if let Err(e) = new_path.create_dir_all() {
+                error!("Unable to create directory {}: {}", new_path.strictpath_display(), e);
+            }
             let new_key: NfsFileHandleKey = (server, filehandle.clone());
             self.pathmap.insert(new_key, new_path);
             return;
-        } else if ftype != 1 {
+        } else if ftype != 1 { // Non regular file
             debug!("Not tracking non regular file {}", new_path.strictpath_display());
             return;
         }
+
+        // Regular file handling
 
         // Create the file in by-fh to make sure it exists. truncate it if needed.
         let byfh_name = filehandle.iter().map(|b| format!("{:02X}", b)).collect::<String>();

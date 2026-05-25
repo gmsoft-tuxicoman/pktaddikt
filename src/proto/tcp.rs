@@ -8,6 +8,7 @@ use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
 use crate::config::Config;
 use crate::base::UniqueId;
+use crate::expectation::ExpectationTable;
 
 use std::time::Duration;
 use serde::Deserialize;
@@ -58,6 +59,7 @@ const TCP_TH_ACK: u8 = 0x10;
 
 pub struct ProtoTcp {
     ct: ConntrackTable<ConntrackKeyTcp>,
+    et: &'static ExpectationTable,
 }
 
 impl ProtoTcp {
@@ -66,6 +68,7 @@ impl ProtoTcp {
             0 => Protocols::Test,
             53 => Protocols::Dns,
             80 => Protocols::Http,
+            111 => Protocols::SunRpc,
             443 => Protocols::Tls,
             2049 => Protocols::SunRpc,
             _ => Protocols::None
@@ -80,6 +83,7 @@ impl ProtoPktProcessor for ProtoTcp {
         let cfg = Config::get();
         Self {
             ct: ConntrackTable::new(cfg.proto.tcp.conntrack_size),
+            et: ExpectationTable::init(Protocols::Tcp),
         }
     }
 
@@ -135,27 +139,34 @@ impl ProtoPktProcessor for ProtoTcp {
         };
         info.proto_info = Some(ProtoInfo::Tcp(proto_info));
 
-        // WIP, needs to be improved
-        let next_proto = match ProtoTcp::next_proto(dport) {
-            Protocols::None => ProtoTcp::next_proto(sport),
-            Protocols::Test => return Err(ParseErr::Stop),
-            proto => proto
-        };
-
         let ct_key = ConntrackKeyTcp { a: sport, b: dport };
         let (ce, ce_dir) = self.ct.get(ct_key, info.parent_ce());
 
-        infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
+        #[cfg(test)]
+        {
+            // Don't process conntrack when testing
+            infos.proto_push(Protocols::Test, None);
+            return Err(ParseErr::Stop);
+        }
 
 
         let mut ce_locked = ce.lock().unwrap();
         let cd = ce_locked.get_or_insert_with(|| {
             let conn_id = UniqueId::new(pkt.timestamp());
             infos.set_conn_id(conn_id);
-            Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData })
+            let next_proto = match self.et.check(infos) {
+                Some(p) => p,
+                None => match ProtoTcp::next_proto(dport) {
+                    Protocols::None => ProtoTcp::next_proto(sport),
+                    proto => proto,
+               },
+            };
+            Box::new(ConntrackTcp::new(next_proto, infos)) as ConntrackData
 
-            .downcast_mut::<ConntrackTcp>().unwrap();
+        }).downcast_mut::<ConntrackTcp>().unwrap();
 
+
+        infos.proto_push(cd.next_proto, Some((ce.clone(), ce_dir)));
 
         let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
         cd.process_packet(ce_dir, seq, ack, flags, pkt, ip_len);
@@ -200,7 +211,22 @@ mod tests {
 
     fn tcp_parse_test(proto: &mut ProtoTcp, data: &[u8]) -> Result<(), ParseErr> {
         let mut pkt = Packet::from_slice(PktTime::from_micros(0), data);
-        let mut infos = PktInfoStack::new(Protocols::Tcp);
+
+        let mut infos = PktInfoStack::new(Protocols::Ipv4);
+        infos.set_conn_id(UniqueId::new(PktTime::from_micros(0)));
+
+        let mut info = infos.proto_last_mut();
+
+        info.proto_info = Some(ProtoInfo::Ipv4(ProtoIpv4Info {
+            src: Ipv4Addr::new(10, 0, 0, 1),
+            dst: Ipv4Addr::new(10, 0, 0, 2),
+            id: 0,
+            hdr_len: 0,
+            ttl: 0,
+            proto: 17,
+        }));
+
+        infos.proto_push(Protocols::Tcp, None);
 
         proto.process(&mut pkt, &mut infos)
 
@@ -277,7 +303,19 @@ mod tests {
         test.add_expectation(&[ 0xdd ] , PktTime::from_micros(0));
 
         let mut pkt = Packet::from_slice(PktTime::from_micros(0), &data);
-        let mut infos = PktInfoStack::new(Protocols::Tcp);
+        let mut infos = PktInfoStack::new(Protocols::Ipv4);
+        let info = infos.proto_last_mut();
+
+        info.proto_info = Some(ProtoInfo::Ipv4(ProtoIpv4Info {
+            src: Ipv4Addr::new(10, 0, 0, 1),
+            dst: Ipv4Addr::new(10, 0, 0, 2),
+            id: 0,
+            hdr_len: 0,
+            ttl: 0,
+            proto: 17,
+        }));
+
+        infos.proto_push(Protocols::Tcp, None);
 
         let ret = ProtoTcp::new().process(&mut pkt, &mut infos);
         assert_eq!(ret, Err(ParseErr::Stop));

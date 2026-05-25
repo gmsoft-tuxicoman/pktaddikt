@@ -95,13 +95,14 @@ pub struct ConntrackTcp {
     dst_port: u16,
     src_host: Option<IpAddr>,
     dst_host: Option<IpAddr>,
+    pub next_proto: Protocols,
 }
 
 impl ConntrackTcp {
 
     pub fn new(proto: Protocols, infos: &PktInfoStack) -> Self {
 
-        let ip_info = infos.proto_from_last(2).map(|p| p.proto_info.as_ref().unwrap());
+        let ip_info = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap());
 
         let (src_host, dst_host) = match ip_info {
             Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
@@ -109,7 +110,7 @@ impl ConntrackTcp {
             _ => (None, None),
         };
 
-        let Some(ProtoInfo::Tcp(tcp_info)) = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap()) else {
+        let Some(ProtoInfo::Tcp(tcp_info)) = infos.proto_from_last(0).map(|p| p.proto_info.as_ref().unwrap()) else {
             unreachable!();
         };
 
@@ -144,6 +145,7 @@ impl ConntrackTcp {
             dst_port: tcp_info.dport,
             src_host,
             dst_host,
+            next_proto: proto,
         };
         ct
     }
@@ -692,7 +694,7 @@ mod tests {
             window: 0,
             flags: 0,
         }));
-        infos.proto_push(Protocols::Test, None);
+        //infos.proto_push(Protocols::Test, None);
         infos
 
     }

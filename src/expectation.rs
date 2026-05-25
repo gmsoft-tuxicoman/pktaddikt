@@ -12,9 +12,7 @@ use tracing::{debug, trace};
 
 
 static UDP_EXPECTATIONS: OnceLock<ExpectationTable> = OnceLock::new();
-
-// Not added in proto tcp yet as there is no need for it yet
-//static TCP_EXPECTATIONS: OnceLock<ExpectationTable> = OnceLock::new();
+static TCP_EXPECTATIONS: OnceLock<ExpectationTable> = OnceLock::new();
 
 
 pub struct ExpectationTable {
@@ -37,7 +35,7 @@ impl ExpectationTable {
     pub fn init(proto: Protocols) -> &'static ExpectationTable {
         match proto {
             Protocols::Udp => UDP_EXPECTATIONS.get_or_init(ExpectationTable::new),
-//            Protocols::Tcp => TCP_EXPECTATIONS.get_or_init(ExpectationTable::new),
+            Protocols::Tcp => TCP_EXPECTATIONS.get_or_init(ExpectationTable::new),
             _ => panic!("No expectation table to init for given protocol")
         }
     }
@@ -47,7 +45,7 @@ impl ExpectationTable {
 
         let table = match proto {
             Protocols::Udp => UDP_EXPECTATIONS.get().unwrap(),
-//            Protocols::Tcp => TCP_EXPECTATIONS.get().unwrap(),
+            Protocols::Tcp => TCP_EXPECTATIONS.get().unwrap(),
             _ => panic!("No expectation table for given protocol")
         };
 

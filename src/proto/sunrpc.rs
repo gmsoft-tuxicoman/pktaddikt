@@ -44,6 +44,7 @@ struct ProtoSunRpcCall {
 
 enum ProtoSunRpcCallData {
     None,
+    Portmap(Option<EventRef>),
     Mount(Option<EventRef>),
     NfsV3(Option<EventRef>),
     NfsV4(Option<Vec<EventRef>>),
@@ -161,7 +162,13 @@ impl ProtoSunRpc {
 
         let ret = if parser.remaining_len() > 0 {
             match &mut prog {
-                ProtoSunRpcProg::Portmap(p) => p.parse_call(xid, proc, &mut parser),
+                ProtoSunRpcProg::Portmap(p) => match p.parse_call(xid, proc, &mut parser) {
+                    Ok(evt) => {
+                        call.data = ProtoSunRpcCallData::Portmap(evt);
+                        Ok(())
+                    },
+                    Err(e) => Err(e),
+                },
                 ProtoSunRpcProg::NfsV3(p) => match p.parse_call(xid, proc, &mut parser) {
                     Ok(evt) => {
                         call.data = ProtoSunRpcCallData::NfsV3(evt);
@@ -203,7 +210,7 @@ impl ProtoSunRpc {
         if let Some(pos) = self.calls.iter().position(|c| c.xid == xid) {
             call = self.calls.swap_remove(pos);
         } else {
-            debug!("XID {} for RPC call not found", xid);
+            debug!("XID {:x} for RPC call not found", xid);
             return Err(ParseErr::Invalid("Matching RPC call not found base on XID"));
         }
 
@@ -231,7 +238,10 @@ impl ProtoSunRpc {
 
                 if parser.remaining_len() > 0 {
                     match &mut prog {
-                        ProtoSunRpcProg::Portmap(p) => p.parse_reply(xid, call.proc, &mut parser),
+                        ProtoSunRpcProg::Portmap(p) => {
+                            let ProtoSunRpcCallData::Portmap(data) = call.data else { unreachable!(); };
+                            p.parse_reply(xid, call.proc, &mut parser, data)
+                        },
                         ProtoSunRpcProg::NfsV3(p) => {
                             let ProtoSunRpcCallData::NfsV3(data) = call.data else { unreachable!(); };
                             p.parse_reply(xid, call.proc, &mut parser, data)
@@ -306,8 +316,8 @@ impl ProtoPktProcessor for ProtoSunRpcUdp {
 
 pub struct ProtoSunRpcTcp {
     rpc: ProtoSunRpc,
-    state: ProtoSunRpcTcpState,
-    frag_len: u32,
+    state: [ProtoSunRpcTcpState;2],
+    frag_len: [u32;2],
 }
 
 impl PktStreamProcessor for ProtoSunRpcTcp {
@@ -316,29 +326,31 @@ impl PktStreamProcessor for ProtoSunRpcTcp {
     fn new(infos: &PktInfoStack) -> Self {
         Self {
             rpc: ProtoSunRpc::new(infos),
-            state: ProtoSunRpcTcpState::Header,
-            frag_len: 0,
+            state: [ProtoSunRpcTcpState::Header, ProtoSunRpcTcpState::Header],
+            frag_len: [0, 0],
         }
     }
 
 
     // SUN RPC over TCP
-    fn process(&mut self, _dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
-        
-        if self.state == ProtoSunRpcTcpState::Header {
-            self.frag_len = parser.read_u32_be()? & 0x7fffffff;
-            self.state = ProtoSunRpcTcpState::Body;
+    fn process(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
+
+        trace!("Processing packet at {:?}", parser.timestamp());
+
+        if self.state[dir as usize] == ProtoSunRpcTcpState::Header {
+            self.frag_len[dir as usize] = parser.read_u32_be()? & 0x7fffffff;
+            self.state[dir as usize] = ProtoSunRpcTcpState::Body;
         }
 
-        if self.frag_len < 24 { 
+        if self.frag_len[dir as usize] < 24 {
             return Err(ParseErr::Invalid("Fragment length too small"));
         }
 
         // Make sure the fragment is complete
-        let msg_parser = parser.sub_packet(self.frag_len)?;
+        let msg_parser = parser.sub_packet(self.frag_len[dir as usize])?;
 
-        self.state = ProtoSunRpcTcpState::Header;
-        self.frag_len = 0;
+        self.state[dir as usize] = ProtoSunRpcTcpState::Header;
+        self.frag_len[dir as usize] = 0;
 
         self.rpc.process_message(msg_parser)
 

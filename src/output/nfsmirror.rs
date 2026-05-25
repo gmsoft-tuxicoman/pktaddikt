@@ -71,12 +71,18 @@ impl OutputNfsMirror {
 
     fn process_blob_begin(&mut self, msg: &BlobMsgBegin) {
         let Some(event) = &msg.event else { return };
-        let EventPayload::NetNfsV3CallWrite(pload) = &event.payload else { return };
-        trace!("Got new blob for file handle {:?}", pload.filehandle);
 
-        let Some(server) = &pload.base.server else { return };
+        let (server, filehandle) = match &event.payload {
+            EventPayload::NetNfsV3CallWrite(pload) => (&pload.base.server, &pload.filehandle),
+            EventPayload::NetNfsV3ReplyRead(pload) => (&pload.base.server, &pload.filehandle),
+            _ => return,
+        };
 
-        let filename = pload.filehandle.iter().map(|b| format!("{:02X}", b)).collect::<String>();
+        let Some(server) = server else { return };
+
+        trace!("Got new blob for file handle {:?}", filehandle);
+
+        let filename = filehandle.iter().map(|b| format!("{:02X}", b)).collect::<String>();
         let filepath = self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-fh").unwrap().strict_join(filename).unwrap();
 
         if let Err(e) = filepath.create_parent_dir_all() {

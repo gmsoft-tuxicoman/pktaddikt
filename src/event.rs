@@ -28,10 +28,18 @@ pub enum EventKind {
     NetDnsMessage,
     #[strum(serialize = "net.tls.clienthello")]
     NetTlsClientHello,
+    #[strum(serialize = "net.portmap.call.getport")]
+    NetPortmapCallGetport,
+    #[strum(serialize = "net.portmap.reply.getport")]
+    NetPortmapReplyGetport,
     #[strum(serialize = "net.mount.call.mnt")]
     NetMountCallMnt,
     #[strum(serialize = "net.mount.reply.mnt")]
     NetMountReplyMnt,
+    #[strum(serialize = "net.nfsv3.call.read")]
+    NetNfsV3CallRead,
+    #[strum(serialize = "net.nfsv3.reply.read")]
+    NetNfsV3ReplyRead,
     #[strum(serialize = "net.nfsv3.call.write")]
     NetNfsV3CallWrite,
     #[strum(serialize = "net.nfsv3.call.create")]
@@ -66,8 +74,12 @@ pub enum EventPayload {
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
+    NetPortmapCallGetport(crate::proto::sunrpc::portmap::NetPortmapCallGetport),
+    NetPortmapReplyGetport(crate::proto::sunrpc::portmap::NetPortmapReplyGetport),
     NetMountCallMnt(crate::proto::sunrpc::mount::NetMountCallMnt),
     NetMountReplyMnt(crate::proto::sunrpc::mount::NetMountReplyMnt),
+    NetNfsV3CallRead(crate::proto::sunrpc::nfsv3::NetNfsV3CallRead),
+    NetNfsV3ReplyRead(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyRead),
     NetNfsV3CallWrite(crate::proto::sunrpc::nfsv3::NetNfsV3CallWrite),
     NetNfsV3CallCreate(crate::proto::sunrpc::nfsv3::NetNfsV3CallCreate),
     NetNfsV3ReplyCreate(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyCreate),
@@ -91,8 +103,12 @@ impl EventPayload {
             EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
             EventPayload::NetTlsClientHello(_) => EventKind::NetTlsClientHello,
+            EventPayload::NetPortmapCallGetport(_) => EventKind::NetPortmapCallGetport,
+            EventPayload::NetPortmapReplyGetport(_) => EventKind::NetPortmapReplyGetport,
             EventPayload::NetMountCallMnt(_) => EventKind::NetMountCallMnt,
             EventPayload::NetMountReplyMnt(_) => EventKind::NetMountReplyMnt,
+            EventPayload::NetNfsV3CallRead(_) => EventKind::NetNfsV3CallRead,
+            EventPayload::NetNfsV3ReplyRead(_) => EventKind::NetNfsV3ReplyRead,
             EventPayload::NetNfsV3CallWrite(_) => EventKind::NetNfsV3CallWrite,
             EventPayload::NetNfsV3CallCreate(_) => EventKind::NetNfsV3CallCreate,
             EventPayload::NetNfsV3ReplyCreate(_) => EventKind::NetNfsV3ReplyCreate,

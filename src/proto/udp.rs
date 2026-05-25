@@ -80,7 +80,7 @@ struct ConntrackUdp {
     dst_port: u16,
     src_host: Option<IpAddr>,
     dst_host: Option<IpAddr>,
-    next_proto: Option<Protocols>,
+    next_proto: Protocols,
 }
 
 pub struct ProtoUdp {
@@ -162,6 +162,14 @@ impl ProtoPktProcessor for ProtoUdp {
                     _ => (None, None),
                 };
 
+                let next_proto = match self.et.check(infos) {
+                    Some(p) => p,
+                    None => match ProtoUdp::next_proto(dport) {
+                        Protocols::None => ProtoUdp::next_proto(sport),
+                        proto => proto,
+                    },
+                };
+
                 let cd = Box::new(ConntrackUdp {
                     forward: ConntrackUdpDir {
                         tot_bytes: 0,
@@ -180,7 +188,7 @@ impl ProtoPktProcessor for ProtoUdp {
                     dst_port: dport,
                     src_host,
                     dst_host,
-                    next_proto: None,
+                    next_proto: next_proto,
                     }
                 );
 
@@ -204,23 +212,8 @@ impl ProtoPktProcessor for ProtoUdp {
 
         infos.set_conn_id(cd.conn_id.clone());
 
-        let next_proto = match cd.next_proto {
-            Some(p) => p,
-            None => {
-                let np = match self.et.check(infos) {
-                    Some(p) => p,
-                    None =>
-                        match ProtoUdp::next_proto(dport) {
-                            Protocols::None => ProtoUdp::next_proto(sport),
-                            proto => proto,
-                        },
-                    };
-                    cd.next_proto = Some(np);
-                    np
-                }
-        };
 
-        infos.proto_push(next_proto, Some((ce.clone(), ce_dir)));
+        infos.proto_push(cd.next_proto, Some((ce.clone(), ce_dir)));
 
 
         let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);

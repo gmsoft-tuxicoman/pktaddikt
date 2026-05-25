@@ -24,6 +24,37 @@ pub struct NetNfsV3Base {
 }
 
 #[derive(Debug, Serialize)]
+pub struct NetNfsV3CallRead {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub filehandle: Vec<u8>,
+    pub offset: u64,
+    pub count: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplyRead {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub status: u32,
+    pub filehandle: Vec<u8>,
+    pub offset: u64,
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    pub size: Option<u64>,
+    pub used: Option<u64>,
+    pub atime: Option<Duration>,
+    pub mtime: Option<Duration>,
+    pub ctime: Option<Duration>,
+    pub count: Option<u32>,
+    pub eof: Option<bool>,
+
+}
+
+#[derive(Debug, Serialize)]
 pub struct NetNfsV3CallWrite {
 
     #[serde(flatten)]
@@ -150,20 +181,25 @@ impl ProtoNfsV3 {
             3 => Ok(None), // LOOKUP
             4 => Ok(None), // ACCESS
             5 => Ok(None), // READLINK
-            6 => Ok(None), // READ
+            6 => self.read_call(xid, parser),
             7 => self.write_call(xid, parser),
             8 => self.create_call(xid, parser),
             9 => self.mkdir_call(xid, parser),
             10 => Ok(None), // SYMLINK
+            11 => Ok(None), // MKNOD
             12 => Ok(None), // REMOVE
             13 => Ok(None), // RMDIR
             14 => self.rename_call(xid, parser),
             15 => Ok(None), // LINK
             16 => Ok(None), // READDIR
+            17 => Ok(None), // READDIRPLUS
             18 => Ok(None), // FSSTAT
             19 => Ok(None), // FSINFO
             20 => Ok(None), // PATHCONF
-            _ => Err(ParseErr::Invalid("Unknown NFSv3 procedure called"))
+            _ => {
+                debug!("Unknown NFSv3 procedure called");
+                Ok(None)
+            }
         }
     }
 
@@ -181,20 +217,25 @@ impl ProtoNfsV3 {
             3 => Ok(()), // LOOKUP
             4 => Ok(()), // ACCESS
             5 => Ok(()), // READLINK
-            6 => Ok(()), // READ
+            6 => self.read_reply(xid, parser, event),
             7 => Ok(()), // WRITE
             8 => self.create_reply(xid, parser, event),
             9 => self.mkdir_reply(xid, parser, event),
             10 => Ok(()), // SYMLINK
+            11 => Ok(()), // MKNOD
             12 => Ok(()), // REMOVE
             13 => Ok(()), // RMDIR
             14 => self.rename_reply(xid, parser, event),
             15 => Ok(()), // LINK
             16 => Ok(()), // READDIR
+            17 => Ok(()), // READDIRPLUS
             18 => Ok(()), // FSSTAT
             19 => Ok(()), // FSINFO
             20 => Ok(()), // PATHCONF
-            _ => Err(ParseErr::Invalid("Unknown NFSv3 procedure replied"))
+            _ => {
+                debug!("Unknown NFSv3 procedure replied");
+                Ok(())
+            }
         }
     }
 
@@ -205,6 +246,130 @@ impl ProtoNfsV3 {
             client: self.client.clone(),
             xid,
         }
+    }
+
+    fn read_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallRead) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyRead) &&
+           ! MessageBus::blob_has_subscribers() {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let filehandle = read_opaque(parser)?;
+        let offset = parser.read_u64_be()?;
+        let count = parser.read_u32_be()?;
+
+        let evt_pload = NetNfsV3CallRead {
+            base: self.event_base(xid),
+            filehandle,
+            offset,
+            count,
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallRead(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+    }
+
+    fn read_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyCreate) &&
+           ! MessageBus::blob_has_subscribers() {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallRead(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let mut mode: Option<u32> = None;
+        let mut uid: Option<u32> = None;
+        let mut gid: Option<u32> = None;
+        let mut size: Option<u64> = None;
+        let mut used: Option<u64> = None;
+        let mut atime: Option<Duration> = None;
+        let mut mtime: Option<Duration> = None;
+        let mut ctime: Option<Duration> = None;
+        let mut count: Option<u32> = None;
+        let mut eof: Option<bool> = None;
+
+
+        if parser.read_u32_be()? == 1 { // attributes_follow
+            parser.skip_u32()?; // type
+
+            mode = Some(parser.read_u32_be()?);
+            parser.skip_u32()?; // nlink
+            uid = Some(parser.read_u32_be()?);
+            gid = Some(parser.read_u32_be()?);
+            size = Some(parser.read_u64_be()?);
+            used = Some(parser.read_u64_be()?);
+            parser.skip_u64s(3)?; // rdev, fsid, fileid
+
+            let atime_sec = parser.read_u32_be()?;
+            let atime_nsec = parser.read_u32_be()?;
+            atime = Some(Duration::new(atime_sec as u64, atime_nsec));
+
+            let mtime_sec = parser.read_u32_be()?;
+            let mtime_nsec = parser.read_u32_be()?;
+            mtime = Some(Duration::new(mtime_sec as u64, mtime_nsec));
+
+            let ctime_sec = parser.read_u32_be()?;
+            let ctime_nsec = parser.read_u32_be()?;
+            ctime = Some(Duration::new(ctime_sec as u64, ctime_nsec));
+
+        }
+
+        if status == 0 {
+            count = Some(parser.read_u32_be()?);
+            eof = Some(parser.read_u32_be()? == 1);
+        }
+
+
+        let evt_pload = NetNfsV3ReplyRead {
+            base: self.event_base(xid),
+            status,
+            filehandle: call_pload.filehandle.clone(),
+            offset: call_pload.offset,
+            mode,
+            uid,
+            gid,
+            size,
+            used,
+            atime,
+            mtime,
+            ctime,
+            count,
+            eof,
+        };
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyRead(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        if status == 0 {
+            let len = parser.read_u32_be()?;
+            let data = parser.sub_packet(len)?;
+
+            if eof.unwrap() {
+                // Try to fetch the blob if it exists
+                let mut blob = if let Some(blob) = self.blobs.remove(&call_pload.filehandle) {
+                    blob
+                } else {
+                    // If not create a new one but don't insert it
+                    Blob::new(timestamp, Some(evt))
+                };
+                blob.data(call_pload.offset, data);
+            } else {
+                // Not eof, create a new one if need and insert it
+                let blob = self.blobs.entry(call_pload.filehandle.clone()).or_insert_with(|| Blob::new(timestamp, Some(evt)));
+                blob.data(call_pload.offset, data);
+            }
+        }
+
+        Ok(())
+
     }
 
     fn create_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {

@@ -12,6 +12,7 @@ use std::borrow::Cow;
 use memchr::memchr;
 use smallvec::SmallVec;
 use std::sync::Arc;
+use tracing::debug;
 
 pub trait PktStreamProcessor {
     fn new(infos: &PktInfoStack) -> Self;
@@ -107,6 +108,7 @@ impl PktStream {
                     }
                 },
                 _ => {
+                    debug!("Error while parsing stream: {:?}", e);
                     self.is_active = false;
                     return;
                 }

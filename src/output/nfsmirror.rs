@@ -63,6 +63,7 @@ impl OutputNfsMirror {
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyMkdir, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplySymlink, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyReaddirplus, tx);
 
         let path = PathBoundary::<()>::try_new_create(cfg.path.clone()).unwrap();
 
@@ -137,6 +138,7 @@ impl OutputNfsMirror {
             EventKind::NetNfsV3ReplyMkdir => self.process_v3_mkdir(event),
             EventKind::NetNfsV3ReplySymlink => self.process_v3_symlink(event),
             EventKind::NetNfsV3ReplyRename => self.process_v3_rename(event),
+            EventKind::NetNfsV3ReplyReaddirplus => self.process_v3_readdirplus(event),
             _ => unreachable!()
         }
 
@@ -186,14 +188,14 @@ impl OutputNfsMirror {
 
     fn process_v3_lookup(&mut self, event: &EventRef) {
 
-        // Store the mapping in the pathmap
+        // Create hard links for new known files and update filehandle map for directories
 
         let EventPayload::NetNfsV3ReplyLookup(ref pload) = event.as_ref().payload else { unreachable!(); };
         let name = String::from_utf8_lossy(&pload.name);
 
         let Some(server) = pload.base.server else { return };
         let Some(filehandle) = &pload.filehandle else { return };
-        let Some(ftype) = pload.r#type else { return };
+        let Some(fattr) = &pload.fattr else { return };
         let key: NfsFileHandleKey = (server, pload.parent.clone());
 
         let Some(parent) = self.pathmap.get(&key) else {
@@ -204,7 +206,7 @@ impl OutputNfsMirror {
         let new_path = parent.clone().strict_join(&*name).unwrap(); // FIXME don't unwrap
 
 
-        if ftype == 2 { // Directory
+        if fattr.r#type == 2 { // Directory
             trace!("Found new directory {}", new_path.strictpath_display());
             if let Err(e) = new_path.create_dir_all() {
                 error!("Unable to create directory {}: {}", new_path.strictpath_display(), e);
@@ -212,7 +214,7 @@ impl OutputNfsMirror {
             let new_key: NfsFileHandleKey = (server, filehandle.clone());
             self.pathmap.insert(new_key, new_path);
             return;
-        } else if ftype != 1 { // Non regular file
+        } else if fattr.r#type != 1 { // Non regular file
             debug!("Not tracking non regular file {}", new_path.strictpath_display());
             return;
         }
@@ -257,6 +259,7 @@ impl OutputNfsMirror {
 
         let Some(server) = pload.base.server else { return };
         let Some(filehandle) = &pload.filehandle else { return };
+        let Some(fattr) = &pload.fattr else { return };
         let key: NfsFileHandleKey = (server, pload.parent.clone());
 
         let Some(parent) = self.pathmap.get(&key) else {
@@ -266,10 +269,8 @@ impl OutputNfsMirror {
 
         let mut truncate = false;
 
-        if let Some(size) = &pload.size {
-            if *size == 0 {
-                truncate = true;
-            }
+        if fattr.size == 0 {
+            truncate = true;
         }
 
         // Create the file in by-fh to make sure it exists. truncate it if needed.
@@ -398,6 +399,75 @@ impl OutputNfsMirror {
 
         trace!("Renamed {} -> {}", from_name.strictpath_display(), to_name.strictpath_display());
 
+    }
+
+    fn process_v3_readdirplus(&mut self, event: &EventRef) {
+
+        let EventPayload::NetNfsV3ReplyReaddirplus(ref pload) = event.as_ref().payload else { unreachable!(); };
+        if pload.status != 0 { return; };
+
+        let Some(server) = pload.base.server else { return };
+        let parent_key: NfsFileHandleKey = (server, pload.dirhandle.clone());
+
+        let Some(parent) = self.pathmap.get(&parent_key).cloned() else {
+            debug!("READDIRPLUS parent directory not known for {:?}", parent_key);
+            return;
+        };
+
+        for entry in &pload.entries {
+            let name = String::from_utf8_lossy(&entry.name);
+            trace!("Found entry {}", name);
+
+            let Some(filehandle) = &entry.filehandle else { continue; };
+
+            let Some(fattr) = &entry.fattr else { continue; };
+
+            let new_path = parent.clone().strict_join(&*name).unwrap(); // FIXME don't unwrap
+
+
+            if fattr.r#type == 2 { // Directory
+                trace!("Found new directory {}", new_path.strictpath_display());
+                if let Err(e) = new_path.create_dir_all() {
+                    error!("Unable to create directory {}: {}", new_path.strictpath_display(), e);
+                }
+                let new_key: NfsFileHandleKey = (server, filehandle.clone());
+                self.pathmap.insert(new_key, new_path);
+                continue;
+            } else if fattr.r#type != 1 { // Non regular file
+                debug!("Not tracking non regular file {}", new_path.strictpath_display());
+                continue;
+            }
+
+            // Regular file handling
+
+            // Create the file in by-fh to make sure it exists. truncate it if needed.
+            let byfh_name = filehandle.iter().map(|b| format!("{:02X}", b)).collect::<String>();
+            let by_fh = self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-fh").unwrap().strict_join(byfh_name).unwrap();
+
+
+            let _fh_file = match OpenOptions::new().write(true).create(true).truncate(false).open(&by_fh.interop_path()) {
+                Ok(file) => file,
+                Err(e) => {
+                    error!("Unable to open file {} for writing: {}", by_fh.strictpath_display(), e);
+                    return;
+                }
+            };
+
+            // Create the hard link in by-path to the file in by-fh
+            if let Err(e) = new_path.create_parent_dir_all() {
+                error!("Unable to create parent path : {}", e);
+                return;
+            };
+
+            trace!("Creating file {} -> {}", by_fh.strictpath_display(), new_path.strictpath_display());
+
+            if let Err(e) = hard_link(by_fh.interop_path(), new_path.interop_path()) {
+                if e.kind() != ErrorKind::AlreadyExists {
+                    error!("Unable to hardlink {} -> {}: {}", new_path.strictpath_display(), by_fh.strictpath_display(), e);
+                }
+                continue;
+            }
+        }
     }
 
 }

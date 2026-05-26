@@ -42,16 +42,7 @@ pub struct NetNfsV3ReplyLookup {
     pub name: EventStr,
     pub status: u32,
     pub filehandle: Option<Vec<u8>>,
-    pub r#type: Option<u32>,
-    pub mode: Option<u32>,
-    pub uid: Option<u32>,
-    pub gid: Option<u32>,
-    pub size: Option<u64>,
-    pub used: Option<u64>,
-    pub atime: Option<Duration>,
-    pub mtime: Option<Duration>,
-    pub ctime: Option<Duration>,
-
+    pub fattr: Option<ProtoNfsV3Fattr>,
 
 }
 
@@ -73,14 +64,7 @@ pub struct NetNfsV3ReplyRead {
     pub status: u32,
     pub filehandle: Vec<u8>,
     pub offset: u64,
-    pub mode: Option<u32>,
-    pub uid: Option<u32>,
-    pub gid: Option<u32>,
-    pub size: Option<u64>,
-    pub used: Option<u64>,
-    pub atime: Option<Duration>,
-    pub mtime: Option<Duration>,
-    pub ctime: Option<Duration>,
+    pub fattr: Option<ProtoNfsV3Fattr>,
     pub count: Option<u32>,
     pub eof: Option<bool>,
 
@@ -116,11 +100,7 @@ pub struct NetNfsV3ReplyCreate {
     pub parent: Vec<u8>,
     pub filename: EventStr,
     pub filehandle: Option<Vec<u8>>,
-    pub mode: Option<u32>,
-    pub uid: Option<u32>,
-    pub gid: Option<u32>,
-    pub size: Option<u64>,
-    pub ctime: Option<Duration>,
+    pub fattr: Option<ProtoNfsV3Fattr>,
 }
 
 #[derive(Debug, Serialize)]
@@ -207,6 +187,36 @@ pub struct NetNfsV3ReplyRename {
     pub to_name: EventStr,
 
 }
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3CallReaddirplus {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub dirhandle: Vec<u8>,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReaddirplusEntry {
+    pub name: EventStr,
+    pub fattr: Option<ProtoNfsV3Fattr>,
+    pub filehandle: Option<Vec<u8>>,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplyReaddirplus {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub status: u32,
+    pub dirhandle: Vec<u8>,
+    pub dirattr: Option<ProtoNfsV3Fattr>,
+    pub entries: Vec<NetNfsV3ReaddirplusEntry>,
+
+}
+
 pub struct ProtoNfsV3 {
 
     conn_id: UniqueId,
@@ -217,6 +227,18 @@ pub struct ProtoNfsV3 {
 
 }
 
+#[derive(Debug, Serialize)]
+pub struct ProtoNfsV3Fattr {
+    pub r#type: u32,
+    pub mode: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub size: u64,
+    pub used: u64,
+    pub atime: Duration,
+    pub mtime: Duration,
+    pub ctime: Duration,
+}
 
 impl ProtoNfsV3 {
 
@@ -256,7 +278,7 @@ impl ProtoNfsV3 {
             14 => self.rename_call(xid, parser),
             15 => Ok(None), // LINK
             16 => Ok(None), // READDIR
-            17 => Ok(None), // READDIRPLUS
+            17 => self.readdirplus_call(xid, parser),
             18 => Ok(None), // FSSTAT
             19 => Ok(None), // FSINFO
             20 => Ok(None), // PATHCONF
@@ -292,7 +314,7 @@ impl ProtoNfsV3 {
             14 => self.rename_reply(xid, parser, event),
             15 => Ok(()), // LINK
             16 => Ok(()), // READDIR
-            17 => Ok(()), // READDIRPLUS
+            17 => self.readdirplus_reply(xid, parser, event),
             18 => Ok(()), // FSSTAT
             19 => Ok(()), // FSINFO
             20 => Ok(()), // PATHCONF
@@ -310,6 +332,43 @@ impl ProtoNfsV3 {
             client: self.client.clone(),
             xid,
         }
+    }
+
+    fn parse_fattr<T: Parser>(parser: &mut T) -> Result<ProtoNfsV3Fattr, ParseErr> {
+
+        let r#type = parser.read_u32_be()?;
+        let mode = parser.read_u32_be()?;
+        parser.skip_u32()?; // nlink
+        let uid = parser.read_u32_be()?;
+        let gid = parser.read_u32_be()?;
+        let size = parser.read_u64_be()?;
+        let used = parser.read_u64_be()?;
+        parser.skip_u64s(3)?; // rdev, fsid, fileid
+
+        let atime_sec = parser.read_u32_be()?;
+        let atime_nsec = parser.read_u32_be()?;
+        let atime = Duration::new(atime_sec as u64, atime_nsec);
+
+        let mtime_sec = parser.read_u32_be()?;
+        let mtime_nsec = parser.read_u32_be()?;
+        let mtime = Duration::new(mtime_sec as u64, mtime_nsec);
+
+        let ctime_sec = parser.read_u32_be()?;
+        let ctime_nsec = parser.read_u32_be()?;
+        let ctime = Duration::new(ctime_sec as u64, ctime_nsec);
+
+        Ok(ProtoNfsV3Fattr {
+            r#type,
+            mode,
+            uid,
+            gid,
+            size,
+            used,
+            atime,
+            mtime,
+            ctime,
+        })
+
     }
 
     fn lookup_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
@@ -347,15 +406,7 @@ impl ProtoNfsV3 {
         let status = parser.read_u32_be()?;
 
         let mut filehandle: Option<Vec<u8>> = None;
-        let mut r#type: Option<u32>  = None;
-        let mut mode: Option<u32> = None;
-        let mut uid: Option<u32> = None;
-        let mut gid: Option<u32> = None;
-        let mut size: Option<u64> = None;
-        let mut used: Option<u64> = None;
-        let mut atime: Option<Duration> = None;
-        let mut mtime: Option<Duration> = None;
-        let mut ctime: Option<Duration> = None;
+        let mut fattr: Option<ProtoNfsV3Fattr> = None;
         let mut count: Option<u32> = None;
         let mut eof: Option<bool> = None;
 
@@ -364,28 +415,7 @@ impl ProtoNfsV3 {
             filehandle = Some(read_opaque(parser)?);
 
             if parser.read_u32_be()? == 1 { // attributes_follow
-                r#type = Some(parser.read_u32_be()?);
-
-                mode = Some(parser.read_u32_be()?);
-                parser.skip_u32()?; // nlink
-                uid = Some(parser.read_u32_be()?);
-                gid = Some(parser.read_u32_be()?);
-                size = Some(parser.read_u64_be()?);
-                used = Some(parser.read_u64_be()?);
-                parser.skip_u64s(3)?; // rdev, fsid, fileid
-
-                let atime_sec = parser.read_u32_be()?;
-                let atime_nsec = parser.read_u32_be()?;
-                atime = Some(Duration::new(atime_sec as u64, atime_nsec));
-
-                let mtime_sec = parser.read_u32_be()?;
-                let mtime_nsec = parser.read_u32_be()?;
-                mtime = Some(Duration::new(mtime_sec as u64, mtime_nsec));
-
-                let ctime_sec = parser.read_u32_be()?;
-                let ctime_nsec = parser.read_u32_be()?;
-                ctime = Some(Duration::new(ctime_sec as u64, ctime_nsec));
-
+                fattr = Some(Self::parse_fattr(parser)?);
             }
         }
 
@@ -396,15 +426,7 @@ impl ProtoNfsV3 {
             parent: call_pload.parent.clone(),
             name: call_pload.name.clone(),
             filehandle,
-            r#type,
-            mode,
-            uid,
-            gid,
-            size,
-            used,
-            atime,
-            mtime,
-            ctime,
+            fattr,
         };
         let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyLookup(evt_pload));
         MessageBus::publish_event(evt.clone());
@@ -440,7 +462,7 @@ impl ProtoNfsV3 {
 
     fn read_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
 
-        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyCreate) &&
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyRead) &&
            ! MessageBus::blob_has_subscribers() {
             return Ok(());
         }
@@ -450,41 +472,13 @@ impl ProtoNfsV3 {
         let timestamp = parser.timestamp();
         let status = parser.read_u32_be()?;
 
-        let mut mode: Option<u32> = None;
-        let mut uid: Option<u32> = None;
-        let mut gid: Option<u32> = None;
-        let mut size: Option<u64> = None;
-        let mut used: Option<u64> = None;
-        let mut atime: Option<Duration> = None;
-        let mut mtime: Option<Duration> = None;
-        let mut ctime: Option<Duration> = None;
+        let mut fattr: Option<ProtoNfsV3Fattr> = None;
         let mut count: Option<u32> = None;
         let mut eof: Option<bool> = None;
 
 
         if parser.read_u32_be()? == 1 { // attributes_follow
-            parser.skip_u32()?; // type
-
-            mode = Some(parser.read_u32_be()?);
-            parser.skip_u32()?; // nlink
-            uid = Some(parser.read_u32_be()?);
-            gid = Some(parser.read_u32_be()?);
-            size = Some(parser.read_u64_be()?);
-            used = Some(parser.read_u64_be()?);
-            parser.skip_u64s(3)?; // rdev, fsid, fileid
-
-            let atime_sec = parser.read_u32_be()?;
-            let atime_nsec = parser.read_u32_be()?;
-            atime = Some(Duration::new(atime_sec as u64, atime_nsec));
-
-            let mtime_sec = parser.read_u32_be()?;
-            let mtime_nsec = parser.read_u32_be()?;
-            mtime = Some(Duration::new(mtime_sec as u64, mtime_nsec));
-
-            let ctime_sec = parser.read_u32_be()?;
-            let ctime_nsec = parser.read_u32_be()?;
-            ctime = Some(Duration::new(ctime_sec as u64, ctime_nsec));
-
+            fattr = Some(ProtoNfsV3::parse_fattr(parser)?);
         }
 
         if status == 0 {
@@ -498,14 +492,7 @@ impl ProtoNfsV3 {
             status,
             filehandle: call_pload.filehandle.clone(),
             offset: call_pload.offset,
-            mode,
-            uid,
-            gid,
-            size,
-            used,
-            atime,
-            mtime,
-            ctime,
+            fattr,
             count,
             eof,
         };
@@ -595,28 +582,14 @@ impl ProtoNfsV3 {
         let status = parser.read_u32_be()?;
 
         let mut filehandle: Option<Vec<u8>> = None;
-        let mut mode: Option<u32> = None;
-        let mut uid: Option<u32> = None;
-        let mut gid: Option<u32> = None;
-        let mut size: Option<u64> = None;
-        let mut ctime: Option<Duration> = None;
+        let mut fattr: Option<ProtoNfsV3Fattr> = None;
         if status == 0 {
             if parser.read_u32_be()? == 1 {
                 filehandle = Some(read_opaque(parser)?);
             }
 
             if parser.read_u32_be()? == 1 { // attributes_follow
-                parser.skip_u32()?; // file type
-                mode = Some(parser.read_u32_be()?);
-                parser.skip_u32()?; // nlink
-                uid = Some(parser.read_u32_be()?);
-                gid = Some(parser.read_u32_be()?);
-                size = Some(parser.read_u64_be()?);
-                parser.skip_u64s(4)?; // size, used, specdata, fsid, fileid, atime, mtime
-
-                let ctime_sec = parser.read_u32_be()?;
-                let ctime_nsec = parser.read_u32_be()?;
-                ctime = Some(Duration::new(ctime_sec as u64, ctime_nsec));
+                fattr = Some(Self::parse_fattr(parser)?);
             }
 
         }
@@ -627,11 +600,7 @@ impl ProtoNfsV3 {
             filename: call_pload.filename.clone(),
             status,
             filehandle,
-            mode,
-            uid,
-            gid,
-            size,
-            ctime,
+            fattr,
         };
 
         let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyCreate(evt_pload));
@@ -870,6 +839,7 @@ impl ProtoNfsV3 {
 
         Ok(())
     }
+
     fn rename_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
 
         if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallRename) &&
@@ -919,6 +889,88 @@ impl ProtoNfsV3 {
 
         let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyRename(evt_pload));
         MessageBus::publish_event(evt);
+
+        Ok(())
+    }
+
+    fn readdirplus_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallReaddirplus) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyReaddirplus) {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let dirhandle = read_opaque(parser)?;
+
+        let evt_pload = NetNfsV3CallReaddirplus {
+            base: self.event_base(xid),
+            dirhandle,
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallReaddirplus(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+
+    }
+
+    fn readdirplus_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyReaddirplus) {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallReaddirplus(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let mut dirattr: Option<ProtoNfsV3Fattr> = None;
+
+        if parser.read_u32_be()? == 1 { // attribute_follows
+            dirattr = Some(ProtoNfsV3::parse_fattr(parser)?);
+        }
+
+        parser.skip_u64()?; // verifier
+
+        let mut entries: Vec<NetNfsV3ReaddirplusEntry> = Vec::new();
+        while parser.read_u32_be()? == 1 { // value follows
+
+            parser.skip_u64()?; // fileid
+            let name = read_opaque(parser)?;
+            parser.skip_u64()?; // cookie
+
+            let mut fattr: Option<ProtoNfsV3Fattr> = None;
+            if parser.read_u32_be()? == 1 { // attribute follows
+                fattr = Some(Self::parse_fattr(parser)?);
+            }
+
+            let mut filehandle: Option<Vec<u8>> = None;
+
+            if parser.read_u32_be()? == 1 { // value follows
+                filehandle = Some(read_opaque(parser)?);
+            }
+
+            let entry = NetNfsV3ReaddirplusEntry {
+                name: name.into(),
+                fattr,
+                filehandle,
+            };
+
+            entries.push(entry);
+        }
+
+        let evt_pload = NetNfsV3ReplyReaddirplus {
+            base: self.event_base(xid),
+            status,
+            dirhandle: call_pload.dirhandle.clone(),
+            dirattr,
+            entries,
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyReaddirplus(evt_pload));
+        MessageBus::publish_event(evt.clone());
 
         Ok(())
     }

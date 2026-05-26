@@ -152,6 +152,38 @@ pub struct NetNfsV3ReplyMkdir {
 }
 
 #[derive(Debug, Serialize)]
+pub struct NetNfsV3CallSymlink {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub parent: Vec<u8>,
+    pub linkname: EventStr,
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    pub to: EventStr,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplySymlink {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub status: u32,
+    pub parent: Vec<u8>,
+    pub linkname: EventStr,
+    pub filehandle: Option<Vec<u8>>,
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    pub ctime: Option<Duration>,
+    pub to: EventStr,
+
+}
+
+
+#[derive(Debug, Serialize)]
 pub struct NetNfsV3CallRename {
 
     #[serde(flatten)]
@@ -217,7 +249,7 @@ impl ProtoNfsV3 {
             7 => self.write_call(xid, parser),
             8 => self.create_call(xid, parser),
             9 => self.mkdir_call(xid, parser),
-            10 => Ok(None), // SYMLINK
+            10 => self.symlink_call(xid, parser),
             11 => Ok(None), // MKNOD
             12 => Ok(None), // REMOVE
             13 => Ok(None), // RMDIR
@@ -253,7 +285,7 @@ impl ProtoNfsV3 {
             7 => Ok(()), // WRITE
             8 => self.create_reply(xid, parser, event),
             9 => self.mkdir_reply(xid, parser, event),
-            10 => Ok(()), // SYMLINK
+            10 => self.symlink_reply(xid, parser, event),
             11 => Ok(()), // MKNOD
             12 => Ok(()), // REMOVE
             13 => Ok(()), // RMDIR
@@ -729,6 +761,112 @@ impl ProtoNfsV3 {
 
         let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyMkdir(evt_pload));
         MessageBus::publish_event(evt);
+
+        Ok(())
+    }
+
+    fn symlink_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallSymlink) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplySymlink) {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let parent = read_opaque(parser)?;
+        let linkname = read_opaque(parser)?;
+
+        let mut mode: Option<u32> = None;
+        let mut uid: Option<u32> = None;
+        let mut gid: Option<u32> = None;
+
+        if parser.read_u32_be()? == 1 {
+            mode = Some(parser.read_u32_be()?);
+        }
+        if parser.read_u32_be()? == 1 {
+            uid = Some(parser.read_u32_be()?);
+        }
+        if parser.read_u32_be()? == 1 {
+            gid = Some(parser.read_u32_be()?);
+        }
+        if parser.read_u32_be()? == 1 {
+            parser.skip_u64()?; // size
+        }
+        if parser.read_u32_be()? == 1 {
+            parser.skip_u64()?; // atime
+        }
+        if parser.read_u32_be()? == 1 {
+            parser.skip_u64()?; // mtime
+        }
+
+        let to = read_opaque(parser)?;
+
+        let evt_pload = NetNfsV3CallSymlink {
+            base: self.event_base(xid),
+            parent,
+            linkname: linkname.into(),
+            mode,
+            uid,
+            gid,
+            to: to.into(),
+        };
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallSymlink(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+    }
+
+    fn symlink_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplySymlink) {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallSymlink(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let mut filehandle: Option<Vec<u8>> = None;
+        let mut mode: Option<u32> = None;
+        let mut uid: Option<u32> = None;
+        let mut gid: Option<u32> = None;
+        let mut ctime: Option<Duration> = None;
+
+        if parser.read_u32_be()? == 1 { // handle_follows
+            filehandle = Some(read_opaque(parser)?);
+        }
+
+        if parser.read_u32_be()? == 1 { //attributes_follows
+            parser.skip_u32()?; // type, always symlink
+
+            mode = Some(parser.read_u32_be()?);
+            parser.skip_u32()?; // nlink
+            uid = Some(parser.read_u32_be()?);
+            gid = Some(parser.read_u32_be()?);
+            parser.skip_u64s(7)?; // size, used, rdev, fsid, fileid, atime, mtime
+
+            let ctime_sec = parser.read_u32_be()?;
+            let ctime_nsec = parser.read_u32_be()?;
+            ctime = Some(Duration::new(ctime_sec as u64, ctime_nsec));
+        }
+
+        let evt_pload = NetNfsV3ReplySymlink {
+            base: self.event_base(xid),
+            status,
+            parent: call_pload.parent.clone(),
+            linkname: call_pload.linkname.clone(),
+            filehandle,
+            mode,
+            uid,
+            gid,
+            ctime,
+            to: call_pload.to.clone(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplySymlink(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
 
         Ok(())
     }

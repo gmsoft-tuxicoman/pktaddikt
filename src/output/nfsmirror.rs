@@ -14,6 +14,8 @@ use std::io::{Seek, SeekFrom, Write, ErrorKind};
 use std::net::IpAddr;
 use tracing::{error, debug, trace};
 
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 
 
 type NfsFileHandleKey = (IpAddr, Vec<u8>);
@@ -59,6 +61,7 @@ impl OutputNfsMirror {
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyLookup, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyCreate, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyMkdir, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplySymlink, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
 
         let path = PathBoundary::<()>::try_new_create(cfg.path.clone()).unwrap();
@@ -132,6 +135,7 @@ impl OutputNfsMirror {
             EventKind::NetNfsV3ReplyLookup => self.process_v3_lookup(event),
             EventKind::NetNfsV3ReplyCreate => self.process_v3_create(event),
             EventKind::NetNfsV3ReplyMkdir => self.process_v3_mkdir(event),
+            EventKind::NetNfsV3ReplySymlink => self.process_v3_symlink(event),
             EventKind::NetNfsV3ReplyRename => self.process_v3_rename(event),
             _ => unreachable!()
         }
@@ -326,6 +330,41 @@ impl OutputNfsMirror {
 
     }
 
+    fn process_v3_symlink(&mut self, event: &EventRef) {
+
+        #[cfg(windows)]
+        {
+            debug!("Symlink are not supported yet on windows. Patch welcome");
+            return;
+        }
+
+        let EventPayload::NetNfsV3ReplySymlink(ref pload) = event.as_ref().payload else { unreachable!(); };
+        if pload.status != 0 { return; }; // Symlink wasn't created
+
+        let linkname = String::from_utf8_lossy(&pload.linkname);
+        let to = String::from_utf8_lossy(&pload.to);
+        let Some(server) = pload.base.server else { return };
+
+        let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
+
+        let Some(parent) = self.pathmap.get(&parent_key) else {
+            debug!("Symlink parent directory not known for {:?}", parent_key);
+            return;
+        };
+
+
+        // FIXME: should I check where "to" points ?
+        let link_path = parent.clone().strict_join(&*linkname).unwrap();
+        if let Err(e) = symlink(&*to, link_path.interop_path()) {
+            if e.kind() != ErrorKind::AlreadyExists {
+                error!("Unable to symlink {} -> {}: {}", link_path.strictpath_display(), to, e);
+                return;
+            }
+        }
+
+        trace!("Created symlink {} -> {}", link_path.strictpath_display(), to);
+    }
+
     fn process_v3_rename(&mut self, event: &EventRef) {
 
         let EventPayload::NetNfsV3ReplyRename(ref pload) = event.as_ref().payload else { unreachable!(); };
@@ -360,6 +399,7 @@ impl OutputNfsMirror {
         trace!("Renamed {} -> {}", from_name.strictpath_display(), to_name.strictpath_display());
 
     }
+
 }
 
 

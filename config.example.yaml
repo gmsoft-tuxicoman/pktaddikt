@@ -1,0 +1,73 @@
+# -- Input ----------------------
+# Only one input can be active at a time. Uncomment the desired type.
+
+# The following declare a 'pcap_file' input that reads from a file
+input:
+
+  # -- pcap_file: reads from a pcap file --
+  #  type: pcap_file
+  #  file: path/to/capture.pcap
+
+  # -- pcap_interface: reads from an interface --
+  type: pcap_interface
+  iface: eth0
+
+
+# -- Outputs -------------------
+outputs:
+
+  # -- logjson: log events in a json file --
+  logs: # output name
+    type: logjson # type of the output, see src/output/
+    file: output.json # optional, default "log.json"
+    events:
+      - '*' # glob pattern matching the events you want to log
+
+  # -- logzeek: create zeek like log files --
+  # zeek:
+  #   type: logzeek
+  #   path: /logs # optional, default to ""
+
+  # -- blob2disk: save files in a directory using their unique ID as name --
+  # file:
+  #   type: blob2disk
+  #   path: /data/blobs # optional, default ""
+
+  # -- nfsmirror: Mirror NFS traffic into files on the disk --
+  # nfsmirror:
+  #  type: nfsmirror
+  #  path: /data/nfsmirror # optional, default ""
+
+  # -- dns2nftset: Match DNS queries and put matching IPs (v4 and v6) into nftables sets
+  # ipset:
+  #   type: dns2nftset
+  #   matches: # pattern to match in DNS queries
+  #     - youtube
+  #     - googlevideo
+  #   set: pktaddikt # Set prefix, will create a pktaddkit_v4 and pktaddikt_v6 set
+
+# -- Proto ------------------------
+# Protocol configuration, entirely optional, defaults are shown below
+
+# proto:
+#  core:
+#    debug: true # Show packets being processed on the console
+#  ipv4:
+#    conntrack_size: 65535      # size of connection tracking table
+#    conntrack_timeout: 7200    # timeout of IPv4 connection without child (no tcp or udp)
+#    fragment_timeout: 30       # timeout for fragment reassembly
+#  ipv6:
+#    conntrack_size: 65535      # size of connection tracking table
+#    conntrack_timeout: 7200    # timeout of IPv6 connection without child (no tcp or udp)
+#  tcp:
+#    timeout_syn_recv: 60       # timeout for connections in SYN_RECV state
+#    timeout_syn_sent: 180      # timeout for connections in SYN_SENT state
+#    timeout_established: 1800  # timeout for established connections
+#    timeout_half_closed: 120   # timeout for half-closed connections
+#    timeout_closed: 30         # timeout for closed connections
+#    conntrack_size: 32768      # size of the conntrack table 
+#  udp:
+#    conntrack_size: 32768      # conntrack table size
+#    conntrack_timeout: 120     # conntrack timeout for UDP connections
+#  sunrpc:
+#    max_call_queue: 8          # maximum number of RPC calls to remember per connection (UDP or TCP)

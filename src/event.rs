@@ -66,6 +66,10 @@ pub enum EventKind {
     NetNfsV3CallRename,
     #[strum(serialize = "net.nfsv3.reply.rename")]
     NetNfsV3ReplyRename,
+    #[strum(serialize = "net.nfsv3.call.link")]
+    NetNfsV3CallLink,
+    #[strum(serialize = "net.nfsv3.reply.link")]
+    NetNfsV3ReplyLink,
     #[strum(serialize = "net.nfsv3.call.readdirplus")]
     NetNfsV3CallReaddirplus,
     #[strum(serialize = "net.nfsv3.reply.readdirplus")]
@@ -109,6 +113,8 @@ pub enum EventPayload {
     NetNfsV3ReplyRemove(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyRemove),
     NetNfsV3CallRename(crate::proto::sunrpc::nfsv3::NetNfsV3CallRename),
     NetNfsV3ReplyRename(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyRename),
+    NetNfsV3CallLink(crate::proto::sunrpc::nfsv3::NetNfsV3CallLink),
+    NetNfsV3ReplyLink(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyLink),
     NetNfsV3CallReaddirplus(crate::proto::sunrpc::nfsv3::NetNfsV3CallReaddirplus),
     NetNfsV3ReplyReaddirplus(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyReaddirplus),
     NetNfsV4CallExchangeId(crate::proto::sunrpc::nfsv4::NetNfsV4CallExchangeId),
@@ -146,6 +152,8 @@ impl EventPayload {
             EventPayload::NetNfsV3ReplyRemove(_) => EventKind::NetNfsV3ReplyRemove,
             EventPayload::NetNfsV3CallRename(_) => EventKind::NetNfsV3CallRename,
             EventPayload::NetNfsV3ReplyRename(_) => EventKind::NetNfsV3ReplyRename,
+            EventPayload::NetNfsV3CallLink(_) => EventKind::NetNfsV3CallLink,
+            EventPayload::NetNfsV3ReplyLink(_) => EventKind::NetNfsV3ReplyLink,
             EventPayload::NetNfsV3CallReaddirplus(_) => EventKind::NetNfsV3CallReaddirplus,
             EventPayload::NetNfsV3ReplyReaddirplus(_) => EventKind::NetNfsV3ReplyReaddirplus,
             EventPayload::NetNfsV4CallExchangeId(_) => EventKind::NetNfsV4CallExchangeId,

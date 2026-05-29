@@ -65,6 +65,7 @@ impl OutputNfsMirror {
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplySymlink, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRemove, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyLink, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyReaddirplus, tx);
 
         let path = PathBoundary::<()>::try_new_create(cfg.path.clone()).unwrap();
@@ -142,6 +143,7 @@ impl OutputNfsMirror {
             EventKind::NetNfsV3ReplySymlink => self.process_v3_symlink(event),
             EventKind::NetNfsV3ReplyRemove => self.process_v3_remove(event),
             EventKind::NetNfsV3ReplyRename => self.process_v3_rename(event),
+            EventKind::NetNfsV3ReplyLink => self.process_v3_link(event),
             EventKind::NetNfsV3ReplyReaddirplus => self.process_v3_readdirplus(event),
             _ => unreachable!()
         }
@@ -431,6 +433,36 @@ impl OutputNfsMirror {
 
     }
 
+    fn process_v3_link(&mut self, event: &EventRef) {
+
+        let EventPayload::NetNfsV3ReplyLink(ref pload) = event.as_ref().payload else { unreachable!(); };
+        if pload.status != 0 { return; }; // Symlink wasn't created
+
+        let dst_name = String::from_utf8_lossy(&pload.dst_name);
+        let Some(server) = pload.base.server else { return };
+
+
+        // Create the file in by-fh to make sure it exists. truncate it if needed.
+        let src_name = pload.filehandle.iter().map(|b| format!("{:02X}", b)).collect::<String>();
+        let src_path = self.path.clone().strict_join(server.to_string()).unwrap().strict_join("by-fh").unwrap().strict_join(src_name).unwrap();
+
+        let parent_key: NfsFileHandleKey = (server, pload.dst_parent.clone());
+
+        let Some(parent) = self.pathmap.get(&parent_key) else {
+            debug!("Link parent directory not known for {:?}", parent_key);
+            return;
+        };
+
+        let dst_path = parent.clone().strict_join(&*dst_name).unwrap();
+        if let Err(e) = hard_link(&*src_path.interop_path(), dst_path.interop_path()) {
+            if e.kind() != ErrorKind::AlreadyExists {
+                error!("Unable to link {} -> {}: {}", src_path.strictpath_display(), dst_path.strictpath_display(), e);
+                return;
+            }
+        }
+
+        trace!("Created hardlink {} -> {}", src_path.strictpath_display(), dst_path.strictpath_display());
+    }
     fn process_v3_readdirplus(&mut self, event: &EventRef) {
 
         let EventPayload::NetNfsV3ReplyReaddirplus(ref pload) = event.as_ref().payload else { unreachable!(); };

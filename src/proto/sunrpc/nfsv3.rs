@@ -207,6 +207,29 @@ pub struct NetNfsV3ReplyRename {
 }
 
 #[derive(Debug, Serialize)]
+pub struct NetNfsV3CallLink {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub filehandle: Vec<u8>,
+    pub dst_parent: Vec<u8>,
+    pub dst_name: EventStr,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplyLink {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub status: u32,
+    pub filehandle: Vec<u8>,
+    pub dst_parent: Vec<u8>,
+    pub dst_name: EventStr,
+
+}
+
+#[derive(Debug, Serialize)]
 pub struct NetNfsV3CallReaddirplus {
 
     #[serde(flatten)]
@@ -294,7 +317,7 @@ impl ProtoNfsV3 {
             12 => self.remove_call(xid, parser),
             13 => Ok(None), // RMDIR
             14 => self.rename_call(xid, parser),
-            15 => Ok(None), // LINK
+            15 => self.link_call(xid, parser),
             16 => Ok(None), // READDIR
             17 => self.readdirplus_call(xid, parser),
             18 => Ok(None), // FSSTAT
@@ -331,7 +354,7 @@ impl ProtoNfsV3 {
             12 => self.remove_reply(xid, parser, event),
             13 => Ok(()), // RMDIR
             14 => self.rename_reply(xid, parser, event),
-            15 => Ok(()), // LINK
+            15 => self.link_reply(xid, parser, event),
             16 => Ok(()), // READDIR
             17 => self.readdirplus_reply(xid, parser, event),
             18 => Ok(()), // FSSTAT
@@ -958,6 +981,55 @@ impl ProtoNfsV3 {
         Ok(())
     }
 
+    fn link_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallLink) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyLink) {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let filehandle = read_opaque(parser)?;
+        let dst_parent = read_opaque(parser)?;
+        let dst_name = read_opaque(parser)?;
+
+        let evt_pload = NetNfsV3CallLink {
+            base: self.event_base(xid),
+            filehandle,
+            dst_parent,
+            dst_name: dst_name.into(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallLink(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+    }
+
+    fn link_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyLink) {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallLink(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let evt_pload = NetNfsV3ReplyLink {
+            base: self.event_base(xid),
+            status,
+            filehandle: call_pload.filehandle.clone(),
+            dst_parent: call_pload.dst_parent.clone(),
+            dst_name: call_pload.dst_name.clone(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyLink(evt_pload));
+        MessageBus::publish_event(evt);
+
+        Ok(())
+    }
     fn readdirplus_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
 
         if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallReaddirplus) &&

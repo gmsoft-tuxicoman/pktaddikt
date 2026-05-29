@@ -9,7 +9,7 @@ use crate::base::Parser;
 use std::collections::HashMap;
 use strict_path::{StrictPath, PathBoundary};
 use serde::Deserialize;
-use std::fs::{File, OpenOptions, hard_link, rename};
+use std::fs::{File, OpenOptions, hard_link, rename, remove_file};
 use std::io::{Seek, SeekFrom, Write, ErrorKind};
 use std::net::IpAddr;
 use tracing::{error, debug, trace};
@@ -43,6 +43,7 @@ pub struct OutputNfsMirror {
     blobs: HashMap<u64, File>,
     pathmap: HashMap<NfsFileHandleKey, StrictPath>,
     path: PathBoundary,
+    keep_deleted: bool,
 }
 
 
@@ -62,6 +63,7 @@ impl OutputNfsMirror {
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyCreate, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyMkdir, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplySymlink, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRemove, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyReaddirplus, tx);
 
@@ -71,6 +73,7 @@ impl OutputNfsMirror {
             blobs: HashMap::new(),
             pathmap: HashMap::new(),
             path,
+            keep_deleted: cfg.keep_deleted,
         })
     }
 
@@ -137,6 +140,7 @@ impl OutputNfsMirror {
             EventKind::NetNfsV3ReplyCreate => self.process_v3_create(event),
             EventKind::NetNfsV3ReplyMkdir => self.process_v3_mkdir(event),
             EventKind::NetNfsV3ReplySymlink => self.process_v3_symlink(event),
+            EventKind::NetNfsV3ReplyRemove => self.process_v3_remove(event),
             EventKind::NetNfsV3ReplyRename => self.process_v3_rename(event),
             EventKind::NetNfsV3ReplyReaddirplus => self.process_v3_readdirplus(event),
             _ => unreachable!()
@@ -364,6 +368,32 @@ impl OutputNfsMirror {
         }
 
         trace!("Created symlink {} -> {}", link_path.strictpath_display(), to);
+    }
+
+    fn process_v3_remove(&mut self, event: &EventRef) {
+
+        if ! self.keep_deleted { return; };
+
+        let EventPayload::NetNfsV3ReplyRemove(ref pload) = event.as_ref().payload else { unreachable!{}; };
+        if pload.status != 0 { return; }; // File wasn't removed
+
+        let name = String::from_utf8_lossy(&pload.name);
+        let Some(server) = pload.base.server else { return; };
+        let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
+
+        let Some(parent) = self.pathmap.get(&parent_key) else {
+            debug!("Remove parent directory not known for {:?}", parent_key);
+            return;
+        };
+
+        let remove_path = parent.clone().strict_join(&*name).unwrap();
+        if let Err(e) = remove_file(remove_path.interop_path()) {
+            if e.kind() != ErrorKind::NotFound {
+                error!("Unable to remove file {}: {}", remove_path.strictpath_display(), e);
+                return;
+            }
+        }
+        trace!("Removed file {}", remove_path.strictpath_display());
     }
 
     fn process_v3_rename(&mut self, event: &EventRef) {

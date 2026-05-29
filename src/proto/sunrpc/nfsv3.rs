@@ -162,6 +162,24 @@ pub struct NetNfsV3ReplySymlink {
 
 }
 
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3CallRemove {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub parent: Vec<u8>,
+    pub name: EventStr,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplyRemove {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub status: u32,
+    pub parent: Vec<u8>,
+    pub name: EventStr,
+}
 
 #[derive(Debug, Serialize)]
 pub struct NetNfsV3CallRename {
@@ -273,7 +291,7 @@ impl ProtoNfsV3 {
             9 => self.mkdir_call(xid, parser),
             10 => self.symlink_call(xid, parser),
             11 => Ok(None), // MKNOD
-            12 => Ok(None), // REMOVE
+            12 => self.remove_call(xid, parser),
             13 => Ok(None), // RMDIR
             14 => self.rename_call(xid, parser),
             15 => Ok(None), // LINK
@@ -282,6 +300,7 @@ impl ProtoNfsV3 {
             18 => Ok(None), // FSSTAT
             19 => Ok(None), // FSINFO
             20 => Ok(None), // PATHCONF
+            21 => Ok(None), // COMMIT
             _ => {
                 debug!("Unknown NFSv3 procedure called");
                 Ok(None)
@@ -309,7 +328,7 @@ impl ProtoNfsV3 {
             9 => self.mkdir_reply(xid, parser, event),
             10 => self.symlink_reply(xid, parser, event),
             11 => Ok(()), // MKNOD
-            12 => Ok(()), // REMOVE
+            12 => self.remove_reply(xid, parser, event),
             13 => Ok(()), // RMDIR
             14 => self.rename_reply(xid, parser, event),
             15 => Ok(()), // LINK
@@ -318,6 +337,7 @@ impl ProtoNfsV3 {
             18 => Ok(()), // FSSTAT
             19 => Ok(()), // FSINFO
             20 => Ok(()), // PATHCONF
+            21 => Ok(()), // COMMIT
             _ => {
                 debug!("Unknown NFSv3 procedure replied");
                 Ok(())
@@ -407,8 +427,6 @@ impl ProtoNfsV3 {
 
         let mut filehandle: Option<Vec<u8>> = None;
         let mut fattr: Option<ProtoNfsV3Fattr> = None;
-        let mut count: Option<u32> = None;
-        let mut eof: Option<bool> = None;
 
         if status == 0 {
 
@@ -836,6 +854,53 @@ impl ProtoNfsV3 {
         let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplySymlink(evt_pload));
         MessageBus::publish_event(evt.clone());
 
+
+        Ok(())
+    }
+
+    fn remove_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallRemove) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyRemove) {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let parent = read_opaque(parser)?;
+        let name = read_opaque(parser)?;
+
+        let evt_pload = NetNfsV3CallRemove {
+            base: self.event_base(xid),
+            parent,
+            name: name.into(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallRemove(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+    }
+
+    fn remove_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyRemove) {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallRemove(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let evt_pload = NetNfsV3ReplyRemove {
+            base: self.event_base(xid),
+            status,
+            parent: call_pload.parent.clone(),
+            name: call_pload.name.clone(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyRemove(evt_pload));
+        MessageBus::publish_event(evt.clone());
 
         Ok(())
     }

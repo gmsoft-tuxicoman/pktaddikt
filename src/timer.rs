@@ -10,6 +10,7 @@ use slab::Slab;
 
 static TIMER_MANAGER: LazyLock<Mutex<TimerManager>> = LazyLock::new(|| { Mutex::new(TimerManager::new())});
 static TIMER_NOW: AtomicU64 = AtomicU64::new(0);
+static TIMER_LAST: AtomicU64 = AtomicU64::new(0);
 
 
 pub type TimerId = usize;
@@ -163,7 +164,23 @@ impl TimerManager {
     }
 
     pub fn update_time(new_time: PktTime) {
-        TIMER_NOW.fetch_max(new_time.into(), Ordering::Relaxed);
+
+        let now: u64 = new_time.into();
+        TIMER_NOW.fetch_max(now, Ordering::Relaxed);
+
+        const THRESHOLD: u64 = 5000000;
+
+        let last = TIMER_LAST.load(Ordering::Acquire);
+        if now.saturating_sub(last) >= THRESHOLD {
+            let prev = TIMER_LAST.fetch_max(now, Ordering::AcqRel);
+            if now.saturating_sub(prev) >= THRESHOLD {
+                TimerManager::process();
+            }
+        }
+    }
+
+    pub fn now() -> PktTime {
+        PktTime::from_micros(TIMER_NOW.load(Ordering::Relaxed))
     }
 
 

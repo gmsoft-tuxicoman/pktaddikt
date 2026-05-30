@@ -5,6 +5,7 @@ use crate::output::OutputBuilder;
 use crate::messagebus::MessageBus;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use tracing::trace;
 
 pub mod proto;
 pub mod conntrack;
@@ -92,7 +93,11 @@ fn main() {
 
     input.main_loop();
 
+    trace!("Joining outputs ...");
+
     outputs.join();
+
+    trace!("Finished");
 }
 
 

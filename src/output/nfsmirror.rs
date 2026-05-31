@@ -10,7 +10,7 @@ use crate::packet::PktTime;
 use std::collections::HashMap;
 use strict_path::{StrictPath, PathBoundary};
 use serde::Deserialize;
-use std::fs::{File, OpenOptions, hard_link, rename, remove_file};
+use std::fs::{File, OpenOptions, hard_link, rename, remove_file, remove_dir_all};
 use std::io::{Seek, SeekFrom, Write, ErrorKind};
 use std::net::IpAddr;
 use tracing::{error, debug, trace};
@@ -77,6 +77,7 @@ impl OutputNfsMirror {
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyMkdir, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplySymlink, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRemove, tx);
+        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRmdir, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyLink, tx);
         msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyReaddirplus, tx);
@@ -157,6 +158,7 @@ impl OutputNfsMirror {
             EventKind::NetNfsV3ReplyMkdir => self.process_v3_mkdir(event),
             EventKind::NetNfsV3ReplySymlink => self.process_v3_symlink(event),
             EventKind::NetNfsV3ReplyRemove => self.process_v3_remove(event),
+            EventKind::NetNfsV3ReplyRmdir => self.process_v3_rmdir(event),
             EventKind::NetNfsV3ReplyRename => self.process_v3_rename(event),
             EventKind::NetNfsV3ReplyLink => self.process_v3_link(event),
             EventKind::NetNfsV3ReplyReaddirplus => self.process_v3_readdirplus(event),
@@ -433,7 +435,7 @@ impl OutputNfsMirror {
 
     fn process_v3_remove(&mut self, event: &EventRef) {
 
-        if ! self.keep_deleted { return; };
+        if self.keep_deleted { return; };
 
         let EventPayload::NetNfsV3ReplyRemove(ref pload) = event.as_ref().payload else { unreachable!{}; };
         if pload.status != 0 { return; }; // File wasn't removed
@@ -456,6 +458,33 @@ impl OutputNfsMirror {
             }
         }
         trace!("Removed file {}", remove_path.strictpath_display());
+    }
+
+    fn process_v3_rmdir(&mut self, event: &EventRef) {
+
+        if self.keep_deleted { return; };
+
+        let EventPayload::NetNfsV3ReplyRmdir(ref pload) = event.as_ref().payload else { unreachable!{}; };
+        if pload.status != 0 { return; }; // Directory wasn't removed
+
+        let name = String::from_utf8_lossy(&pload.name);
+        let Some(server) = pload.base.server else { return; };
+        let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
+
+        let Some(parent) = self.pathmap.get_mut(&parent_key) else {
+            debug!("Rmdir parent directory not known for {:?}", parent_key);
+            return;
+        };
+        parent.last_seen = event.ts;
+
+        let remove_path = parent.path.clone().strict_join(&*name).unwrap();
+        if let Err(e) = remove_dir_all(remove_path.interop_path()) {
+            if e.kind() != ErrorKind::NotFound {
+                error!("Unable to remove directory {}: {}", remove_path.strictpath_display(), e);
+                return;
+            }
+        }
+        trace!("Removed directory {}", remove_path.strictpath_display());
     }
 
     fn process_v3_rename(&mut self, event: &EventRef) {

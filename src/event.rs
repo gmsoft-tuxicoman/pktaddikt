@@ -62,6 +62,10 @@ pub enum EventKind {
     NetNfsV3CallRemove,
     #[strum(serialize = "net.nfsv3.reply.remove")]
     NetNfsV3ReplyRemove,
+    #[strum(serialize = "net.nfsv3.call.rmdir")]
+    NetNfsV3CallRmdir,
+    #[strum(serialize = "net.nfsv3.reply.rmdir")]
+    NetNfsV3ReplyRmdir,
     #[strum(serialize = "net.nfsv3.call.rename")]
     NetNfsV3CallRename,
     #[strum(serialize = "net.nfsv3.reply.rename")]
@@ -111,6 +115,8 @@ pub enum EventPayload {
     NetNfsV3ReplySymlink(crate::proto::sunrpc::nfsv3::NetNfsV3ReplySymlink),
     NetNfsV3CallRemove(crate::proto::sunrpc::nfsv3::NetNfsV3CallRemove),
     NetNfsV3ReplyRemove(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyRemove),
+    NetNfsV3CallRmdir(crate::proto::sunrpc::nfsv3::NetNfsV3CallRmdir),
+    NetNfsV3ReplyRmdir(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyRmdir),
     NetNfsV3CallRename(crate::proto::sunrpc::nfsv3::NetNfsV3CallRename),
     NetNfsV3ReplyRename(crate::proto::sunrpc::nfsv3::NetNfsV3ReplyRename),
     NetNfsV3CallLink(crate::proto::sunrpc::nfsv3::NetNfsV3CallLink),
@@ -150,6 +156,8 @@ impl EventPayload {
             EventPayload::NetNfsV3ReplySymlink(_) => EventKind::NetNfsV3ReplySymlink,
             EventPayload::NetNfsV3CallRemove(_) => EventKind::NetNfsV3CallRemove,
             EventPayload::NetNfsV3ReplyRemove(_) => EventKind::NetNfsV3ReplyRemove,
+            EventPayload::NetNfsV3CallRmdir(_) => EventKind::NetNfsV3CallRmdir,
+            EventPayload::NetNfsV3ReplyRmdir(_) => EventKind::NetNfsV3ReplyRmdir,
             EventPayload::NetNfsV3CallRename(_) => EventKind::NetNfsV3CallRename,
             EventPayload::NetNfsV3ReplyRename(_) => EventKind::NetNfsV3ReplyRename,
             EventPayload::NetNfsV3CallLink(_) => EventKind::NetNfsV3CallLink,

@@ -182,6 +182,25 @@ pub struct NetNfsV3ReplyRemove {
 }
 
 #[derive(Debug, Serialize)]
+pub struct NetNfsV3CallRmdir {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub parent: Vec<u8>,
+    pub name: EventStr,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetNfsV3ReplyRmdir {
+
+    #[serde(flatten)]
+    pub base: NetNfsV3Base,
+    pub status: u32,
+    pub parent: Vec<u8>,
+    pub name: EventStr,
+}
+
+#[derive(Debug, Serialize)]
 pub struct NetNfsV3CallRename {
 
     #[serde(flatten)]
@@ -315,7 +334,7 @@ impl ProtoNfsV3 {
             10 => self.symlink_call(xid, parser),
             11 => Ok(None), // MKNOD
             12 => self.remove_call(xid, parser),
-            13 => Ok(None), // RMDIR
+            13 => self.rmdir_call(xid, parser),
             14 => self.rename_call(xid, parser),
             15 => self.link_call(xid, parser),
             16 => Ok(None), // READDIR
@@ -352,7 +371,7 @@ impl ProtoNfsV3 {
             10 => self.symlink_reply(xid, parser, event),
             11 => Ok(()), // MKNOD
             12 => self.remove_reply(xid, parser, event),
-            13 => Ok(()), // RMDIR
+            13 => self.rmdir_reply(xid, parser, event),
             14 => self.rename_reply(xid, parser, event),
             15 => self.link_reply(xid, parser, event),
             16 => Ok(()), // READDIR
@@ -923,6 +942,53 @@ impl ProtoNfsV3 {
         };
 
         let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyRemove(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(())
+    }
+
+    fn rmdir_call<T: Parser>(&mut self, xid: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3CallRmdir) &&
+           ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyRmdir) {
+            return Ok(None);
+        }
+
+        let timestamp = parser.timestamp();
+        let parent = read_opaque(parser)?;
+        let name = read_opaque(parser)?;
+
+        let evt_pload = NetNfsV3CallRmdir {
+            base: self.event_base(xid),
+            parent,
+            name: name.into(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3CallRmdir(evt_pload));
+        MessageBus::publish_event(evt.clone());
+
+        Ok(Some(evt))
+    }
+
+    fn rmdir_reply<T: Parser>(&mut self, xid: u32, parser: &mut T, call_evt: Option<EventRef>) -> Result<(), ParseErr> {
+
+        if ! MessageBus::event_has_subscribers(EventKind::NetNfsV3ReplyRmdir) {
+            return Ok(());
+        }
+
+        let EventPayload::NetNfsV3CallRmdir(ref call_pload) = call_evt.as_ref().unwrap().as_ref().payload else { unreachable!(); };
+
+        let timestamp = parser.timestamp();
+        let status = parser.read_u32_be()?;
+
+        let evt_pload = NetNfsV3ReplyRmdir {
+            base: self.event_base(xid),
+            status,
+            parent: call_pload.parent.clone(),
+            name: call_pload.name.clone(),
+        };
+
+        let evt = Event::new(timestamp, EventPayload::NetNfsV3ReplyRmdir(evt_pload));
         MessageBus::publish_event(evt.clone());
 
         Ok(())

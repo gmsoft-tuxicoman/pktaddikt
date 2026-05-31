@@ -37,6 +37,8 @@ outputs:
   # nfsmirror:
   #  type: nfsmirror
   #  path: /data/nfsmirror # optional, default ""
+  #  path_expirty: 300     # optional, default 300. How long should known filehandle-path pair stay in the cache
+  #  keep_deleted: false   # optional, default false. Don't delete files from by-path when they are deleted
 
   # -- dns2nftset: Match DNS queries and put matching IPs (v4 and v6) into nftables sets
   # ipset:

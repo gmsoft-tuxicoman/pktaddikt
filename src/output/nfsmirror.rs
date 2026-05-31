@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::blob::{BlobMsg, BlobMsgBegin, BlobMsgData, BlobMsgEnd};
 use crate::event::{EventPayload, EventRef, EventKind};
 use crate::base::Parser;
+use crate::packet::PktTime;
 
 
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ use std::fs::{File, OpenOptions, hard_link, rename, remove_file};
 use std::io::{Seek, SeekFrom, Write, ErrorKind};
 use std::net::IpAddr;
 use tracing::{error, debug, trace};
+use std::time::Duration;
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
@@ -24,7 +26,8 @@ type NfsFileHandleKey = (IpAddr, Vec<u8>);
 #[serde(default)]
 pub struct NfsMirrorConfig {
     pub path: String,
-    pub keep_deleted: bool
+    pub path_expiry: u32,
+    pub keep_deleted: bool,
 }
 
 impl Default for NfsMirrorConfig {
@@ -32,18 +35,28 @@ impl Default for NfsMirrorConfig {
     fn default() -> Self {
         Self {
             path: "".to_string(),
+            path_expiry: 60,
             keep_deleted: true
         }
     }
 }
 
+#[derive(Clone)]
+struct OutputNfsMirrorPath {
+
+    path: StrictPath,
+    last_seen: PktTime,
+    is_root: bool,
+}
 
 pub struct OutputNfsMirror {
 
     blobs: HashMap<u64, File>,
-    pathmap: HashMap<NfsFileHandleKey, StrictPath>,
+    pathmap: HashMap<NfsFileHandleKey, OutputNfsMirrorPath>,
     path: PathBoundary,
     keep_deleted: bool,
+    path_expiry: u32,
+    last_purge: PktTime,
 }
 
 
@@ -75,6 +88,8 @@ impl OutputNfsMirror {
             pathmap: HashMap::new(),
             path,
             keep_deleted: cfg.keep_deleted,
+            path_expiry: cfg.path_expiry,
+            last_purge: PktTime::from_secs(0),
         })
     }
 
@@ -148,6 +163,28 @@ impl OutputNfsMirror {
             _ => unreachable!()
         }
 
+        self.purge_pathmap(event.ts);
+
+    }
+
+    fn purge_pathmap(&mut self, now: PktTime) {
+
+        let threshold = PktTime::from_secs(self.path_expiry as u64);
+
+        // Only purge every path_expiry
+        if self.last_purge + threshold > now { return; };
+        self.last_purge = now;
+
+        self.pathmap.retain(|_k, entry| {
+
+            let expiry = entry.last_seen + PktTime::from_secs(self.path_expiry as u64);
+            if !entry.is_root && expiry < now {
+                trace!("Purging path {}", entry.path.strictpath_display());
+                return false;
+            }
+            true
+        });
+
     }
 
     fn process_mnt(&mut self, event: &EventRef) {
@@ -179,7 +216,13 @@ impl OutputNfsMirror {
             error!("Unable to create directory {}: {}", path.strictpath_display(), e);
         }
 
-        self.pathmap.insert(key, path);
+        let path_entry = OutputNfsMirrorPath {
+            path,
+            last_seen: event.ts,
+            is_root: true,
+        };
+
+        self.pathmap.entry(key).or_insert(path_entry);
 
 
         // Create the by-fh directory
@@ -204,12 +247,13 @@ impl OutputNfsMirror {
         let Some(fattr) = &pload.fattr else { return };
         let key: NfsFileHandleKey = (server, pload.parent.clone());
 
-        let Some(parent) = self.pathmap.get(&key) else {
+        let Some(parent) = self.pathmap.get_mut(&key) else {
             debug!("Parent directory not known for {:?}", key);
             return;
         };
+        parent.last_seen = event.ts;
 
-        let new_path = parent.clone().strict_join(&*name).unwrap(); // FIXME don't unwrap
+        let new_path = parent.path.clone().strict_join(&*name).unwrap(); // FIXME don't unwrap
 
 
         if fattr.r#type == 2 { // Directory
@@ -217,8 +261,15 @@ impl OutputNfsMirror {
             if let Err(e) = new_path.create_dir_all() {
                 error!("Unable to create directory {}: {}", new_path.strictpath_display(), e);
             }
+
+            let path_entry = OutputNfsMirrorPath {
+                path: new_path,
+                last_seen: event.ts,
+                is_root: false,
+            };
+
             let new_key: NfsFileHandleKey = (server, filehandle.clone());
-            self.pathmap.insert(new_key, new_path);
+            self.pathmap.entry(new_key).or_insert(path_entry);
             return;
         } else if fattr.r#type != 1 { // Non regular file
             debug!("Not tracking non regular file {}", new_path.strictpath_display());
@@ -268,10 +319,11 @@ impl OutputNfsMirror {
         let Some(fattr) = &pload.fattr else { return };
         let key: NfsFileHandleKey = (server, pload.parent.clone());
 
-        let Some(parent) = self.pathmap.get(&key) else {
+        let Some(parent) = self.pathmap.get_mut(&key) else {
             debug!("Parent directory not known for {:?}", key);
             return;
         };
+        parent.last_seen = event.ts;
 
         let mut truncate = false;
 
@@ -293,7 +345,7 @@ impl OutputNfsMirror {
         };
 
         // Create the hard link in by-path to the file in by-fh
-        let by_path = parent.clone().strict_join(&*filename).unwrap(); // FIXME don't unwrap
+        let by_path = parent.path.clone().strict_join(&*filename).unwrap(); // FIXME don't unwrap
         if let Err(e) = by_path.create_parent_dir_all() {
             error!("Unable to create parent path : {}", e);
             return;
@@ -319,12 +371,13 @@ impl OutputNfsMirror {
         let Some(dirhandle) = &pload.dirhandle else { return };
         let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
 
-        let Some(parent) = self.pathmap.get(&parent_key) else {
+        let Some(parent) = self.pathmap.get_mut(&parent_key) else {
             debug!("Mkdir parent directory not known for {:?}", parent_key);
             return;
         };
+        parent.last_seen = event.ts;
 
-        let dir_path = parent.clone().strict_join(&*dirname).unwrap();
+        let dir_path = parent.path.clone().strict_join(&*dirname).unwrap();
         if let Err(e) = dir_path.create_dir_all() {
             error!("Unable to create directory {}: {}", dir_path.strictpath_display(), e);
         }
@@ -333,7 +386,12 @@ impl OutputNfsMirror {
 
         trace!("Created directory {} ({:?})", dir_path.strictpath_display(), &new_key);
 
-        self.pathmap.insert(new_key, dir_path);
+        let path_entry = OutputNfsMirrorPath {
+            path: dir_path,
+            last_seen: event.ts,
+            is_root: false,
+        };
+        self.pathmap.entry(new_key).or_insert(path_entry);
 
     }
 
@@ -354,14 +412,15 @@ impl OutputNfsMirror {
 
         let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
 
-        let Some(parent) = self.pathmap.get(&parent_key) else {
+        let Some(parent) = self.pathmap.get_mut(&parent_key) else {
             debug!("Symlink parent directory not known for {:?}", parent_key);
             return;
         };
+        parent.last_seen = event.ts;
 
 
         // FIXME: should I check where "to" points ?
-        let link_path = parent.clone().strict_join(&*linkname).unwrap();
+        let link_path = parent.path.clone().strict_join(&*linkname).unwrap();
         if let Err(e) = symlink(&*to, link_path.interop_path()) {
             if e.kind() != ErrorKind::AlreadyExists {
                 error!("Unable to symlink {} -> {}: {}", link_path.strictpath_display(), to, e);
@@ -383,12 +442,13 @@ impl OutputNfsMirror {
         let Some(server) = pload.base.server else { return; };
         let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
 
-        let Some(parent) = self.pathmap.get(&parent_key) else {
+        let Some(parent) = self.pathmap.get_mut(&parent_key) else {
             debug!("Remove parent directory not known for {:?}", parent_key);
             return;
         };
+        parent.last_seen = event.ts;
 
-        let remove_path = parent.clone().strict_join(&*name).unwrap();
+        let remove_path = parent.path.clone().strict_join(&*name).unwrap();
         if let Err(e) = remove_file(remove_path.interop_path()) {
             if e.kind() != ErrorKind::NotFound {
                 error!("Unable to remove file {}: {}", remove_path.strictpath_display(), e);
@@ -406,23 +466,25 @@ impl OutputNfsMirror {
         let Some(server) = pload.base.server else { return };
 
         let from_key: NfsFileHandleKey = (server, pload.from_fh.clone());
-        let Some(from_parent) = self.pathmap.get(&from_key) else {
+        let Some(from_parent) = self.pathmap.get_mut(&from_key) else {
             debug!("Rename from parent directory not known for {:?}", from_key);
             return;
         };
+        from_parent.last_seen = event.ts;
+        let from_filename = String::from_utf8_lossy(&pload.from_name);
+        let from_name = from_parent.path.clone().strict_join(&*from_filename).unwrap();
 
         let to_key: NfsFileHandleKey = (server, pload.to_fh.clone());
-        let Some(to_parent) = self.pathmap.get(&to_key) else {
+        let Some(to_parent) = self.pathmap.get_mut(&to_key) else {
             debug!("Rename to parent directory not known for {:?}", to_key);
             return;
         };
+        to_parent.last_seen = event.ts;
 
-        let from_filename = String::from_utf8_lossy(&pload.from_name);
-        let from_name = from_parent.clone().strict_join(&*from_filename).unwrap();
 
 
         let to_filename = String::from_utf8_lossy(&pload.to_name);
-        let to_name = to_parent.clone().strict_join(&*to_filename).unwrap();
+        let to_name = to_parent.path.clone().strict_join(&*to_filename).unwrap();
 
         if let Err(e) = rename(from_name.interop_path(), to_name.interop_path()) {
             error!("Unable to rename {} to {}: {}", from_name.strictpath_display(), to_name.strictpath_display(), e);
@@ -448,12 +510,13 @@ impl OutputNfsMirror {
 
         let parent_key: NfsFileHandleKey = (server, pload.dst_parent.clone());
 
-        let Some(parent) = self.pathmap.get(&parent_key) else {
+        let Some(parent) = self.pathmap.get_mut(&parent_key) else {
             debug!("Link parent directory not known for {:?}", parent_key);
             return;
         };
+        parent.last_seen = event.ts;
 
-        let dst_path = parent.clone().strict_join(&*dst_name).unwrap();
+        let dst_path = parent.path.clone().strict_join(&*dst_name).unwrap();
         if let Err(e) = hard_link(&*src_path.interop_path(), dst_path.interop_path()) {
             if e.kind() != ErrorKind::AlreadyExists {
                 error!("Unable to link {} -> {}: {}", src_path.strictpath_display(), dst_path.strictpath_display(), e);
@@ -471,10 +534,11 @@ impl OutputNfsMirror {
         let Some(server) = pload.base.server else { return };
         let parent_key: NfsFileHandleKey = (server, pload.dirhandle.clone());
 
-        let Some(parent) = self.pathmap.get(&parent_key).cloned() else {
+        let Some(mut parent) = self.pathmap.get_mut(&parent_key).cloned() else {
             debug!("READDIRPLUS parent directory not known for {:?}", parent_key);
             return;
         };
+        parent.last_seen = event.ts;
 
         for entry in &pload.entries {
             let name = String::from_utf8_lossy(&entry.name);
@@ -484,7 +548,7 @@ impl OutputNfsMirror {
 
             let Some(fattr) = &entry.fattr else { continue; };
 
-            let new_path = parent.clone().strict_join(&*name).unwrap(); // FIXME don't unwrap
+            let new_path = parent.path.clone().strict_join(&*name).unwrap(); // FIXME don't unwrap
 
 
             if fattr.r#type == 2 { // Directory
@@ -492,8 +556,14 @@ impl OutputNfsMirror {
                 if let Err(e) = new_path.create_dir_all() {
                     error!("Unable to create directory {}: {}", new_path.strictpath_display(), e);
                 }
+                let path_entry = OutputNfsMirrorPath {
+                    path: new_path,
+                    last_seen: event.ts,
+                    is_root: false,
+                };
+
                 let new_key: NfsFileHandleKey = (server, filehandle.clone());
-                self.pathmap.insert(new_key, new_path);
+                self.pathmap.entry(new_key).or_insert(path_entry);
                 continue;
             } else if fattr.r#type != 1 { // Non regular file
                 debug!("Not tracking non regular file {}", new_path.strictpath_display());

@@ -26,6 +26,9 @@ impl PktTime {
         PktTime(nsec)
     }
 
+    pub fn from_secs(sec: u64) -> PktTime {
+        PktTime(sec * 1000000)
+    }
 }
 
 impl fmt::Display for PktTime {

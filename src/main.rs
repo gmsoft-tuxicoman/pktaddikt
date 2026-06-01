@@ -20,6 +20,7 @@ pub mod base;
 pub mod expectation;
 pub mod blob;
 pub mod messagebus;
+pub mod decoder;
 
 
 #[derive(Parser, Debug)]

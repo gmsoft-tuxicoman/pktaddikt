@@ -2,6 +2,8 @@ use crate::base::{UniqueId, Parser};
 use crate::packet::{PktTime, Packet};
 use crate::messagebus::MessageBus;
 use crate::event::EventRef;
+use crate::decoder::{DecoderKind, Decoder};
+use crate::decoder::gzip::DecoderGzip;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -44,6 +46,7 @@ pub struct Blob {
     id: Option<u64>,
     tot_size: Option<u64>,
     event: Option<EventRef>,
+    decoder: Option<Decoder>,
 }
 
 impl Blob {
@@ -54,7 +57,18 @@ impl Blob {
             id: None,
             tot_size: None,
             event,
+            decoder: None,
         }
+    }
+
+    pub fn set_decoder(mut self, decoder_opt: &Option<DecoderKind>) -> Self {
+        let Some(decoder_kind) = decoder_opt else { return self; };
+
+        self.decoder = Some(match decoder_kind {
+            DecoderKind::Gzip => Decoder::Gzip(DecoderGzip::new_gzip()),
+            DecoderKind::Deflate => Decoder::Gzip(DecoderGzip::new_deflate()),
+        });
+        self
     }
 
     pub fn set_size(mut self, tot_size: u64) -> Self {
@@ -76,6 +90,14 @@ impl Blob {
             });
             trace!("New blob with id {:?}", self.blob_id);
             MessageBus::publish_blobmsg(msg);
+        }
+
+        if let Some(decoder) = &mut self.decoder {
+            match decoder {
+                Decoder::Gzip(d) => d.process_blob(self.id.unwrap(), offset, pkt),
+            };
+            // The decoder will send the BlobMsg::Data with the decoded data
+            return;
         }
 
         let msg = BlobMsg::Data( Arc::new(BlobMsgData {

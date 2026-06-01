@@ -6,6 +6,7 @@ use crate::event::{Event, EventPayload, EventStr, EventKind};
 use crate::messagebus::MessageBus;
 use crate::base::{atoi, htoi, UniqueId};
 use crate::blob::Blob;
+use crate::decoder::DecoderKind;
 
 use memchr::memchr;
 use tracing::trace;
@@ -70,6 +71,7 @@ struct ProtoHttpStateInfo {
     chunked: bool,
     event_basic: Option<ProtoHttpEvent>,
     blob: Option<Blob>,
+    content_decoder: Option<DecoderKind>,
 }
 
 impl ProtoHttpStateInfo {
@@ -89,6 +91,7 @@ impl ProtoHttpStateInfo {
         }
         self.event_basic = None;
         self.blob = None;
+        self.content_decoder = None;
     }
 }
 
@@ -343,6 +346,12 @@ impl ProtoHttp {
             }
         }
 
+        if self.info[dir as usize].content_decoder.is_none() {
+            if name.eq_ignore_ascii_case(b"Content-Encoding") {
+                self.info[dir as usize].content_decoder = DecoderKind::from_str(&String::from_utf8_lossy(value));
+            }
+        }
+
         trace!("HTTP header: \"{}: {}\"",  String::from_utf8_lossy(name), String::from_utf8_lossy(value));
 
         Ok(())
@@ -353,7 +362,8 @@ impl ProtoHttp {
         if let Some(content_len) = self.info[dir as usize].content_len {
             let mut remaining_len = content_len - self.info[dir as usize].content_pos;
 
-            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp(), None).set_size(content_len));
+            let decoder = &self.info[dir as usize].content_decoder;
+            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp(), None).set_size(content_len).set_decoder(decoder));
             let data_len = cmp::min(remaining_len as u32, parser.remaining_len());
 
             blob.data(self.info[dir as usize].content_pos, parser.sub_packet(data_len)?);
@@ -371,7 +381,8 @@ impl ProtoHttp {
         } else {
             // No Content-Length, must be a HTTP/1.0 response containing the whole body
 
-            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp(), None));
+            let decoder = &self.info[dir as usize].content_decoder;
+            let blob = self.info[dir as usize].blob.get_or_insert_with(|| Blob::new(parser.timestamp(), None).set_decoder(decoder));
             let data_len = parser.remaining_len();
             blob.data(self.info[dir as usize].content_pos, parser.sub_packet(data_len)?);
             trace!("Got {} bytes of payload", data_len);
@@ -456,6 +467,7 @@ impl PktStreamProcessor for ProtoHttp {
                 chunked: false,
                 event_basic: None,
                 blob: None,
+                content_decoder: None,
             },
              ProtoHttpStateInfo {
                 state: ProtoHttpState::FirstLine,
@@ -464,6 +476,7 @@ impl PktStreamProcessor for ProtoHttp {
                 chunked: false,
                 event_basic: None,
                 blob: None,
+                content_decoder: None,
             } ],
             client_dir: None,
             last_status: 0,

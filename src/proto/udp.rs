@@ -94,6 +94,7 @@ impl ProtoUdp {
     fn next_proto(port: u16) -> Protocols {
         match port {
             53 => Protocols::Dns,
+            67 | 68 => Protocols::Dhcp,
             111 | 2049 => Protocols::SunRpc,
             _ => Protocols::None
         }

@@ -26,6 +26,8 @@ pub enum EventKind {
     NetHttpResponseBasic,
     #[strum(serialize = "net.dns.message")]
     NetDnsMessage,
+    #[strum(serialize = "net.dhcp.message")]
+    NetDhcpMessage,
     #[strum(serialize = "net.tls.clienthello")]
     NetTlsClientHello,
     #[strum(serialize = "net.portmap.call.getport")]
@@ -97,6 +99,7 @@ pub enum EventPayload {
     NetHttpRequestBasic(crate::proto::http::NetHttpRequestBasic),
     NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
+    NetDhcpMessage(crate::proto::dhcp::NetDhcpMessage),
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
     NetPortmapCallGetport(crate::proto::sunrpc::portmap::NetPortmapCallGetport),
     NetPortmapReplyGetport(crate::proto::sunrpc::portmap::NetPortmapReplyGetport),
@@ -138,6 +141,7 @@ impl EventPayload {
             EventPayload::NetHttpRequestBasic(_) => EventKind::NetHttpRequestBasic,
             EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
+            EventPayload::NetDhcpMessage(_) => EventKind::NetDhcpMessage,
             EventPayload::NetTlsClientHello(_) => EventKind::NetTlsClientHello,
             EventPayload::NetPortmapCallGetport(_) => EventKind::NetPortmapCallGetport,
             EventPayload::NetPortmapReplyGetport(_) => EventKind::NetPortmapReplyGetport,

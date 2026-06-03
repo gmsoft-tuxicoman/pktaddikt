@@ -11,6 +11,7 @@ pub mod icmp;
 pub mod dns;
 pub mod tls;
 pub mod sunrpc;
+pub mod dhcp;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::{ProtoEthernet, ProtoEthernetInfo};
@@ -23,6 +24,7 @@ use crate::proto::vlan::{ProtoVlan, ProtoVlanInfo};
 use crate::proto::icmp::{ProtoIcmp, ProtoIcmpInfo};
 use crate::proto::dns::ProtoDnsUdp;
 use crate::proto::sunrpc::{ProtoSunRpcUdp, SunRpcConfig};
+use crate::proto::dhcp::{ProtoDhcp, ProtoDhcpInfo};
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 use crate::config::Config;
@@ -85,6 +87,7 @@ pub enum Protocols {
     Dns,
     Tls,
     SunRpc,
+    Dhcp,
 }
 
 #[derive(Debug, PartialEq)]
@@ -97,6 +100,7 @@ pub enum ProtoInfo {
     Arp(ProtoArpInfo),
     Vlan(ProtoVlanInfo),
     Icmp(ProtoIcmpInfo),
+    Dhcp(ProtoDhcpInfo),
 }
 
 
@@ -118,6 +122,7 @@ pub struct Proto {
     icmp: ProtoIcmp,
     dns: ProtoDnsUdp,
     sunrpc: ProtoSunRpcUdp,
+    dhcp: ProtoDhcp,
 
     debug: bool,
 }
@@ -138,6 +143,7 @@ impl Proto {
             icmp: ProtoIcmp::new(),
             dns: ProtoDnsUdp::new(),
             sunrpc: ProtoSunRpcUdp::new(),
+            dhcp: ProtoDhcp::new(),
 
             debug: cfg.proto.core.debug,
         }
@@ -179,6 +185,7 @@ impl Proto {
                 Protocols::Icmp => self.icmp.process(pkt, infos),
                 Protocols::Dns => self.dns.process(pkt, infos),
                 Protocols::SunRpc => self.sunrpc.process(pkt, infos),
+                Protocols::Dhcp => self.dhcp.process(pkt, infos),
                 _ => break,
             };
 

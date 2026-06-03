@@ -2,8 +2,10 @@ use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
 
+use serde::{Serialize, Serializer};
+use std::fmt;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct EthernetMac(pub [u8;6]);
 
 impl From<&[u8]> for EthernetMac {
@@ -14,6 +16,23 @@ impl From<&[u8]> for EthernetMac {
         bytes.copy_from_slice(slice);
         EthernetMac(bytes)
     }
+}
+
+impl fmt::Display for EthernetMac {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5])
+    }
+}
+
+impl Serialize for EthernetMac {
+
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_str(self)
+    }
+
 }
 
 #[derive(Debug, PartialEq)]

@@ -267,7 +267,7 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
 
         // Not found, create and add to the ConntrackList
 
-        let (parent_weak, parent_strong) = parent.map(|(p, _)| (p.clone(), p.upgrade().unwrap())).unzip();
+        let parent_strong = parent.map(|(p, _)| p.upgrade().unwrap());
         let next_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let entries_weak = Arc::downgrade(&self.entries);
         let cleanup_cb = Arc::new(move ||

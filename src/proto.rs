@@ -1,5 +1,6 @@
 pub mod test;
 pub mod ethernet;
+pub mod sll2;
 pub mod ipv4;
 pub mod ipv6;
 pub mod udp;
@@ -15,6 +16,7 @@ pub mod dhcp;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::{ProtoEthernet, ProtoEthernetInfo};
+use crate::proto::sll2::{ProtoSll2, ProtoSll2Info};
 use crate::proto::ipv4::{ProtoIpv4, ProtoIpv4Info, Ipv4Config};
 use crate::proto::ipv6::{ProtoIpv6, ProtoIpv6Info, Ipv6Config};
 use crate::proto::udp::{ProtoUdp, ProtoUdpInfo, UdpConfig};
@@ -76,6 +78,7 @@ pub enum Protocols {
     None,
     Test,
     Ethernet,
+    Sll2,
     Ipv4,
     Ipv6,
     Udp,
@@ -93,6 +96,7 @@ pub enum Protocols {
 #[derive(Debug, PartialEq)]
 pub enum ProtoInfo {
     Ethernet(ProtoEthernetInfo),
+    Sll2(ProtoSll2Info),
     Ipv4(ProtoIpv4Info),
     Ipv6(ProtoIpv6Info),
     Udp(ProtoUdpInfo),
@@ -113,6 +117,7 @@ pub trait ProtoPktProcessor {
 pub struct Proto {
     test: ProtoTest,
     ethernet: ProtoEthernet,
+    sll2: ProtoSll2,
     ipv4: ProtoIpv4,
     ipv6: ProtoIpv6,
     udp: ProtoUdp,
@@ -134,6 +139,7 @@ impl Proto {
         Self {
             test: ProtoTest::new(),
             ethernet: ProtoEthernet::new(),
+            sll2: ProtoSll2::new(),
             ipv4: ProtoIpv4::new(),
             ipv6: ProtoIpv6::new(),
             tcp: ProtoTcp::new(),
@@ -176,6 +182,7 @@ impl Proto {
             ret = match info.proto {
                 Protocols::Test => self.test.process(pkt, infos),
                 Protocols::Ethernet => self.ethernet.process(pkt, infos),
+                Protocols::Sll2 => self.sll2.process(pkt, infos),
                 Protocols::Ipv4 => self.ipv4.process(pkt, infos),
                 Protocols::Ipv6 => self.ipv6.process(pkt, infos),
                 Protocols::Udp => self.udp.process(pkt, infos),

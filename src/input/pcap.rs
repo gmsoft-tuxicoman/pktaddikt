@@ -107,6 +107,7 @@ impl InputPcap {
         let proto = match datalink {
             Linktype::ETHERNET => Protocols::Ethernet,
             Linktype(12) => Protocols::Ipv4,
+            Linktype::LINUX_SLL2 => Protocols::Sll2,
             Linktype::RAW => Protocols::Ipv4,
             _ => panic!("Unsupported protocol !"),
         };

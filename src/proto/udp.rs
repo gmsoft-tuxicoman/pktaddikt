@@ -144,13 +144,8 @@ impl ProtoPktProcessor for ProtoUdp {
 
         let mut ce_locked = ce.lock().unwrap();
 
-        match ce_locked.has_children() {
-            true => ce_locked.set_timeout(Duration::ZERO, pkt.timestamp()),
-            false => {
-                let cfg = Config::get();
-                ce_locked.set_timeout(Duration::from_secs(cfg.proto.udp.conntrack_timeout), pkt.timestamp())
-            }
-        }
+        let cfg = Config::get();
+        ce_locked.set_timeout(Duration::from_secs(cfg.proto.udp.conntrack_timeout), pkt.timestamp());
 
         let ts = pkt.timestamp();
         let cd = ce_locked.get_or_insert_with(||

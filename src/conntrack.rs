@@ -3,7 +3,7 @@ use crate::packet::PktTime;
 
 use std::sync::{Arc, Weak, Mutex};
 use std::any::Any;
-use tracing::trace;
+use tracing::{debug, trace};
 use std::time::Duration;
 use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
@@ -86,7 +86,7 @@ type ConntrackList<K> = Vec<ConntrackEntry<K>>;
 
 struct ConntrackEntry<K: ConntrackKey> {
     key: K,
-    parent: Option<ConntrackWeakRef>,
+    parent: Option<ConntrackRef>,
     ce: ConntrackRef,
     id: ConntrackId,
 }
@@ -222,10 +222,10 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
             let parent_dir;
             if let Some((ref parent_weak, parent_dir_tmp)) = parent { // If we were provided a parent
                 parent_dir = parent_dir_tmp;
-                if let Some(ct_parent_weak) = &ct_entry.parent { // Check the parent of the conntrack entry
-                    trace!("Comparing ct_entry {:p} with parent {:p}", Weak::as_ptr(&ct_parent_weak), Weak::as_ptr(&parent_weak));
+                if let Some(ct_parent) = &ct_entry.parent { // Check the parent of the conntrack entry
+                    trace!("Comparing ct_entry {:p} with parent {:p}", Arc::as_ptr(&ct_parent), Weak::as_ptr(&parent_weak));
                     // Make sure the parent is the same
-                    if !Weak::ptr_eq(&ct_parent_weak, &parent_weak) {
+                    if Arc::as_ptr(&ct_parent) != Weak::as_ptr(&parent_weak) {
                         trace!("Parent did not match");
                         continue;
                     }
@@ -267,6 +267,7 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
 
         // Not found, create and add to the ConntrackList
 
+        let (parent_weak, parent_strong) = parent.map(|(p, _)| (p.clone(), p.upgrade().unwrap())).unzip();
         let next_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let entries_weak = Arc::downgrade(&self.entries);
         let cleanup_cb = Arc::new(move ||
@@ -275,23 +276,19 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
             }
         );
         let ce = Conntrack::new(cleanup_cb);
+        if parent_strong.is_some() {
+            parent_strong.as_ref().unwrap().lock().unwrap().children.push(ce.clone());
+        }
         let ct_entry = ConntrackEntry {
             key: key,
-            parent: match parent {
-                Some((ref p, _)) => Some(p.clone()),
-                None => None,
-            },
+            parent: parent_strong,
             ce: ce.clone(),
             id: next_id,
         };
         trace!("Created new conntrack {:p}", Arc::as_ptr(&ct_entry.ce));
         ct_list.push(ct_entry);
 
-        if let Some((ref parent_weak, _)) = parent {
-            if let Some(ref parent_strong) = parent_weak.upgrade() {
-                parent_strong.lock().unwrap().children.push(ce.clone());
-            }
-        }
+
 
         (ce, ConntrackDirection::Forward)
     }
@@ -308,6 +305,27 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
             };
 
             ct_entry = ct_list.remove(pos);
+        }
+
+        let mut parent_cleanup: Option<TimerCb> = None;
+        if let Some(parent) = ct_entry.parent {
+            let mut parent_locked = parent.lock().unwrap();
+            if let Some(pos) = parent_locked.children.iter().position(|item| Arc::ptr_eq(item, &ct_entry.ce)) {
+                parent_locked.children.swap_remove(pos);
+                trace!("Child removed from parent children list");
+            } else {
+                debug!("Child not found in parent children");
+            }
+
+            if parent_locked.children.len() == 0 {
+               parent_cleanup = Some(parent_locked.cleanup_cb.clone());
+            }
+
+        }
+
+        // Cleanup when parent isn't locked
+        if let Some(cleanup_cb) = parent_cleanup {
+            cleanup_cb();
         }
 
         for child in &ct_entry.ce.lock().unwrap().children {

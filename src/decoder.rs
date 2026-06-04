@@ -1,8 +1,6 @@
 
 use crate::decoder::gzip::DecoderGzip;
 
-use crate::packet::Packet;
-
 pub mod gzip;
 
 

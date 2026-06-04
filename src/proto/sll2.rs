@@ -3,9 +3,6 @@ use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::ethernet::EthernetMac;
 
-use serde::{Serialize, Serializer};
-use std::fmt;
-
 
 #[derive(Debug, PartialEq)]
 pub struct ProtoSll2Info {

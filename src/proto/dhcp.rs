@@ -24,6 +24,7 @@ pub struct NetDhcpMessage {
     pub sname: Option<EventStr>,
     pub file: Option<EventStr>,
     pub subnet: Option<Ipv4Addr>,
+    pub host_name: Option<EventStr>,
 
 }
 
@@ -112,6 +113,7 @@ impl ProtoPktProcessor for ProtoDhcp {
         }
 
         let mut subnet: Option<Ipv4Addr> = None;
+        let mut host_name: Option<EventStr> = None;
 
         while pkt.remaining_len() > 0 {
             
@@ -129,6 +131,9 @@ impl ProtoPktProcessor for ProtoDhcp {
                     if opt_len !=4 { return Err(ParseErr::Invalid("Invalid DHCP subnet mask option length")); };
                     subnet = Some(pkt.read_ipv4()?);
 
+                },
+                12 => { // Hostname
+                    host_name = Some(EventStr::from(pkt.read(opt_len as u32)?));
                 },
                 53 => { // DHCP Message type
                     if opt_len != 1 { return Err(ParseErr::Invalid("Invalid DHCP message type option length")); };
@@ -172,6 +177,7 @@ impl ProtoPktProcessor for ProtoDhcp {
                 sname,
                 file,
                 subnet,
+                host_name,
             };
 
             let evt = Event::new(pkt.timestamp(), EventPayload::NetDhcpMessage(evt_pload));

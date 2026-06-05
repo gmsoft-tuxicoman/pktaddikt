@@ -22,6 +22,7 @@ pub enum NetDhcpOptions {
     RequestedIP(Ipv4Addr),
     LeaseTime(u32),
     DomainName(EventStr),
+    ServerIdentifier(Ipv4Addr),
 }
 
 #[derive(Debug, Serialize)]
@@ -144,6 +145,11 @@ impl ProtoPktProcessor for ProtoDhcp {
         let chaddr = EthernetMac(pkt.read_fixed::<6>()?);
         pkt.skip(10)?; // Hardware address padding
 
+        if ! MessageBus::event_has_subscribers(EventKind::NetDhcpMessage) && ! MessageBus::event_has_subscribers(EventKind::NetDhcpDora) {
+            // No need to parse more if events aren't being listened to
+            return Ok(());
+        }
+
 
         let sname_raw = pkt.read_fixed::<64>()?;
 
@@ -168,6 +174,7 @@ impl ProtoPktProcessor for ProtoDhcp {
         let mut requested_ip: Option<Ipv4Addr> = None;
         let mut lease_time: Option<u32> = None;
         let mut domain_name: Option<EventStr> = None;
+        let mut server_identifier: Option<Ipv4Addr> = None;
 
         while pkt.remaining_len() > 0 {
             
@@ -213,6 +220,10 @@ impl ProtoPktProcessor for ProtoDhcp {
                         8 => ProtoDhcpMessageType::DHCPINFORM,
                         _ => return Err(ParseErr::Invalid("Invalid DHCP message type option value")),
                     }
+                },
+                54 => { // Server Identifier
+                    if opt_len !=4 { return Err(ParseErr::Invalid("Invalid server identifier option length")); };
+                    server_identifier = Some(pkt.read_ipv4()?);
                 },
                 _ => pkt.skip(opt_len as u32)?,
             }
@@ -288,6 +299,10 @@ impl ProtoPktProcessor for ProtoDhcp {
 
             if let Some(ref d) = domain_name {
                 evt_pload.options.push(NetDhcpOptions::DomainName(d.clone()));
+            }
+
+            if let Some(s) = server_identifier {
+                evt_pload.options.push(NetDhcpOptions::ServerIdentifier(s));
             }
 
             let evt = Event::new(pkt.timestamp(), EventPayload::NetDhcpMessage(evt_pload));

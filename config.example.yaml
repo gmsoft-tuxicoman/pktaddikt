@@ -73,3 +73,5 @@ outputs:
 #    conntrack_timeout: 120     # conntrack timeout for UDP connections
 #  sunrpc:
 #    max_call_queue: 8          # maximum number of RPC calls to remember per connection (UDP or TCP)
+#  dhcp:
+#    dora_timeoute: 70          # time to wait after the last DHCP message to generate the DORA event

@@ -5,14 +5,28 @@ use crate::proto::ethernet::EthernetMac;
 use crate::event::{EventStr, Event, EventPayload, EventKind};
 use crate::messagebus::MessageBus;
 use crate::timer::{TimerManager, TimerCb, TimerId};
+use crate::config::Config;
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::time::Duration;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DhcpConfig {
+    pub dora_timeout: u64,
+}
+
+impl Default for DhcpConfig {
+    fn default() -> Self {
+        Self {
+            dora_timeout: 70,
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub enum NetDhcpOptions {
@@ -313,6 +327,8 @@ impl ProtoPktProcessor for ProtoDhcp {
 
             let mut convo_locked = self.convo.lock().unwrap();
 
+            let cfg = Config::get();
+
             let dora = match convo_locked.entry(chaddr) {
                 Entry::Vacant(e) => {
                     let evt = NetDhcpDora {
@@ -342,7 +358,7 @@ impl ProtoPktProcessor for ProtoDhcp {
                         }
                     });
 
-                    let timer = TimerManager::queue_new(Duration::from_secs(70), pkt.timestamp(), cleanup);
+                    let timer = TimerManager::queue_new(Duration::from_secs(cfg.proto.dhcp.dora_timeout), pkt.timestamp(), cleanup);
 
                     e.insert(ProtoDhcpConvo {
                         evt,
@@ -353,7 +369,7 @@ impl ProtoPktProcessor for ProtoDhcp {
                 },
                 Entry::Occupied(e) => {
                     let dora = e.into_mut();
-                    TimerManager::requeue(dora.timer, Duration::from_secs(70), pkt.timestamp());
+                    TimerManager::requeue(dora.timer, Duration::from_secs(cfg.proto.dhcp.dora_timeout), pkt.timestamp());
 
                     // Add the conn_id if it's not in there already
                     let conn_id = infos.get_conn_id().unwrap();

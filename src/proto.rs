@@ -26,7 +26,7 @@ use crate::proto::vlan::{ProtoVlan, ProtoVlanInfo};
 use crate::proto::icmp::{ProtoIcmp, ProtoIcmpInfo};
 use crate::proto::dns::ProtoDnsUdp;
 use crate::proto::sunrpc::{ProtoSunRpcUdp, SunRpcConfig};
-use crate::proto::dhcp::{ProtoDhcp, ProtoDhcpInfo};
+use crate::proto::dhcp::{ProtoDhcp, ProtoDhcpInfo, DhcpConfig};
 use crate::packet::{Packet, PktInfoStack};
 use crate::timer::TimerManager;
 use crate::config::Config;
@@ -51,6 +51,8 @@ pub struct ProtoConfig {
     udp: UdpConfig,
     #[serde(default)]
     sunrpc: SunRpcConfig,
+    #[serde(default)]
+    dhcp: DhcpConfig,
 }
 
 impl Default for ProtoConfig {
@@ -62,6 +64,7 @@ impl Default for ProtoConfig {
             tcp: TcpConfig::default(),
             udp: UdpConfig::default(),
             sunrpc: SunRpcConfig::default(),
+            dhcp: DhcpConfig::default(),
         }
     }
 }

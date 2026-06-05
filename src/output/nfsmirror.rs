@@ -14,7 +14,6 @@ use std::fs::{File, OpenOptions, hard_link, rename, remove_file, remove_dir_all}
 use std::io::{Seek, SeekFrom, Write, ErrorKind};
 use std::net::IpAddr;
 use tracing::{error, debug, trace};
-use std::time::Duration;
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink;

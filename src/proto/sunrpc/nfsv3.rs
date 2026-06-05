@@ -6,7 +6,7 @@ use crate::packet::PktConnInfo;
 use crate::proto::sunrpc::xdr::*;
 use crate::blob::Blob;
 
-use tracing::{debug, trace};
+use tracing::debug;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::net::IpAddr;

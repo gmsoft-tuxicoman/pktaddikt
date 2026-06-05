@@ -5,7 +5,7 @@ use crate::packet::{Packet, PktInfoStack};
 use serde::{Serialize, Serializer};
 use std::fmt;
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub struct EthernetMac(pub [u8;6]);
 
 impl From<&[u8]> for EthernetMac {

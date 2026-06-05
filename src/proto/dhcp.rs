@@ -62,6 +62,7 @@ pub struct NetDhcpDora {
     pub hostname: Option<EventStr>,
     pub lease_time: Option<u32>,
     pub domain_name: Option<EventStr>,
+    pub duration: Duration,
 }
 
 #[derive(Debug, PartialEq)]
@@ -76,6 +77,7 @@ pub struct ProtoDhcpInfo {
 struct ProtoDhcpConvo {
 
     evt: NetDhcpDora,
+    first_seen: PktTime,
     last_seen: PktTime,
     timer: TimerId,
 }
@@ -313,11 +315,13 @@ impl ProtoPktProcessor for ProtoDhcp {
                         requested_ip: None,
                         subnet: None,
                         domain_name: None,
+                        duration: Duration::ZERO,
                     };
 
                     let convo_clone = self.convo.clone();
                     let cleanup: TimerCb = Arc::new(move || {
-                        if let Some(entry) = convo_clone.lock().unwrap().remove(&chaddr) {
+                        if let Some(mut entry) = convo_clone.lock().unwrap().remove(&chaddr) {
+                            entry.evt.duration = (entry.last_seen - entry.first_seen).into();
                             let evt = Event::new(entry.last_seen, EventPayload::NetDhcpDora(entry.evt));
                             MessageBus::publish_event(evt);
                         }
@@ -327,6 +331,7 @@ impl ProtoPktProcessor for ProtoDhcp {
 
                     e.insert(ProtoDhcpConvo {
                         evt,
+                        first_seen: pkt.timestamp(),
                         last_seen: pkt.timestamp(),
                         timer
                     })

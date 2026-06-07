@@ -3,7 +3,7 @@ pub mod conntrack;
 
 use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
-use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData};
+use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackDirection};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
 use crate::config::Config;
@@ -66,6 +66,7 @@ impl ProtoTcp {
     fn next_proto(port: u16) -> Protocols {
         match port {
             0 => Protocols::Test,
+            22 => Protocols::Ssh,
             53 => Protocols::Dns,
             80 => Protocols::Http,
             111 => Protocols::SunRpc,
@@ -139,15 +140,26 @@ impl ProtoPktProcessor for ProtoTcp {
         };
         info.proto_info = Some(ProtoInfo::Tcp(proto_info));
 
-        let ct_key = ConntrackKeyTcp { a: sport, b: dport };
-        let (ce, ce_dir) = self.ct.get(ct_key, info.parent_ce());
-
         #[cfg(test)]
         {
             // Don't process conntrack when testing
             infos.proto_push(Protocols::Test, None);
             return Err(ParseErr::Stop);
         }
+
+        let mut parent_ce = info.parent_ce().unwrap(); // TCP must be on top of IP
+        if (flags & TCP_TH_SYN) != 0 {
+            if (flags & TCP_TH_ACK) != 0 {
+                // SYN+ACK -> Force reverse direction
+                parent_ce.1 = ConntrackDirection::Reverse;
+            } else {
+                // SYN without ACK -> Force forward direction
+                parent_ce.1 = ConntrackDirection::Forward;
+            }
+        }
+
+        let ct_key = ConntrackKeyTcp { a: sport, b: dport };
+        let (ce, ce_dir) = self.ct.get(ct_key, Some(parent_ce));
 
 
         let mut ce_locked = ce.lock().unwrap();

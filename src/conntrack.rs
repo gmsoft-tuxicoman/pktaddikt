@@ -8,6 +8,7 @@ use std::time::Duration;
 use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::mem;
 
 
 
@@ -37,6 +38,7 @@ pub trait ConntrackKey {
     fn is_both_dir(&self) -> bool;
     fn fwd_eq(&self, other: &Self) -> bool;
     fn rev_eq(&self, other: &Self) -> bool;
+    fn swap(&mut self);
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -68,6 +70,10 @@ impl<T> ConntrackKey for ConntrackKeyBidir<T>
     /// Match the key in the reverse direction
     fn rev_eq(&self, other: &Self) -> bool {
         self.a == other.b && self.b == other.a
+    }
+
+    fn swap(&mut self) {
+        mem::swap(&mut self.a, &mut self.b);
     }
 }
 
@@ -203,7 +209,7 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
     }
 
     //#[tracing::instrument(skip(self))]
-    pub fn get(&self, key: K, parent: Option<(ConntrackWeakRef, ConntrackDirection)>) -> (ConntrackRef, ConntrackDirection) {
+    pub fn get(&self, mut key: K, parent: Option<(ConntrackWeakRef, ConntrackDirection)>) -> (ConntrackRef, ConntrackDirection) {
 
         // Calculate the key and try to find it in the array
         let hash_key = key.key();
@@ -215,13 +221,11 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
 
         let mut found: Option<&mut ConntrackEntry<K>> = None;
 
-        let mut direction = ConntrackDirection::Forward;
+        let mut direction = parent.as_ref().map_or(ConntrackDirection::Forward, |(_, d)| *d);
 
         for ct_entry in ct_list.iter_mut() { // Try to find the exact conntrack in the ConntrackList
 
-            let parent_dir;
-            if let Some((ref parent_weak, parent_dir_tmp)) = parent { // If we were provided a parent
-                parent_dir = parent_dir_tmp;
+            if let Some((ref parent_weak, _)) = parent { // If we were provided a parent
                 if let Some(ct_parent) = &ct_entry.parent { // Check the parent of the conntrack entry
                     trace!("Comparing ct_entry {:p} with parent {:p}", Arc::as_ptr(&ct_parent), Weak::as_ptr(&parent_weak));
                     // Make sure the parent is the same
@@ -234,7 +238,6 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
                     continue;
                 }
             } else {
-                parent_dir = ConntrackDirection::Forward;
                 if ct_entry.parent.is_some() {
                     // We need a conntrack without parent
                     continue;
@@ -244,8 +247,8 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
 
             if ct_entry.key.fwd_eq(&key) {
                 // Conntrack found, forward direction
-                if ct_entry.key.is_both_dir() {
-                    direction = parent_dir;
+                if !ct_entry.key.is_both_dir() { // If conntrack is both dir, use parent's direction
+                    direction = ConntrackDirection::Forward;
                 }
                 trace!("Conntrack found in {:?} direction", direction);
                 found = Some(ct_entry);
@@ -279,6 +282,12 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
         if parent_strong.is_some() {
             parent_strong.as_ref().unwrap().lock().unwrap().children.push(ce.clone());
         }
+
+        if direction == ConntrackDirection::Reverse {
+            // Parent's direction is reverse, match the direction
+            key.swap();
+        }
+
         let ct_entry = ConntrackEntry {
             key: key,
             parent: parent_strong,
@@ -289,8 +298,7 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
         ct_list.push(ct_entry);
 
 
-
-        (ce, ConntrackDirection::Forward)
+        (ce, direction)
     }
 
     fn remove(entries: Arc<Vec<Mutex<ConntrackList<K>>>>, ct_index: usize, id: ConntrackId) {
@@ -328,9 +336,13 @@ impl<K: ConntrackKey + Send + 'static> ConntrackTable<K> {
             cleanup_cb();
         }
 
-        for child in &ct_entry.ce.lock().unwrap().children {
-            // Don't call the cb while locked
-            let cleanup_cb = child.lock().unwrap().cleanup_cb.clone();
+        let children_cleanup: Vec<TimerCb>  = {
+            ct_entry.ce.lock().unwrap().children.iter().map(
+                |child| child.lock().unwrap().cleanup_cb.clone())
+            .collect()
+        };
+
+        for cleanup_cb in children_cleanup {
             cleanup_cb();
         }
 

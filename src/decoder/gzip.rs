@@ -12,7 +12,8 @@ use tracing::{debug, trace};
 pub struct DecoderGzip {
 
     decompress: Decompress,
-    offset: u64,
+    in_offset: u64,
+    out_offset: u64,
     in_error: bool,
 }
 
@@ -24,7 +25,8 @@ impl DecoderGzip {
         Self {
             decompress: Decompress::new_gzip(15),
             in_error: false,
-            offset: 0,
+            in_offset: 0,
+            out_offset: 0,
         }
     }
 
@@ -32,7 +34,8 @@ impl DecoderGzip {
         Self {
             decompress: Decompress::new(true),
             in_error: false,
-            offset: 0,
+            in_offset: 0,
+            out_offset: 0,
         }
     }
 
@@ -40,8 +43,15 @@ impl DecoderGzip {
        
         if self.in_error { return; };
 
+        if self.in_offset != offset {
+            debug!("GZIP content not contiguous. Aborting.");
+            self.in_error = true;
+            return;
+        }
+
         let input = data.peek();
         let input_len = data.remaining_len() as u64;
+        self.in_offset += input_len;
 
         let in_pos = self.decompress.total_in();
 
@@ -67,11 +77,11 @@ impl DecoderGzip {
 
             let msg = BlobMsg::Data( Arc::new(BlobMsgData {
                 id: blob_id,
-                offset: self.offset,
+                offset: self.out_offset,
                 data: Packet::from_vec(data.timestamp(), Arc::new(output)),
             }));
 
-            self.offset += output_len;
+            self.out_offset += output_len;
 
             MessageBus::publish_blobmsg(msg);
 

@@ -21,6 +21,8 @@ pub struct NetSshSession {
     pub client_addr: IpAddr,
     pub client_port: u16,
     pub client_version: Option<EventStr>,
+    pub kex_algorithm: Option<EventStr>,
+    pub server_host_key_algorithm: Option<EventStr>,
     pub encryption_algorithm_client_to_server: Option<EventStr>,
     pub mac_algorithm_client_to_server: Option<EventStr>,
     pub compression_algorithm_client_to_server: Option<EventStr>,
@@ -34,6 +36,8 @@ pub struct NetSshSession {
 
 pub struct ProtoSshStateAlgos {
 
+    kex_algorithms: Vec<EventStr>,
+    server_host_key_algorithms: Vec<EventStr>,
     encryption_algorithms_client_to_server: Vec<EventStr>,
     encryption_algorithms_server_to_client: Vec<EventStr>,
     mac_algorithms_client_to_server: Vec<EventStr>,
@@ -77,6 +81,8 @@ impl PktStreamProcessor for ProtoSsh {
             client_addr: conn_info.src_host.unwrap().clone(),
             client_port: conn_info.src_port.unwrap().clone(),
             client_version: None,
+            kex_algorithm: None,
+            server_host_key_algorithm: None,
             encryption_algorithm_client_to_server: None,
             mac_algorithm_client_to_server: None,
             compression_algorithm_client_to_server: None,
@@ -317,8 +323,8 @@ impl ProtoSsh {
 
         parser.skip(16)?; // Cookie
 
-        let _kex_algorithms = ProtoSsh::read_name_list(parser)?;
-        let _server_host_key_algorithms = ProtoSsh::read_name_list(parser)?;
+        let kex_algorithms = ProtoSsh::read_name_list(parser)?;
+        let server_host_key_algorithms = ProtoSsh::read_name_list(parser)?;
         let encryption_algorithms_client_to_server = ProtoSsh::read_name_list(parser)?;
         let encryption_algorithms_server_to_client = ProtoSsh::read_name_list(parser)?;
         let mac_algorithms_client_to_server = ProtoSsh::read_name_list(parser)?;
@@ -331,6 +337,8 @@ impl ProtoSsh {
         parser.skip_u32()?; // Reserved
 
         let algos = ProtoSshStateAlgos {
+            kex_algorithms: kex_algorithms.split(|&b| b == b',').map(EventStr::from).collect(),
+            server_host_key_algorithms: server_host_key_algorithms.split(|&b| b == b',').map(EventStr::from).collect(),
             encryption_algorithms_client_to_server: encryption_algorithms_client_to_server.split(|&b| b == b',').map(EventStr::from).collect(),
             encryption_algorithms_server_to_client: encryption_algorithms_server_to_client.split(|&b| b == b',').map(EventStr::from).collect(),
             mac_algorithms_client_to_server: mac_algorithms_client_to_server.split(|&b| b == b',').map(EventStr::from).collect(),
@@ -346,6 +354,11 @@ impl ProtoSsh {
             // We know both client and server algos. Let's see which one will be used
     
             let evt_pload = self.evt_pload.as_mut().unwrap();
+
+            // Common algo
+            evt_pload.kex_algorithm = ProtoSsh::algo_selection(&client.kex_algorithms, &server.kex_algorithms);
+            evt_pload.server_host_key_algorithm = ProtoSsh::algo_selection(&client.server_host_key_algorithms, &server.server_host_key_algorithms);
+
             // From the client perspective
             evt_pload.encryption_algorithm_client_to_server = ProtoSsh::algo_selection(&client.encryption_algorithms_client_to_server, &server.encryption_algorithms_client_to_server);
             evt_pload.mac_algorithm_client_to_server = ProtoSsh::algo_selection(&client.mac_algorithms_client_to_server, &server.mac_algorithms_client_to_server);

@@ -13,6 +13,7 @@ pub mod dns;
 pub mod tls;
 pub mod sunrpc;
 pub mod dhcp;
+pub mod ssh;
 
 use crate::proto::test::ProtoTest;
 use crate::proto::ethernet::{ProtoEthernet, ProtoEthernetInfo};
@@ -94,6 +95,7 @@ pub enum Protocols {
     Tls,
     SunRpc,
     Dhcp,
+    Ssh,
 }
 
 #[derive(Debug, PartialEq)]

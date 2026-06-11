@@ -88,6 +88,8 @@ pub enum EventKind {
     NetNfsV4ReplyExchangeId,
     #[strum(serialize = "net.nfsv4.call.create_session")]
     NetNfsV4CallCreateSession,
+    #[strum(serialize = "net.ssh.session")]
+    NetSshSession,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +134,7 @@ pub enum EventPayload {
     NetNfsV4CallExchangeId(crate::proto::sunrpc::nfsv4::NetNfsV4CallExchangeId),
     NetNfsV4ReplyExchangeId(crate::proto::sunrpc::nfsv4::NetNfsV4ReplyExchangeId),
     NetNfsV4CallCreateSession(crate::proto::sunrpc::nfsv4::NetNfsV4CallCreateSession),
+    NetSshSession(crate::proto::ssh::NetSshSession),
 }
 
 impl EventPayload {
@@ -175,6 +178,7 @@ impl EventPayload {
             EventPayload::NetNfsV4CallExchangeId(_) => EventKind::NetNfsV4CallExchangeId,
             EventPayload::NetNfsV4ReplyExchangeId(_) => EventKind::NetNfsV4ReplyExchangeId,
             EventPayload::NetNfsV4CallCreateSession(_) => EventKind::NetNfsV4CallCreateSession,
+            EventPayload::NetSshSession(_) => EventKind::NetSshSession,
         }
     }
 }
@@ -215,7 +219,7 @@ impl Event {
 /// String stored as Vec<u8> and serialized to string
 /// This allow quick storage in parsing process
 /// And slower deserialization in output process
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EventStr(Vec<u8>);
 
 impl Serialize for EventStr {

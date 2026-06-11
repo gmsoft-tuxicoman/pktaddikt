@@ -8,6 +8,8 @@ use crate::messagebus::MessageBus;
 
 
 use serde::Serialize;
+use sha2::{Sha256, Digest as _};
+use base64::Engine as _;
 use std::net::IpAddr;
 use tracing::{debug, trace};
 
@@ -23,6 +25,7 @@ pub struct NetSshSession {
     pub client_version: Option<EventStr>,
     pub kex_algorithm: Option<EventStr>,
     pub server_host_key_algorithm: Option<EventStr>,
+    pub host_key_fingerprint: Option<EventStr>,
     pub encryption_algorithm_client_to_server: Option<EventStr>,
     pub mac_algorithm_client_to_server: Option<EventStr>,
     pub compression_algorithm_client_to_server: Option<EventStr>,
@@ -83,6 +86,7 @@ impl PktStreamProcessor for ProtoSsh {
             client_version: None,
             kex_algorithm: None,
             server_host_key_algorithm: None,
+            host_key_fingerprint: None,
             encryption_algorithm_client_to_server: None,
             mac_algorithm_client_to_server: None,
             compression_algorithm_client_to_server: None,
@@ -186,6 +190,16 @@ impl PktStreamProcessor for ProtoSsh {
                 trace!("Connection encryption started");
                 evt_pload.authentication_succeeded = Some(false);
                 state.encrypted = true;
+            },
+            31 | 33 if dir == ConntrackDirection::Reverse => {
+                // SSH_MSG_KEXDH_REPLY / SSH_MSG_KEX_ECDH_REPLY (31) / SSH_MSG_KEX_DH_GEX_REPLY (33)
+                // First field is the server host key blob
+                let key_len = bin_pkt.read_u32_be()?;
+                let key_blob = bin_pkt.read(key_len)?;
+                let hash = Sha256::digest(&*key_blob);
+                let fingerprint = format!("SHA256:{}", base64::engine::general_purpose::STANDARD_NO_PAD.encode(hash));
+                trace!("SSH host key fingerprint: {}", fingerprint);
+                evt_pload.host_key_fingerprint = Some(EventStr::from(fingerprint.as_bytes()));
             },
             _ => {
                 trace!("Ignoring unknown message type {}", msg_type);

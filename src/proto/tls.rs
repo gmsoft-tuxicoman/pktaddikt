@@ -1,6 +1,7 @@
 use crate::base::{Parser, ParseErr};
 use crate::stream::{PktStreamProcessor, PktStreamParser, PktSubStream};
-use crate::packet::{PktInfoStack, PktConnInfo};
+use crate::packet::PktInfoStack;
+use std::net::IpAddr;
 use crate::conntrack::ConntrackDirection;
 use crate::event::{EventStr, EventPayload, Event};
 use crate::base::UniqueId;
@@ -15,8 +16,10 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct NetTlsClientHello {
     pub conn_id: UniqueId,
-    #[serde(flatten)]
-    pub conn_info: PktConnInfo,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub version: TlsVersion,
     pub server_name: Option<EventStr>,
     pub next_proto: Vec<EventStr>,
@@ -71,7 +74,10 @@ pub struct ProtoTls {
 
     dir: [ProtoTlsDir;2],
     conn_id: UniqueId,
-    conn_info: PktConnInfo,
+    client_addr: IpAddr,
+    client_port: u16,
+    server_addr: IpAddr,
+    server_port: u16,
 }
 
 impl ProtoTls {
@@ -107,10 +113,14 @@ impl ProtoTls {
 impl PktStreamProcessor for ProtoTls {
 
     fn new(infos: &PktInfoStack) -> Self {
+        let conn_info = infos.get_conn_info();
         Self {
             dir: [ProtoTlsDir::default(), ProtoTlsDir::default()],
             conn_id: infos.get_conn_id().unwrap().clone(),
-            conn_info: infos.get_conn_info(),
+            client_addr: conn_info.src_host.unwrap(),
+            client_port: conn_info.src_port.unwrap(),
+            server_addr: conn_info.dst_host.unwrap(),
+            server_port: conn_info.dst_port.unwrap(),
         }
     }
 
@@ -129,7 +139,7 @@ impl PktStreamProcessor for ProtoTls {
         let ret = match status.state {
             ProtoTlsState::Handshake => {
                 let mut stream_data = status.handshake_stream.add_packet(&mut pkt);
-                status.handshake_proto.process(dir, &mut stream_data, &self.conn_id, self.conn_info)
+                status.handshake_proto.process(dir, &mut stream_data, &self.conn_id, self.client_addr, self.client_port, self.server_addr, self.server_port)
             }
             ProtoTlsState::ChangeCipher => {
                 if pkt.read_u8()? != 1 {
@@ -182,7 +192,7 @@ impl ProtoTlsHandshake {
         }
     }
 
-    fn process(&mut self, _dir: ConntrackDirection, parser: &mut PktStreamParser, conn_id: &UniqueId, conn_info: PktConnInfo) -> Result<(), ParseErr> {
+    fn process(&mut self, _dir: ConntrackDirection, parser: &mut PktStreamParser, conn_id: &UniqueId, client_addr: IpAddr, client_port: u16, server_addr: IpAddr, server_port: u16) -> Result<(), ParseErr> {
             
         if self.ctype.is_none() {
             let ctype = match parser.read_u8()? {
@@ -215,7 +225,7 @@ impl ProtoTlsHandshake {
         let mut pkt = parser.sub_packet(self.clen)?;
 
         let ret = match self.ctype {
-            Some(ProtoTlsHandshakeType::ClientHello) => self.parse_client_hello(&mut pkt, conn_id, conn_info),
+            Some(ProtoTlsHandshakeType::ClientHello) => self.parse_client_hello(&mut pkt, conn_id, client_addr, client_port, server_addr, server_port),
             _ => Ok(())
         };
 
@@ -228,7 +238,7 @@ impl ProtoTlsHandshake {
         ret
     }
 
-    fn parse_client_hello(&self, parser: &mut Packet, conn_id: &UniqueId, conn_info: PktConnInfo) -> Result<(), ParseErr> {
+    fn parse_client_hello(&self, parser: &mut Packet, conn_id: &UniqueId, client_addr: IpAddr, client_port: u16, server_addr: IpAddr, server_port: u16) -> Result<(), ParseErr> {
 
         let mut version = parser.read_u16_be()?;
 
@@ -333,7 +343,10 @@ impl ProtoTlsHandshake {
 
         let evt_pload = NetTlsClientHello {
             conn_id: conn_id.clone(),
-            conn_info,
+            client_addr,
+            client_port,
+            server_addr,
+            server_port,
             version: ver_enum,
             server_name,
             next_proto,

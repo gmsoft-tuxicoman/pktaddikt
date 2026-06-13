@@ -13,16 +13,20 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct NetMountCallMnt {
     pub conn_id: UniqueId,
-    pub client: IpAddr,
-    pub server: IpAddr,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub path: EventStr,
 }
 
 #[derive(Debug, Serialize)]
 pub struct NetMountReplyMnt {
     pub conn_id: UniqueId,
-    pub client: IpAddr,
-    pub server: IpAddr,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub status: u32,
     pub path: EventStr,
     pub filehandle: Option<Vec<u8>>,
@@ -81,8 +85,10 @@ impl ProtoMount {
         trace!("Requesting mount {}", String::from_utf8_lossy(&path));
         let evt_pload = NetMountCallMnt {
             conn_id: self.conn_id.clone(),
-            client: self.conn_info.src_host.as_ref().unwrap().clone(),
-            server: self.conn_info.dst_host.as_ref().unwrap().clone(),
+            client_addr: self.conn_info.src_host.unwrap(),
+            client_port: self.conn_info.src_port.unwrap(),
+            server_addr: self.conn_info.dst_host.unwrap(),
+            server_port: self.conn_info.dst_port.unwrap(),
             path: path.into(),
         };
 
@@ -109,8 +115,10 @@ impl ProtoMount {
         let evt_pload = NetMountReplyMnt {
             status,
             conn_id: self.conn_id.clone(),
-            client: self.conn_info.src_host.as_ref().unwrap().clone(),
-            server: self.conn_info.dst_host.as_ref().unwrap().clone(),
+            client_addr: call_pload.client_addr,
+            client_port: call_pload.client_port,
+            server_addr: call_pload.server_addr,
+            server_port: call_pload.server_port,
             path: call_pload.path.clone(),
             filehandle,
         };

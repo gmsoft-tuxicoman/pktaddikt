@@ -1,6 +1,6 @@
 use crate::base::{Parser, ParseErr};
 use crate::proto::ProtoPktProcessor;
-use crate::packet::{Packet, PktInfoStack, PktConnInfo};
+use crate::packet::{Packet, PktInfoStack};
 use crate::event::{Event, EventStr, EventPayload, EventKind};
 use crate::messagebus::MessageBus;
 use crate::base::UniqueId;
@@ -8,7 +8,7 @@ use crate::stream::{PktStreamProcessor, PktStreamParser};
 use crate::conntrack::{ConntrackDirection, ConntrackTableUnique};
 
 use serde::Serialize;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use smallvec::SmallVec;
 use tracing::{debug, trace};
 
@@ -91,8 +91,10 @@ pub enum NetDnsRecordData {
 pub struct NetDnsMessage {
     pub conn_id: UniqueId,
     pub proto: &'static str,
-    #[serde(flatten)]
-    pub conn_info: PktConnInfo,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub direction: ConntrackDirection,
     pub id: u16,
     pub response_code: NetDnsResponseCode,
@@ -112,18 +114,24 @@ pub struct NetDnsMessage {
 #[derive(Debug)]
 pub struct ProtoDns {
     conn_id: UniqueId,
-    conn_info: PktConnInfo,
+    client_addr: IpAddr,
+    client_port: u16,
+    server_addr: IpAddr,
+    server_port: u16,
     proto: &'static str,
 }
 
 impl ProtoDns {
 
     pub fn new(infos: &PktInfoStack, proto: &'static str) -> Self {
+        let conn_info = infos.get_conn_info();
         Self {
             conn_id: infos.get_conn_id().unwrap().clone(),
-            conn_info: infos.get_conn_info(),
+            client_addr: conn_info.src_host.unwrap(),
+            client_port: conn_info.src_port.unwrap(),
+            server_addr: conn_info.dst_host.unwrap(),
+            server_port: conn_info.dst_port.unwrap(),
             proto,
-
         }
     }
 
@@ -303,7 +311,10 @@ impl ProtoDns {
         let mut evt_pload = NetDnsMessage {
             conn_id: self.conn_id.clone(),
             proto: self.proto,
-            conn_info: self.conn_info.clone(),
+            client_addr: self.client_addr,
+            client_port: self.client_port,
+            server_addr: self.server_addr,
+            server_port: self.server_port,
             direction: dir,
             id,
             response_code: ProtoDns::rcode_to_enum(rcode),

@@ -1,6 +1,7 @@
 use crate::base::{Parser, ParseErr};
 use crate::stream::{PktStreamProcessor, PktStreamParser};
-use crate::packet::{PktInfoStack, PktTime, PktConnInfo};
+use crate::packet::{PktInfoStack, PktTime};
+use std::net::IpAddr;
 use crate::conntrack::ConntrackDirection;
 use crate::event::{Event, EventPayload, EventStr, EventKind};
 use crate::messagebus::MessageBus;
@@ -16,8 +17,10 @@ use std::cmp;
 #[derive(Debug, Serialize)]
 pub struct NetHttpRequestBasic {
     pub conn_id: UniqueId,
-    #[serde(flatten)]
-    pub conn_info: PktConnInfo,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub ts: PktTime,
     pub method: String,
     pub version: String,
@@ -34,8 +37,10 @@ pub struct NetHttpRequestFull {
 #[derive(Debug, Serialize)]
 pub struct NetHttpResponseBasic {
     pub conn_id: UniqueId,
-    #[serde(flatten)]
-    pub conn_info: PktConnInfo,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub ts: PktTime,
     pub status: u16,
     pub version: String,
@@ -101,7 +106,10 @@ pub struct ProtoHttp {
     client_dir: Option<ConntrackDirection>,
     info: [ProtoHttpStateInfo;2],
     conn_id: UniqueId,
-    conn_info: PktConnInfo,
+    client_addr: IpAddr,
+    client_port: u16,
+    server_addr: IpAddr,
+    server_port: u16,
     last_status: u16,
 }
 
@@ -214,7 +222,10 @@ impl ProtoHttp {
 
         let evt = NetHttpRequestBasic {
             conn_id: self.conn_id.clone(),
-            conn_info: self.conn_info,
+            client_addr: self.client_addr,
+            client_port: self.client_port,
+            server_addr: self.server_addr,
+            server_port: self.server_port,
             ts,
             method: String::from_utf8_lossy(method).into_owned(),
             version: String::from_utf8_lossy(version).into_owned(),
@@ -249,7 +260,10 @@ impl ProtoHttp {
 
         let evt = NetHttpResponseBasic {
             conn_id: self.conn_id.clone(),
-            conn_info: self.conn_info,
+            client_addr: self.client_addr,
+            client_port: self.client_port,
+            server_addr: self.server_addr,
+            server_port: self.server_port,
             ts,
             version: String::from_utf8_lossy(version).into_owned(),
             status: status_code as u16,
@@ -457,9 +471,13 @@ impl PktStreamProcessor for ProtoHttp {
     fn new(infos: &PktInfoStack) -> Self {
 
 
+        let conn_info = infos.get_conn_info();
         ProtoHttp {
             conn_id: infos.get_conn_id().unwrap().clone(),
-            conn_info: infos.get_conn_info(),
+            client_addr: conn_info.src_host.unwrap(),
+            client_port: conn_info.src_port.unwrap(),
+            server_addr: conn_info.dst_host.unwrap(),
+            server_port: conn_info.dst_port.unwrap(),
             info:  [ ProtoHttpStateInfo {
                 state: ProtoHttpState::FirstLine,
                 content_len: None,

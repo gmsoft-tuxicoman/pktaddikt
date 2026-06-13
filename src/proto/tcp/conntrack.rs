@@ -19,20 +19,20 @@ const CONNTRACK_TCP_MAX_BUFFER :u32 = 1024 * 1024;
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionStart {
     pub conn_id: UniqueId,
-    pub src_host: Option<IpAddr>,
-    pub dst_host: Option<IpAddr>,
-    pub src_port: u16,
-    pub dst_port: u16,
+    pub client_addr: IpAddr,
+    pub server_addr: IpAddr,
+    pub client_port: u16,
+    pub server_port: u16,
 }
 
 #[derive(Debug, Serialize)]
 pub struct NetTcpConnectionEnd {
     pub conn_id: UniqueId,
     pub duration: PktTime,
-    pub src_host: Option<IpAddr>,
-    pub dst_host: Option<IpAddr>,
-    pub src_port: u16,
-    pub dst_port: u16,
+    pub client_addr: IpAddr,
+    pub server_addr: IpAddr,
+    pub client_port: u16,
+    pub server_port: u16,
     pub fwd_bytes: u64,
     pub rev_bytes: u64,
     pub fwd_ip_bytes: u64,
@@ -91,10 +91,10 @@ pub struct ConntrackTcp {
     last_ts: PktTime,
     conn_id: UniqueId,
     flow_state: ConntrackTcpFlowState,
-    src_port: u16,
-    dst_port: u16,
-    src_host: Option<IpAddr>,
-    dst_host: Option<IpAddr>,
+    client_port: u16,
+    server_port: u16,
+    client_addr: IpAddr,
+    server_addr: IpAddr,
     pub next_proto: Protocols,
 }
 
@@ -104,10 +104,10 @@ impl ConntrackTcp {
 
         let ip_info = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap());
 
-        let (src_host, dst_host) = match ip_info {
-            Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
-            Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
-            _ => (None, None),
+        let (client_addr, server_addr) = match ip_info {
+            Some(ProtoInfo::Ipv4(v4)) => (IpAddr::V4(v4.src), IpAddr::V4(v4.dst)),
+            Some(ProtoInfo::Ipv6(v6)) => (IpAddr::V6(v6.src), IpAddr::V6(v6.dst)),
+            _ => unreachable!("TCP conntrack requires an IP layer"),
         };
 
         let Some(ProtoInfo::Tcp(tcp_info)) = infos.proto_from_last(0).map(|p| p.proto_info.as_ref().unwrap()) else {
@@ -141,10 +141,10 @@ impl ConntrackTcp {
             last_ts: PktTime::from_micros(0),
             conn_id: infos.get_conn_id().unwrap().clone(),
             flow_state: ConntrackTcpFlowState::Probing,
-            src_port: tcp_info.sport,
-            dst_port: tcp_info.dport,
-            src_host,
-            dst_host,
+            client_port: tcp_info.sport,
+            server_port: tcp_info.dport,
+            client_addr,
+            server_addr,
             next_proto: proto,
         };
         ct
@@ -280,10 +280,10 @@ impl ConntrackTcp {
         let evt_pload = NetTcpConnectionEnd {
             conn_id: self.conn_id.clone(),
             duration: self.last_ts - self.start_ts.unwrap(),
-            src_host: self.src_host,
-            dst_host: self.dst_host,
-            src_port: self.src_port,
-            dst_port: self.dst_port,
+            client_addr: self.client_addr,
+            server_addr: self.server_addr,
+            client_port: self.client_port,
+            server_port: self.server_port,
             fwd_bytes: self.forward.tot_bytes,
             rev_bytes: self.reverse.tot_bytes,
             fwd_ip_bytes: self.forward.tot_ip_bytes,
@@ -320,10 +320,10 @@ impl ConntrackTcp {
             self.start_ts = Some(data.timestamp());
             let evt_pload = NetTcpConnectionStart {
                 conn_id: self.conn_id.clone(),
-                src_host: self.src_host,
-                dst_host: self.dst_host,
-                src_port: self.src_port,
-                dst_port: self.dst_port,
+                client_addr: self.client_addr,
+                server_addr: self.server_addr,
+                client_port: self.client_port,
+                server_port: self.server_port,
             };
 
             let evt = Event::new(data.timestamp(), EventPayload::NetTcpConnectionStart(evt_pload));

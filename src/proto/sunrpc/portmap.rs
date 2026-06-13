@@ -16,8 +16,10 @@ use serde::Serialize;
 pub struct NetPortmapCallGetport {
 
     pub conn_id: UniqueId,
-    pub client: Option<IpAddr>,
-    pub server: Option<IpAddr>,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub program: u32,
     pub version: u32,
     pub protocol: u32,
@@ -29,8 +31,10 @@ pub struct NetPortmapCallGetport {
 pub struct NetPortmapReplyGetport {
 
     pub conn_id: UniqueId,
-    pub client: Option<IpAddr>,
-    pub server: Option<IpAddr>,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub program: u32,
     pub version: u32,
     pub protocol: u32,
@@ -42,8 +46,10 @@ pub struct ProtoPortmap {
 
     conn_id: UniqueId,
     conn_info: PktConnInfo,
-    client: Option<IpAddr>,
-    server: Option<IpAddr>,
+    client_addr: Option<IpAddr>,
+    client_port: Option<u16>,
+    server_addr: Option<IpAddr>,
+    server_port: Option<u16>,
     version: u32,
 
 }
@@ -60,16 +66,20 @@ impl ProtoPortmap {
             conn_id: conn_id.clone(),
             conn_info: conn_info.clone(),
             version,
-            client: None,
-            server: None,
+            client_addr: None,
+            client_port: None,
+            server_addr: None,
+            server_port: None,
         })
     }
 
     pub fn parse_call<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
 
-        if self.server.is_none() {
-            self.client = self.conn_info.src_host.clone();
-            self.server = self.conn_info.dst_host.clone();
+        if self.server_addr.is_none() {
+            self.client_addr = self.conn_info.src_host;
+            self.client_port = self.conn_info.src_port;
+            self.server_addr = self.conn_info.dst_host;
+            self.server_port = self.conn_info.dst_port;
         }
 
         match self.version {
@@ -87,9 +97,11 @@ impl ProtoPortmap {
 
     pub fn parse_reply<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T, event: Option<EventRef>) -> Result<(), ParseErr> {
 
-        if self.server.is_none() {
-            self.client = self.conn_info.dst_host.clone();
-            self.server = self.conn_info.src_host.clone();
+        if self.server_addr.is_none() {
+            self.client_addr = self.conn_info.dst_host;
+            self.client_port = self.conn_info.dst_port;
+            self.server_addr = self.conn_info.src_host;
+            self.server_port = self.conn_info.src_port;
         }
 
         match self.version {
@@ -119,8 +131,10 @@ impl ProtoPortmap {
 
         let evt_pload = NetPortmapCallGetport {
             conn_id: self.conn_id.clone(),
-            client: self.client.clone(),
-            server: self.server.clone(),
+            client_addr: self.client_addr.unwrap(),
+            client_port: self.client_port.unwrap(),
+            server_addr: self.server_addr.unwrap(),
+            server_port: self.server_port.unwrap(),
             program,
             version,
             protocol,
@@ -137,15 +151,17 @@ impl ProtoPortmap {
 
         let EventPayload::NetPortmapCallGetport(ref pload) = event.as_ref().unwrap().as_ref().payload else { unreachable!(); };
 
-        let Some(IpAddr::V4(server)) = self.server else { return Ok(()); };
+        let Some(IpAddr::V4(server)) = self.server_addr else { return Ok(()); };
 
         let timestamp = parser.timestamp();
         let port = parser.read_u32_be()?;
 
         let evt_pload = NetPortmapReplyGetport {
             conn_id: self.conn_id.clone(),
-            client: self.client.clone(),
-            server: self.server.clone(),
+            client_addr: self.client_addr.unwrap(),
+            client_port: self.client_port.unwrap(),
+            server_addr: self.server_addr.unwrap(),
+            server_port: self.server_port.unwrap(),
             program: pload.program,
             version: pload.version,
             protocol: pload.protocol,

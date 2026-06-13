@@ -17,8 +17,10 @@ use std::time::Duration;
 pub struct NetNfsV3Base {
 
     pub conn_id: UniqueId,
-    pub client: Option<IpAddr>,
-    pub server: Option<IpAddr>,
+    pub client_addr: IpAddr,
+    pub client_port: u16,
+    pub server_addr: IpAddr,
+    pub server_port: u16,
     pub xid: u32,
 
 }
@@ -282,8 +284,10 @@ pub struct ProtoNfsV3 {
     conn_id: UniqueId,
     conn_info: PktConnInfo,
     blobs: HashMap<Vec<u8>, Blob>,
-    server: Option<IpAddr>,
-    client: Option<IpAddr>,
+    server_addr: Option<IpAddr>,
+    server_port: Option<u16>,
+    client_addr: Option<IpAddr>,
+    client_port: Option<u16>,
 
 }
 
@@ -308,17 +312,21 @@ impl ProtoNfsV3 {
             conn_id: conn_id.clone(),
             conn_info: conn_info.clone(),
             blobs: HashMap::new(),
-            server: None,
-            client: None,
+            server_addr: None,
+            server_port: None,
+            client_addr: None,
+            client_port: None,
         }
     }
 
     pub fn parse_call<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T) -> Result<Option<EventRef>, ParseErr> {
 
-        if self.server.is_none() {
+        if self.server_addr.is_none() {
             // ConnInfo will be in the right direction for the first call/reply
-            self.client = self.conn_info.src_host.clone();
-            self.server = self.conn_info.dst_host.clone();
+            self.client_addr = self.conn_info.src_host;
+            self.client_port = self.conn_info.src_port;
+            self.server_addr = self.conn_info.dst_host;
+            self.server_port = self.conn_info.dst_port;
         }
 
         match proc {
@@ -352,10 +360,12 @@ impl ProtoNfsV3 {
 
     pub fn parse_reply<T: Parser>(&mut self, xid: u32, proc: u32, parser: &mut T, event: Option<EventRef>) -> Result<(), ParseErr> {
 
-        if self.server.is_none() {
+        if self.server_addr.is_none() {
             // ConnInfo will be in the right direction for the first call/reply
-            self.client = self.conn_info.dst_host.clone();
-            self.server = self.conn_info.src_host.clone();
+            self.client_addr = self.conn_info.dst_host;
+            self.client_port = self.conn_info.dst_port;
+            self.server_addr = self.conn_info.src_host;
+            self.server_port = self.conn_info.src_port;
         }
 
         match proc {
@@ -390,8 +400,10 @@ impl ProtoNfsV3 {
     fn event_base(&self, xid: u32) -> NetNfsV3Base {
         NetNfsV3Base {
             conn_id: self.conn_id.clone(),
-            server: self.server.clone(),
-            client: self.client.clone(),
+            client_addr: self.client_addr.unwrap(),
+            client_port: self.client_port.unwrap(),
+            server_addr: self.server_addr.unwrap(),
+            server_port: self.server_port.unwrap(),
             xid,
         }
     }

@@ -41,20 +41,20 @@ impl Default for UdpConfig {
 #[derive(Debug, Serialize)]
 pub struct NetUdpConnectionStart {
     pub conn_id: UniqueId,
-    pub src_host: Option<IpAddr>,
-    pub dst_host: Option<IpAddr>,
-    pub src_port: u16,
-    pub dst_port: u16,
+    pub client_addr: IpAddr,
+    pub server_addr: IpAddr,
+    pub client_port: u16,
+    pub server_port: u16,
 }
 
 #[derive(Debug, Serialize)]
 pub struct NetUdpConnectionEnd {
     pub conn_id: UniqueId,
     pub duration: PktTime,
-    pub src_host: Option<IpAddr>,
-    pub dst_host: Option<IpAddr>,
-    pub src_port: u16,
-    pub dst_port: u16,
+    pub client_addr: IpAddr,
+    pub server_addr: IpAddr,
+    pub client_port: u16,
+    pub server_port: u16,
     pub fwd_bytes: u64,
     pub rev_bytes: u64,
     pub fwd_ip_bytes: u64,
@@ -76,10 +76,10 @@ struct ConntrackUdp {
     conn_id: UniqueId,
     start_ts: PktTime,
     last_ts: PktTime,
-    src_port: u16,
-    dst_port: u16,
-    src_host: Option<IpAddr>,
-    dst_host: Option<IpAddr>,
+    client_port: u16,
+    server_port: u16,
+    client_addr: IpAddr,
+    server_addr: IpAddr,
     next_proto: Protocols,
 }
 
@@ -152,10 +152,10 @@ impl ProtoPktProcessor for ProtoUdp {
             {
                 let conn_id = UniqueId::new(ts);
                 let ip_info = infos.proto_from_last(1).map(|p| p.proto_info.as_ref().unwrap());
-                let (src_host, dst_host) = match ip_info {
-                    Some(ProtoInfo::Ipv4(v4)) => (Some(IpAddr::V4(v4.src)), Some(IpAddr::V4(v4.dst))),
-                    Some(ProtoInfo::Ipv6(v6)) => (Some(IpAddr::V6(v6.src)), Some(IpAddr::V6(v6.dst))),
-                    _ => (None, None),
+                let (client_addr, server_addr) = match ip_info {
+                    Some(ProtoInfo::Ipv4(v4)) => (IpAddr::V4(v4.src), IpAddr::V4(v4.dst)),
+                    Some(ProtoInfo::Ipv6(v6)) => (IpAddr::V6(v6.src), IpAddr::V6(v6.dst)),
+                    _ => unreachable!("UDP conntrack requires an IP layer"),
                 };
 
                 let next_proto = match self.et.check(infos) {
@@ -180,10 +180,10 @@ impl ProtoPktProcessor for ProtoUdp {
                     conn_id: conn_id.clone(),
                     start_ts: ts,
                     last_ts: ts,
-                    src_port: sport,
-                    dst_port: dport,
-                    src_host,
-                    dst_host,
+                    client_port: sport,
+                    server_port: dport,
+                    client_addr,
+                    server_addr,
                     next_proto: next_proto,
                     }
                 );
@@ -192,10 +192,10 @@ impl ProtoPktProcessor for ProtoUdp {
 
                     let evt_pload = NetUdpConnectionStart {
                         conn_id: conn_id.clone(),
-                        src_port: sport,
-                        dst_port: dport,
-                        src_host: cd.src_host,
-                        dst_host: cd.dst_host,
+                        client_port: sport,
+                        server_port: dport,
+                        client_addr: cd.client_addr,
+                        server_addr: cd.server_addr,
                     };
                     let evt = Event::new(cd.start_ts, EventPayload::NetUdpConnectionStart(evt_pload));
                     MessageBus::publish_event(evt);
@@ -244,10 +244,10 @@ impl Drop for ConntrackUdp {
 
         let evt_pload = NetUdpConnectionEnd {
             conn_id: self.conn_id.clone(),
-            src_port: self.src_port,
-            dst_port: self.dst_port,
-            src_host: self.src_host,
-            dst_host: self.dst_host,
+            client_port: self.client_port,
+            server_port: self.server_port,
+            client_addr: self.client_addr,
+            server_addr: self.server_addr,
             duration: self.last_ts - self.start_ts,
             fwd_bytes: self.forward.tot_bytes,
             rev_bytes: self.reverse.tot_bytes,

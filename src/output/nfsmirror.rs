@@ -97,12 +97,10 @@ impl OutputNfsMirror {
         let Some(event) = &msg.event else { return };
 
         let (server, filehandle) = match &event.payload {
-            EventPayload::NetNfsV3CallWrite(pload) => (&pload.base.server, &pload.filehandle),
-            EventPayload::NetNfsV3ReplyRead(pload) => (&pload.base.server, &pload.filehandle),
+            EventPayload::NetNfsV3CallWrite(pload) => (pload.base.server_addr, &pload.filehandle),
+            EventPayload::NetNfsV3ReplyRead(pload) => (pload.base.server_addr, &pload.filehandle),
             _ => return,
         };
-
-        let Some(server) = server else { return };
 
         trace!("Got new blob for file handle {:?}", filehandle);
 
@@ -194,8 +192,8 @@ impl OutputNfsMirror {
 
         let EventPayload::NetMountReplyMnt(ref pload) = event.as_ref().payload else { unreachable!(); };
         let Some(filehandle) = &pload.filehandle else { return; };
-        let key: NfsFileHandleKey =(pload.server.clone(), filehandle.clone());
-        let server = pload.server.to_string();
+        let key: NfsFileHandleKey =(pload.server_addr.clone(), filehandle.clone());
+        let server = pload.server_addr.to_string();
 
         if pload.path.len() < 1 {
             debug!("Empty path in mount");
@@ -243,7 +241,7 @@ impl OutputNfsMirror {
         let EventPayload::NetNfsV3ReplyLookup(ref pload) = event.as_ref().payload else { unreachable!(); };
         let name = String::from_utf8_lossy(&pload.name);
 
-        let Some(server) = pload.base.server else { return };
+        let server = pload.base.server_addr;
         let Some(filehandle) = &pload.filehandle else { return };
         let Some(fattr) = &pload.fattr else { return };
         let key: NfsFileHandleKey = (server, pload.parent.clone());
@@ -315,7 +313,7 @@ impl OutputNfsMirror {
         let EventPayload::NetNfsV3ReplyCreate(ref pload) = event.as_ref().payload else { unreachable!(); };
         let filename = String::from_utf8_lossy(&pload.filename);
 
-        let Some(server) = pload.base.server else { return };
+        let server = pload.base.server_addr;
         let Some(filehandle) = &pload.filehandle else { return };
         let Some(fattr) = &pload.fattr else { return };
         let key: NfsFileHandleKey = (server, pload.parent.clone());
@@ -368,7 +366,7 @@ impl OutputNfsMirror {
         if pload.status != 0 { return; }; // Mkdir didn't happen
         let dirname = String::from_utf8_lossy(&pload.dirname);
 
-        let Some(server) = pload.base.server else { return };
+        let server = pload.base.server_addr;
         let Some(dirhandle) = &pload.dirhandle else { return };
         let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
 
@@ -409,7 +407,7 @@ impl OutputNfsMirror {
 
         let linkname = String::from_utf8_lossy(&pload.linkname);
         let to = String::from_utf8_lossy(&pload.to);
-        let Some(server) = pload.base.server else { return };
+        let server = pload.base.server_addr;
 
         let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
 
@@ -440,7 +438,7 @@ impl OutputNfsMirror {
         if pload.status != 0 { return; }; // File wasn't removed
 
         let name = String::from_utf8_lossy(&pload.name);
-        let Some(server) = pload.base.server else { return; };
+        let server = pload.base.server_addr;
         let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
 
         let Some(parent) = self.pathmap.get_mut(&parent_key) else {
@@ -467,7 +465,7 @@ impl OutputNfsMirror {
         if pload.status != 0 { return; }; // Directory wasn't removed
 
         let name = String::from_utf8_lossy(&pload.name);
-        let Some(server) = pload.base.server else { return; };
+        let server = pload.base.server_addr;
         let parent_key: NfsFileHandleKey = (server, pload.parent.clone());
 
         let Some(parent) = self.pathmap.get_mut(&parent_key) else {
@@ -491,7 +489,7 @@ impl OutputNfsMirror {
         let EventPayload::NetNfsV3ReplyRename(ref pload) = event.as_ref().payload else { unreachable!(); };
         if pload.status != 0 { return; }; // Rename didn't happen
 
-        let Some(server) = pload.base.server else { return };
+        let server = pload.base.server_addr;
 
         let from_key: NfsFileHandleKey = (server, pload.from_fh.clone());
         let Some(from_parent) = self.pathmap.get_mut(&from_key) else {
@@ -529,7 +527,7 @@ impl OutputNfsMirror {
         if pload.status != 0 { return; }; // Symlink wasn't created
 
         let dst_name = String::from_utf8_lossy(&pload.dst_name);
-        let Some(server) = pload.base.server else { return };
+        let server = pload.base.server_addr;
 
 
         // Create the file in by-fh to make sure it exists. truncate it if needed.
@@ -559,7 +557,7 @@ impl OutputNfsMirror {
         let EventPayload::NetNfsV3ReplyReaddirplus(ref pload) = event.as_ref().payload else { unreachable!(); };
         if pload.status != 0 { return; };
 
-        let Some(server) = pload.base.server else { return };
+        let server = pload.base.server_addr;
         let parent_key: NfsFileHandleKey = (server, pload.dirhandle.clone());
 
         let Some(mut parent) = self.pathmap.get_mut(&parent_key).cloned() else {

@@ -41,11 +41,11 @@ struct ZeekConnLog {
     ts: PktTime,
     uid: UniqueId,
     #[serde(rename = "id.orig_h")]
-    orig_h: Option<IpAddr>,
+    orig_h: IpAddr,
     #[serde(rename = "id.orig_p")]
     orig_p: u16,
     #[serde(rename = "id.resp_h")]
-    resp_h: Option<IpAddr>,
+    resp_h: IpAddr,
     #[serde(rename = "id.resp_p")]
     resp_p: u16,
     proto: &'static str,
@@ -103,10 +103,10 @@ impl OutputLogZeek {
                 ZeekConnLog {
                     ts: event.ts,
                     uid: p.conn_id.clone(),
-                    orig_h: p.src_host,
-                    orig_p: p.src_port,
-                    resp_h: p.dst_host,
-                    resp_p: p.dst_port,
+                    orig_h: p.client_addr,
+                    orig_p: p.client_port,
+                    resp_h: p.server_addr,
+                    resp_p: p.server_port,
                     proto: "tcp",
                     //service: &'static str,
                     duration: p.duration,
@@ -126,10 +126,10 @@ impl OutputLogZeek {
                 ZeekConnLog {
                     ts: event.ts,
                     uid: p.conn_id.clone(),
-                    orig_h: p.src_host,
-                    orig_p: p.src_port,
-                    resp_h: p.dst_host,
-                    resp_p: p.dst_port,
+                    orig_h: p.client_addr,
+                    orig_p: p.client_port,
+                    resp_h: p.server_addr,
+                    resp_p: p.server_port,
                     proto: "udp",
                     //service: &'static str,
                     duration: p.duration,

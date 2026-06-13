@@ -394,7 +394,7 @@ impl Drop for ProtoSsh {
 
     fn drop(&mut self) {
 
-        if self.evt_pload.is_none() {
+        if self.ts.is_none() || self.evt_pload.is_none() {
             return;
         }
         let evt_pload = self.evt_pload.take().unwrap();

@@ -1,5 +1,5 @@
 use crate::output::{Output, OutputConfig};
-use crate::event::{EventRef, EventKind, EventPayload};
+use crate::event::{EventRef, EventKind, EventPayload, EventStr};
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::base::UniqueId;
 use crate::packet::PktTime;
@@ -11,12 +11,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::to_writer;
 use std::net::IpAddr;
 use tracing::error;
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct LogZeekConfig {
 
     pub path: String,
+    pub conn_log: bool,
+    pub dns_log: bool,
 
 }
 
@@ -25,6 +28,9 @@ impl Default for LogZeekConfig {
     fn default() -> Self {
         Self {
             path: "".to_string(),
+            conn_log: true,
+            dns_log: true,
+
         }
     }
 
@@ -32,6 +38,7 @@ impl Default for LogZeekConfig {
 
 pub struct OutputLogZeek {
     conn_log: Option<BufWriter<File>>,
+    dns_log: Option<BufWriter<File>>,
 }
 
 
@@ -63,6 +70,29 @@ struct ZeekConnLog {
     ip_proto: u16,
 }
 
+#[derive(Debug, Serialize)]
+struct ZeekDnsLog {
+
+    ts: PktTime,
+    uid: UniqueId,
+    #[serde(rename = "id.orig_h")]
+    orig_h: IpAddr,
+    #[serde(rename = "id.orig_p")]
+    orig_p: u16,
+    #[serde(rename = "id.resp_h")]
+    resp_h: IpAddr,
+    #[serde(rename = "id.resp_p")]
+    resp_p: u16,
+    proto: &'static str,
+    trans_id: u16,
+    query: EventStr,
+    qclass: u16,
+    qclass_name: &'static str,
+    qtype: u16,
+    qtype_name: String,
+}
+
+
 
 impl OutputLogZeek {
 
@@ -73,24 +103,52 @@ impl OutputLogZeek {
             panic!("Config is not logzeek");
         };
 
-        let mut path = cfg.path.clone();
-        if path.len() > 0 && ! path.ends_with('/') {
-            path.push('/');
+        let path = PathBuf::from(cfg.path.clone());
+
+        let mut conn_log: Option<BufWriter<File>> = None;
+
+        if cfg.conn_log {
+            let conn_path = path.clone().join("conn.log");
+            let file = OpenOptions::new().create(true).write(true).append(true).open(&conn_path).expect(&format!("Unable to open {} for output logzeek", conn_path.display()));
+            let writer = BufWriter::new(file);
+            msg_bus.event_subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
+            msg_bus.event_subscribe_kind(EventKind::NetUdpConnectionEnd, tx);
+
+            conn_log = Some(writer);
         }
 
-        path.push_str("conn.log");
+        let mut dns_log: Option<BufWriter<File>> = None;
+        if cfg.dns_log {
+            let dns_path = path.clone().join("dns.log");
+            let file = OpenOptions::new().create(true).write(true).append(true).open(&dns_path).expect(&format!("Unable to open {} for output logzeek", dns_path.display()));
+            let writer = BufWriter::new(file);
+            msg_bus.event_subscribe_kind(EventKind::NetDnsMessage, tx);
 
-        let file = OpenOptions::new().create(true).write(true).append(true).open(&path).expect(&format!("Unable to open {} for output logzeek", path));
-        let writer = BufWriter::new(file);
+            dns_log = Some(writer);
+        }
 
 
-        msg_bus.event_subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetUdpConnectionEnd, tx);
+        Box::new( Self {
+            conn_log,
+            dns_log,
+        })
 
-        Box::new(Self { conn_log: Some(writer) })
     }
 
     fn process_event(&mut self, event: EventRef) {
+
+        match event.kind() {
+
+            EventKind::NetTcpConnectionEnd => self.process_conn_event(event),
+            EventKind::NetUdpConnectionEnd => self.process_conn_event(event),
+            EventKind::NetDnsMessage => self.process_dns_event(event),
+            _ => unreachable!(),
+
+        }
+
+    }
+
+    fn process_conn_event(&mut self, event: EventRef) {
 
         if self.conn_log.is_none() {
             // There was an error writing the logs
@@ -162,6 +220,48 @@ impl OutputLogZeek {
         }
     }
 
+    fn process_dns_event(&mut self, event: EventRef) {
+
+        if self.dns_log.is_none() {
+            // There was an error writing the logs
+            // Keep processing the messages but don't attempt to write
+            return;
+        }
+
+        let log = match &event.payload {
+            EventPayload::NetDnsMessage(p) => {
+                ZeekDnsLog {
+                    ts: event.ts,
+                    uid: p.conn_id.clone(),
+                    orig_h: p.client_addr,
+                    orig_p: p.client_port,
+                    resp_h: p.server_addr,
+                    resp_p: p.server_port,
+                    proto: p.proto,
+                    trans_id: p.id,
+                    query: p.qname.clone(),
+                    qclass: 1, // Other classes are not parsed yet
+                    qclass_name: "C_INTERNET",
+                    qtype: p.qtype as u16,
+                    qtype_name: format!("{:?}", p.qtype),
+                }
+            },
+            _ => panic!("Wrong event received")
+        };
+
+        let mut dns_log = self.dns_log.as_mut().unwrap();
+
+        if let Err(e) = to_writer(&mut dns_log, &log) {
+            error!("Error serializing the logs: {}", e);
+            self.dns_log = None;
+            return;
+        }
+        if let Err(e) = writeln!(&mut dns_log) {
+            error!("Error writing to the log file: {}", e);
+            self.dns_log = None;
+            return;
+        }
+    }
 }
 
 impl Output for OutputLogZeek {
@@ -171,12 +271,18 @@ impl Output for OutputLogZeek {
 
             match msg {
                 Message::Shutdown => {
-                    if self.conn_log.is_none() {
-                        break;
+                    if self.conn_log.is_some() {
+                        if let Err(e) = self.conn_log.as_mut().unwrap().flush() {
+                            error!("Error flushing the conn log file: {}", e);
+                        }
                     }
-                    if let Err(e) = self.conn_log.as_mut().unwrap().flush() {
-                        error!("Error flushing the log file: {}", e);
+
+                    if self.dns_log.is_some() {
+                        if let Err(e) = self.dns_log.as_mut().unwrap().flush() {
+                            error!("Error flushing the dns log file: {}", e);
+                        }
                     }
+
                     break;
                 }
                 Message::Event(e) => self.process_event(e),

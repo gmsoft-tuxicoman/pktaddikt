@@ -109,12 +109,13 @@ pub enum NetDnsRecordType {
     DLV        = 32769,
 }
 
-#[derive(Debug, Serialize)]
+#[repr(u16)]
+#[derive(Copy, Clone, Debug, Serialize)]
 pub enum NetDnsRecordClass {
-    IN,
-    CS,
-    CH,
-    HS,
+    IN = 1,
+    CS = 2,
+    CH = 3,
+    HS = 4,
 }
 
 #[derive(Debug, Serialize)]

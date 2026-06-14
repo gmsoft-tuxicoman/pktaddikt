@@ -1,5 +1,6 @@
 use crate::output::{Output, OutputConfig};
 use crate::event::{EventRef, EventKind, EventPayload, EventStr};
+use crate::proto::dns::NetDnsRecordClass;
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::base::UniqueId;
 use crate::packet::PktTime;
@@ -240,8 +241,13 @@ impl OutputLogZeek {
                     proto: p.proto,
                     trans_id: p.id,
                     query: p.qname.clone(),
-                    qclass: 1, // Other classes are not parsed yet
-                    qclass_name: "C_INTERNET",
+                    qclass: p.qclass as u16,
+                    qclass_name: match p.qclass {
+                        NetDnsRecordClass::IN => "C_INTERNET",
+                        NetDnsRecordClass::CS => "C_CSNET",
+                        NetDnsRecordClass::CH => "C_CHAOS",
+                        NetDnsRecordClass::HS => "C_HESIOD",
+                    },
                     qtype: p.qtype as u16,
                     qtype_name: format!("{:?}", p.qtype),
                 }

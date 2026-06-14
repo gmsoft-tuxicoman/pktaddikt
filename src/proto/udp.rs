@@ -206,6 +206,8 @@ impl ProtoPktProcessor for ProtoUdp {
 
         ).downcast_mut::<ConntrackUdp>().unwrap();
 
+        cd.last_ts = pkt.timestamp();
+
         infos.set_conn_id(cd.conn_id.clone());
 
 
@@ -257,7 +259,7 @@ impl Drop for ConntrackUdp {
             rev_pkts: self.reverse.tot_pkts,
         };
 
-        let evt = Event::new(self.last_ts, EventPayload::NetUdpConnectionEnd(evt_pload));
+        let evt = Event::new(self.start_ts, EventPayload::NetUdpConnectionEnd(evt_pload));
         MessageBus::publish_event(evt);
     }
 

@@ -40,7 +40,7 @@ pub struct NetDnsRecord {
 }
 
 #[repr(u8)]
-#[derive(Debug, Serialize)]
+#[derive(Copy, Clone, Debug, Serialize)]
 pub enum NetDnsResponseCode {
     OK,
     FormatError,

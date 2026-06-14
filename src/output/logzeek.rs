@@ -1,6 +1,6 @@
 use crate::output::{Output, OutputConfig};
 use crate::event::{EventRef, EventKind, EventPayload, EventStr};
-use crate::proto::dns::NetDnsRecordClass;
+use crate::proto::dns::{NetDnsRecordClass, NetDnsResponseCode};
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::base::UniqueId;
 use crate::packet::PktTime;
@@ -87,6 +87,8 @@ struct ZeekDnsLog {
     proto: &'static str,
     trans_id: u16,
     query: EventStr,
+    rcode: u8,
+    rcode_name: &'static str,
     qclass: u16,
     qclass_name: &'static str,
     qtype: u16,
@@ -241,6 +243,16 @@ impl OutputLogZeek {
                     proto: p.proto,
                     trans_id: p.id,
                     query: p.qname.clone(),
+                    rcode: p.response_code as u8,
+                    rcode_name: match p.response_code {
+                        NetDnsResponseCode::OK             => "NOERROR",
+                        NetDnsResponseCode::FormatError    => "FORMERR",
+                        NetDnsResponseCode::ServerFailure  => "SERVFAIL",
+                        NetDnsResponseCode::NameError      => "NXDOMAIN",
+                        NetDnsResponseCode::NotImplemented => "NOTIMP",
+                        NetDnsResponseCode::Refused        => "REFUSED",
+                        NetDnsResponseCode::Reserved       => "unknown",
+                    },
                     qclass: p.qclass as u16,
                     qclass_name: match p.qclass {
                         NetDnsRecordClass::IN => "C_INTERNET",

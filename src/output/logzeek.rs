@@ -72,6 +72,7 @@ struct ZeekConnLog {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(non_snake_case)]
 struct ZeekDnsLog {
 
     ts: PktTime,
@@ -86,6 +87,8 @@ struct ZeekDnsLog {
     resp_p: u16,
     proto: &'static str,
     trans_id: u16,
+    opcode: u8,
+    opcode_name: &'static str,
     query: EventStr,
     rcode: u8,
     rcode_name: &'static str,
@@ -93,6 +96,11 @@ struct ZeekDnsLog {
     qclass_name: &'static str,
     qtype: u16,
     qtype_name: String,
+    AA: bool,
+    TC: bool,
+    RD: bool,
+    RA: bool,
+    Z: u8,
 }
 
 
@@ -242,6 +250,16 @@ impl OutputLogZeek {
                     resp_p: p.server_port,
                     proto: p.proto,
                     trans_id: p.id,
+                    opcode: p.opcode,
+                    opcode_name: match p.opcode {
+                        0 => "QUERY",
+                        1 => "IQUERY",
+                        2 => "STATUS",
+                        4 => "NOTIFY",
+                        5 => "UPDATE",
+                        6 => "DSO",
+                        _ => "unknown",
+                    },
                     query: p.qname.clone(),
                     rcode: p.response_code as u8,
                     rcode_name: match p.response_code {
@@ -262,6 +280,11 @@ impl OutputLogZeek {
                     },
                     qtype: p.qtype as u16,
                     qtype_name: format!("{:?}", p.qtype),
+                    AA: p.aa,
+                    TC: p.tc,
+                    RD: p.rd,
+                    RA: p.ra,
+                    Z: (p.z as u8) << 2 | (p.ad as u8) << 1 | (p.cd as u8),
                 }
             },
             _ => panic!("Wrong event received")

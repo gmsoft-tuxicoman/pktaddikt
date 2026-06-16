@@ -144,6 +144,14 @@ pub struct NetDnsMessage {
     pub id: u16,
     pub response_code: NetDnsResponseCode,
     pub is_response: bool,
+    pub opcode: u8,
+    pub aa: bool,
+    pub tc: bool,
+    pub rd: bool,
+    pub ra: bool,
+    pub ad: bool,
+    pub cd: bool,
+    pub z: bool,
     pub question_count: u16,
     pub answer_count: u16,
     pub authority_count: u16,
@@ -373,6 +381,14 @@ impl ProtoDns {
         let id = u16::from_be_bytes(data[0..2].try_into().unwrap());
         let rcode = data[2] & 0xF;
         let is_response = data[3] & 0x80 == 0x80;
+        let opcode = (data[2] >> 3) & 0x0F;
+        let aa = data[2] & 0x04 != 0;
+        let tc = data[2] & 0x02 != 0;
+        let rd = data[2] & 0x01 != 0;
+        let ra = data[3] & 0x80 != 0;
+        let ad = data[3] & 0x20 != 0;
+        let cd = data[3] & 0x10 != 0;
+        let z  = data[3] & 0x40 != 0;
         let question_count = u16::from_be_bytes(data[4..6].try_into().unwrap());
         let answer_count = u16::from_be_bytes(data[6..8].try_into().unwrap());
         let authority_count = u16::from_be_bytes(data[8..10].try_into().unwrap());
@@ -409,6 +425,14 @@ impl ProtoDns {
             id,
             response_code: ProtoDns::rcode_to_enum(rcode),
             is_response,
+            opcode,
+            aa,
+            tc,
+            rd,
+            ra,
+            ad,
+            cd,
+            z,
             question_count,
             answer_count,
             authority_count,

@@ -31,6 +31,14 @@ pub struct NetDnsRecordDataMx {
 }
 
 #[derive(Debug, Serialize)]
+pub struct NetDnsRecordDataSrv {
+    pub priority: u16,
+    pub weight: u16,
+    pub port: u16,
+    pub target: EventStr,
+}
+
+#[derive(Debug, Serialize)]
 pub struct NetDnsRecord {
     pub name: EventStr,
     pub r#type: NetDnsRecordType,
@@ -124,10 +132,12 @@ pub enum NetDnsRecordData {
     None,
     A(Ipv4Addr),
     AAAA(Ipv6Addr),
+    NS(EventStr),
     CNAME(EventStr),
     SOA(NetDnsRecordDataSoa),
     PTR(EventStr),
     MX(NetDnsRecordDataMx),
+    SRV(NetDnsRecordDataSrv),
     TXT(EventStr),
     Other(Vec<u8>),
 }
@@ -293,7 +303,14 @@ impl ProtoDns {
 
         let data = match qtype {
             1 => {
+                if rlen < 4 {
+                    return Err(ParseErr::Invalid("A record rdata too short"));
+                }
                 NetDnsRecordData::A(Ipv4Addr::new(data[offset], data[offset + 1], data[offset + 2], data[offset + 3]))
+            }
+            2 => {
+                let (ns, _) = ProtoDns::parse_name(data, offset)?;
+                NetDnsRecordData::NS(ns.to_vec().into())
             }
             5 => {
                 let (cname, _) = ProtoDns::parse_name(data, offset)?;
@@ -304,6 +321,9 @@ impl ProtoDns {
                 offset = new_offset;
                 let (rname, new_offset) = ProtoDns::parse_name(data, offset)?;
                 offset = new_offset;
+                if data.len() < offset + 20 {
+                    return Err(ParseErr::Invalid("SOA record rdata too short"));
+                }
                 let serial = u32::from_be_bytes(data[offset .. offset + 4].try_into().unwrap());
                 offset += 4;
                 let refresh = u32::from_be_bytes(data[offset .. offset + 4].try_into().unwrap());
@@ -329,6 +349,9 @@ impl ProtoDns {
                 NetDnsRecordData::PTR(ptr.to_vec().into())
             }
             15 => {
+                if rlen < 2 {
+                    return Err(ParseErr::Invalid("MX record rdata too short"));
+                }
                 let pref = ((data[offset] as u16) << 8) + (data[offset + 1] as u16);
                 let (mx, _) = ProtoDns::parse_name(data, offset + 2)?;
                 NetDnsRecordData::MX( NetDnsRecordDataMx {
@@ -342,6 +365,9 @@ impl ProtoDns {
                 let mut pos = 0;
                 while pos < txt.len() {
                     let len = txt[pos] as usize;
+                    if pos + 1 + len > txt.len() {
+                        return Err(ParseErr::Invalid("TXT record segment overflows rdata"));
+                    }
                     let cstring = &txt[pos + 1..pos + 1 + len];
                     value.extend_from_slice(cstring);
                     pos += len + 1;
@@ -349,9 +375,21 @@ impl ProtoDns {
                 NetDnsRecordData::TXT(value.into())
             }
             28 => {
+                if rlen < 16 {
+                    return Err(ParseErr::Invalid("AAAA record rdata too short"));
+                }
                 let ipv6 = Ipv6Addr::from(<[u8; 16]>::try_from(&data[offset .. offset + 16]).unwrap());
                 NetDnsRecordData::AAAA(ipv6)
-
+            }
+            33 => {
+                if rlen < 6 {
+                    return Err(ParseErr::Invalid("SRV record rdata too short"));
+                }
+                let priority = u16::from_be_bytes(data[offset     .. offset + 2].try_into().unwrap());
+                let weight   = u16::from_be_bytes(data[offset + 2 .. offset + 4].try_into().unwrap());
+                let port     = u16::from_be_bytes(data[offset + 4 .. offset + 6].try_into().unwrap());
+                let (target, _) = ProtoDns::parse_name(data, offset + 6)?;
+                NetDnsRecordData::SRV(NetDnsRecordDataSrv { priority, weight, port, target: target.to_vec().into() })
             }
             _ => NetDnsRecordData::Other(data[offset..offset + rlen as usize].to_vec())
         };
@@ -483,7 +521,7 @@ impl ProtoDns {
 
         let mut name: SmallVec<[u8; 128]> = SmallVec::new();
 
-        if name_offset > msg.len() {
+        if name_offset >= msg.len() {
             return Err(ParseErr::Invalid("Offset points outside the message"));
         }
 
@@ -503,8 +541,8 @@ impl ProtoDns {
                     return Err(ParseErr::Invalid("Invalid pointer"));
                 }
 
-                if off + 1 > msg.len() {
-                    return Err(ParseErr::Invalid("Pointer points outside the message"));
+                if off + 2 > msg.len() {
+                    return Err(ParseErr::Invalid("Pointer truncated"));
                 }
 
                 // Return parsing the header after the pointer
@@ -515,7 +553,7 @@ impl ProtoDns {
                 // Pointer seems valid
                 off = (u16::from_be_bytes(msg[off .. off + 2].try_into().unwrap()) & 0x3FFF) as usize;
 
-                if off > msg.len() {
+                if off >= msg.len() {
                     return Err(ParseErr::Invalid("Pointer points after the message"));
                 }
 
@@ -529,6 +567,9 @@ impl ProtoDns {
 
             name.extend_from_slice(&msg[off + 1..off + 1 + label_len as usize]);
             off += label_len as usize + 1;
+            if off >= msg.len() {
+                return Err(ParseErr::Truncated);
+            }
             label_len = msg[off];
             if label_len > 0 {
                 name.push(b'.');

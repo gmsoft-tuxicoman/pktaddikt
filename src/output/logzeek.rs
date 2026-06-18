@@ -286,10 +286,11 @@ impl OutputLogZeek {
                         rrs.iter().map(|rr| match &rr.data {
                             NetDnsRecordData::A(ip)    => ip.to_string(),
                             NetDnsRecordData::AAAA(ip) => ip.to_string(),
-                            NetDnsRecordData::CNAME(s) | NetDnsRecordData::PTR(s) | NetDnsRecordData::TXT(s) => {
+                            NetDnsRecordData::NS(s) | NetDnsRecordData::CNAME(s) | NetDnsRecordData::PTR(s) | NetDnsRecordData::TXT(s) => {
                                 String::from_utf8_lossy(s).into_owned()
                             },
                             NetDnsRecordData::MX(mx)   => String::from_utf8_lossy(&mx.mx).into_owned(),
+                            NetDnsRecordData::SRV(srv) => format!("{} {} {} {}", srv.priority, srv.weight, srv.port, String::from_utf8_lossy(&srv.target)),
                             NetDnsRecordData::SOA(soa) => String::from_utf8_lossy(&soa.mname).into_owned(),
                             _                          => "-".to_string(),
                         }).collect()

@@ -1,6 +1,6 @@
 use crate::output::{Output, OutputConfig};
 use crate::event::{EventRef, EventKind, EventPayload, EventStr};
-use crate::proto::dns::{NetDnsRecordClass, NetDnsResponseCode};
+use crate::proto::dns::{NetDnsRecordClass, NetDnsRecordData, NetDnsResponseCode};
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::base::UniqueId;
 use crate::packet::PktTime;
@@ -96,6 +96,8 @@ struct ZeekDnsLog {
     qclass_name: &'static str,
     qtype: u16,
     qtype_name: String,
+    answers: Vec<String>,
+    TTLs: Vec<u32>,
     AA: bool,
     TC: bool,
     RD: bool,
@@ -280,6 +282,21 @@ impl OutputLogZeek {
                     },
                     qtype: p.qtype as u16,
                     qtype_name: format!("{:?}", p.qtype),
+                    answers: p.answers.as_ref().map_or(vec![], |rrs| {
+                        rrs.iter().map(|rr| match &rr.data {
+                            NetDnsRecordData::A(ip)    => ip.to_string(),
+                            NetDnsRecordData::AAAA(ip) => ip.to_string(),
+                            NetDnsRecordData::CNAME(s) | NetDnsRecordData::PTR(s) | NetDnsRecordData::TXT(s) => {
+                                String::from_utf8_lossy(s).into_owned()
+                            },
+                            NetDnsRecordData::MX(mx)   => String::from_utf8_lossy(&mx.mx).into_owned(),
+                            NetDnsRecordData::SOA(soa) => String::from_utf8_lossy(&soa.mname).into_owned(),
+                            _                          => "-".to_string(),
+                        }).collect()
+                    }),
+                    TTLs: p.answers.as_ref().map_or(vec![], |rrs| {
+                        rrs.iter().map(|rr| rr.ttl).collect()
+                    }),
                     AA: p.aa,
                     TC: p.tc,
                     RD: p.rd,

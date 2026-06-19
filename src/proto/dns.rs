@@ -417,8 +417,8 @@ impl ProtoDns {
 
         // Parse DNS headers
         let id = u16::from_be_bytes(data[0..2].try_into().unwrap());
-        let rcode = data[2] & 0xF;
-        let is_response = data[3] & 0x80 == 0x80;
+        let rcode = data[3] & 0xF;
+        let is_response = data[2] & 0x80 == 0x80;
         let opcode = (data[2] >> 3) & 0x0F;
         let aa = data[2] & 0x04 != 0;
         let tc = data[2] & 0x02 != 0;

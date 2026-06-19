@@ -8,7 +8,7 @@ use serde::Serialize;
 
 static UNIQUE_ID_COUNTER: AtomicU16 = AtomicU16::new(0);
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct UniqueId (String);
 
 impl UniqueId {

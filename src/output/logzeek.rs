@@ -22,6 +22,7 @@ pub struct LogZeekConfig {
     pub path: String,
     pub conn_log: bool,
     pub dns_log: bool,
+    pub dns_auth_addl: bool,
 
 }
 
@@ -32,6 +33,7 @@ impl Default for LogZeekConfig {
             path: "".to_string(),
             conn_log: true,
             dns_log: true,
+            dns_auth_addl: false,
         }
     }
 
@@ -40,6 +42,7 @@ impl Default for LogZeekConfig {
 pub struct OutputLogZeek {
     conn_log: Option<BufWriter<File>>,
     dns_log: Option<BufWriter<File>>,
+    dns_auth_addl: bool,
     pending_dns_queries: HashMap<(UniqueId, u16), EventRef>,
 }
 
@@ -99,6 +102,10 @@ struct ZeekDnsLog {
     qtype_name: String,
     answers: Vec<String>,
     TTLs: Vec<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    addl: Option<Vec<String>>,
     AA: bool,
     TC: bool,
     RD: bool,
@@ -142,12 +149,13 @@ impl OutputLogZeek {
         Box::new( Self {
             conn_log,
             dns_log,
+            dns_auth_addl: cfg.dns_auth_addl,
             pending_dns_queries: HashMap::new(),
         })
 
     }
 
-    fn build_dns_log(ts: PktTime, p: &NetDnsMessage) -> ZeekDnsLog {
+    fn build_dns_log(&self, ts: PktTime, p: &NetDnsMessage) -> ZeekDnsLog {
         ZeekDnsLog {
             ts,
             uid: p.conn_id.clone(),
@@ -199,6 +207,16 @@ impl OutputLogZeek {
                 _                          => "-".to_string(),
             }).collect()),
             TTLs:    p.answers.as_ref().map_or(vec![], |rrs| rrs.iter().map(|rr| rr.ttl).collect()),
+            auth: if self.dns_auth_addl { Some(p.authorities.as_ref().map_or(vec![], |rrs| rrs.iter().map(|rr| match &rr.data {
+                NetDnsRecordData::NS(s)    => String::from_utf8_lossy(s).into_owned(),
+                NetDnsRecordData::SOA(soa) => String::from_utf8_lossy(&soa.mname).into_owned(),
+                _                          => "-".to_string(),
+            }).collect())) } else { None },
+            addl: if self.dns_auth_addl { Some(p.additionals.as_ref().map_or(vec![], |rrs| rrs.iter().map(|rr| match &rr.data {
+                NetDnsRecordData::A(ip)    => ip.to_string(),
+                NetDnsRecordData::AAAA(ip) => ip.to_string(),
+                _                          => "-".to_string(),
+            }).collect())) } else { None },
             AA: p.aa,
             TC: p.tc,
             RD: p.rd,
@@ -234,7 +252,7 @@ impl OutputLogZeek {
         for key in keys {
             if let Some(qe) = self.pending_dns_queries.remove(&key) {
                 if let EventPayload::NetDnsMessage(p) = &qe.payload {
-                    let log = Self::build_dns_log(qe.ts, p);
+                    let log = self.build_dns_log(qe.ts, p);
                     self.write_dns_log(log);
                 }
             }
@@ -341,7 +359,7 @@ impl OutputLogZeek {
             .map(|q| q.ts)
             .unwrap_or(event.ts);
 
-        let log = Self::build_dns_log(ts, p);
+        let log = self.build_dns_log(ts, p);
         self.write_dns_log(log);
     }
 }
@@ -359,7 +377,7 @@ impl Output for OutputLogZeek {
                         for key in keys {
                             if let Some(qe) = self.pending_dns_queries.remove(&key) {
                                 if let EventPayload::NetDnsMessage(p) = &qe.payload {
-                                    let log = Self::build_dns_log(qe.ts, p);
+                                    let log = self.build_dns_log(qe.ts, p);
                                     self.write_dns_log(log);
                                 }
                             }

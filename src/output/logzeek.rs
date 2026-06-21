@@ -23,6 +23,7 @@ pub struct LogZeekConfig {
     pub conn_log: bool,
     pub dns_log: bool,
     pub dns_auth_addl: bool,
+    pub ssh_log: bool,
 
 }
 
@@ -34,6 +35,7 @@ impl Default for LogZeekConfig {
             conn_log: true,
             dns_log: true,
             dns_auth_addl: false,
+            ssh_log: true,
         }
     }
 
@@ -44,6 +46,7 @@ pub struct OutputLogZeek {
     dns_log: Option<BufWriter<File>>,
     dns_auth_addl: bool,
     pending_dns_queries: HashMap<(UniqueId, u16), EventRef>,
+    ssh_log: Option<BufWriter<File>>,
 }
 
 
@@ -113,6 +116,43 @@ struct ZeekDnsLog {
     Z: u8,
 }
 
+#[derive(Debug, Serialize)]
+struct ZeekSshLog {
+
+    ts: PktTime,
+    uid: UniqueId,
+    #[serde(rename = "id.orig_h")]
+    orig_h: IpAddr,
+    #[serde(rename = "id.orig_p")]
+    orig_p: u16,
+    #[serde(rename = "id.resp_h")]
+    resp_h: IpAddr,
+    #[serde(rename = "id.resp_p")]
+    resp_p: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth_success: Option<bool>,
+    auth_attempts: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cipher_alg: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mac_alg: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compression_alg: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kex_alg: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host_key_alg: Option<EventStr>,
+    // SHA256 fingerprint (e.g. "SHA256:..."), not MD5 as in older Zeek versions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host_key: Option<EventStr>,
+}
+
 
 impl OutputLogZeek {
 
@@ -140,6 +180,14 @@ impl OutputLogZeek {
             msg_bus.event_subscribe_kind(EventKind::NetDnsMessage, tx);
         }
 
+        let mut ssh_log: Option<BufWriter<File>> = None;
+        if cfg.ssh_log {
+            let ssh_path = path.clone().join("ssh.log");
+            let file = OpenOptions::new().create(true).write(true).append(true).open(&ssh_path).expect(&format!("Unable to open {} for output logzeek", ssh_path.display()));
+            ssh_log = Some(BufWriter::new(file));
+            msg_bus.event_subscribe_kind(EventKind::NetSshSession, tx);
+        }
+
         // Connection-end events are needed for conn.log and to flush unanswered DNS queries
         if cfg.conn_log || cfg.dns_log {
             msg_bus.event_subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
@@ -151,6 +199,7 @@ impl OutputLogZeek {
             dns_log,
             dns_auth_addl: cfg.dns_auth_addl,
             pending_dns_queries: HashMap::new(),
+            ssh_log,
         })
 
     }
@@ -265,7 +314,8 @@ impl OutputLogZeek {
 
             EventKind::NetTcpConnectionEnd => self.process_conn_event(event),
             EventKind::NetUdpConnectionEnd => self.process_conn_event(event),
-            EventKind::NetDnsMessage => self.process_dns_event(event),
+            EventKind::NetDnsMessage  => self.process_dns_event(event),
+            EventKind::NetSshSession  => self.process_ssh_event(event),
             _ => unreachable!(),
 
         }
@@ -362,6 +412,54 @@ impl OutputLogZeek {
         let log = self.build_dns_log(ts, p);
         self.write_dns_log(log);
     }
+
+    fn process_ssh_event(&mut self, event: EventRef) {
+
+        let ssh_log = match self.ssh_log.as_mut() {
+            Some(f) => f,
+            None => return,
+        };
+
+        let EventPayload::NetSshSession(p) = &event.payload else {
+            panic!("Wrong event received")
+        };
+
+        let version = p.client_version.as_ref().and_then(|v| {
+            if      v.starts_with(b"SSH-2") { Some(2) }
+            else if v.starts_with(b"SSH-1") { Some(1) }
+            else                            { None    }
+        });
+
+        let log = ZeekSshLog {
+            ts: event.ts,
+            uid: p.conn_id.clone(),
+            orig_h: p.client_addr,
+            orig_p: p.client_port,
+            resp_h: p.server_addr,
+            resp_p: p.server_port,
+            version,
+            auth_success: p.authentication_succeeded,
+            auth_attempts: p.authentication_failed,
+            client: p.client_version.clone(),
+            server: p.server_version.clone(),
+            cipher_alg: p.encryption_algorithm_client_to_server.clone(),
+            mac_alg: p.mac_algorithm_client_to_server.clone(),
+            compression_alg: p.compression_algorithm_client_to_server.clone(),
+            kex_alg: p.kex_algorithm.clone(),
+            host_key_alg: p.server_host_key_algorithm.clone(),
+            host_key: p.host_key_fingerprint.clone(),
+        };
+
+        if let Err(e) = to_writer(&mut *ssh_log, &log) {
+            error!("Error serializing the SSH log: {}", e);
+            self.ssh_log = None;
+            return;
+        }
+        if let Err(e) = writeln!(&mut *ssh_log) {
+            error!("Error writing to SSH log file: {}", e);
+            self.ssh_log = None;
+        }
+    }
 }
 
 impl Output for OutputLogZeek {
@@ -392,6 +490,11 @@ impl Output for OutputLogZeek {
                     if let Some(ref mut f) = self.dns_log {
                         if let Err(e) = f.flush() {
                             error!("Error flushing the dns log file: {}", e);
+                        }
+                    }
+                    if let Some(ref mut f) = self.ssh_log {
+                        if let Err(e) = f.flush() {
+                            error!("Error flushing the ssh log file: {}", e);
                         }
                     }
 

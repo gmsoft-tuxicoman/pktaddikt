@@ -26,7 +26,13 @@ outputs:
   # -- logzeek: create zeek like log files --
   # zeek:
   #   type: logzeek
-  #   path: /logs # optional, default to ""
+  #   path: /logs       # optional, default to ""
+  #   conn_log: true    # optional, default true
+  #   dns_log: true     # optional, default true
+  #   dns_auth_addl: false  # optional, default false. Adds auth/addl fields (like auth-addl.zeek)
+  #   ssh_log: true     # optional, default true
+  #                     # Note: host_key fingerprints are SHA256 (matching modern ssh-keygen output),
+  #                     # not MD5 as produced by older Zeek versions.
 
   # -- blob2disk: save files in a directory using their unique ID as name --
   # file:

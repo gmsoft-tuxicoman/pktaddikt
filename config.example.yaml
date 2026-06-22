@@ -34,6 +34,7 @@ outputs:
   #                     # Note: host_key fingerprints are SHA256 (matching modern ssh-keygen output),
   #                     # not MD5 as produced by older Zeek versions.
   #   http_log: true    # optional, default true
+  #   dhcp_log: true    # optional, default true
 
   # -- blob2disk: save files in a directory using their unique ID as name --
   # file:

@@ -1,6 +1,8 @@
 use crate::output::{Output, OutputConfig};
 use crate::event::{EventRef, EventKind, EventPayload, EventStr};
 use crate::proto::dns::{NetDnsMessage, NetDnsRecordClass, NetDnsRecordData, NetDnsResponseCode};
+use crate::proto::dhcp::ProtoDhcpMessageType;
+use crate::proto::ethernet::EthernetMac;
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::base::UniqueId;
 use crate::packet::PktTime;
@@ -25,6 +27,7 @@ pub struct LogZeekConfig {
     pub dns_auth_addl: bool,
     pub ssh_log: bool,
     pub http_log: bool,
+    pub dhcp_log: bool,
 
 }
 
@@ -38,6 +41,7 @@ impl Default for LogZeekConfig {
             dns_auth_addl: false,
             ssh_log: true,
             http_log: true,
+            dhcp_log: true,
         }
     }
 
@@ -50,6 +54,7 @@ pub struct OutputLogZeek {
     pending_dns_queries: HashMap<(UniqueId, u16), EventRef>,
     ssh_log: Option<BufWriter<File>>,
     http_log: Option<BufWriter<File>>,
+    dhcp_log: Option<BufWriter<File>>,
 }
 
 
@@ -158,6 +163,30 @@ struct ZeekSshLog {
 
 
 #[derive(Debug, Serialize)]
+struct ZeekDhcpLog {
+
+    ts: PktTime,
+    uids: Vec<UniqueId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_addr: Option<std::net::Ipv4Addr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_addr: Option<std::net::Ipv4Addr>,
+    mac: EthernetMac,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host_name: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domain: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    requested_addr: Option<std::net::Ipv4Addr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    assigned_addr: Option<std::net::Ipv4Addr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lease_time: Option<u32>,
+    msg_types: Vec<ProtoDhcpMessageType>,
+    duration: f64,
+}
+
+#[derive(Debug, Serialize)]
 struct ZeekHttpLog {
 
     ts: PktTime,
@@ -233,6 +262,14 @@ impl OutputLogZeek {
             msg_bus.event_subscribe_kind(EventKind::NetHttpTransaction, tx);
         }
 
+        let mut dhcp_log: Option<BufWriter<File>> = None;
+        if cfg.dhcp_log {
+            let dhcp_path = path.clone().join("dhcp.log");
+            let file = OpenOptions::new().create(true).write(true).append(true).open(&dhcp_path).expect(&format!("Unable to open {} for output logzeek", dhcp_path.display()));
+            dhcp_log = Some(BufWriter::new(file));
+            msg_bus.event_subscribe_kind(EventKind::NetDhcpDora, tx);
+        }
+
         // Connection-end events are needed for conn.log and to flush unanswered DNS queries
         if cfg.conn_log || cfg.dns_log {
             msg_bus.event_subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
@@ -246,6 +283,7 @@ impl OutputLogZeek {
             pending_dns_queries: HashMap::new(),
             ssh_log,
             http_log,
+            dhcp_log,
         })
 
     }
@@ -363,6 +401,7 @@ impl OutputLogZeek {
             EventKind::NetDnsMessage  => self.process_dns_event(event),
             EventKind::NetSshSession      => self.process_ssh_event(event),
             EventKind::NetHttpTransaction => self.process_http_event(event),
+            EventKind::NetDhcpDora        => self.process_dhcp_event(event),
             _ => unreachable!(),
 
         }
@@ -551,6 +590,43 @@ impl OutputLogZeek {
             self.http_log = None;
         }
     }
+
+    fn process_dhcp_event(&mut self, event: EventRef) {
+
+        let dhcp_log = match self.dhcp_log.as_mut() {
+            Some(f) => f,
+            None => return,
+        };
+
+        let EventPayload::NetDhcpDora(p) = &event.payload else {
+            panic!("Wrong event received")
+        };
+
+        let log = ZeekDhcpLog {
+            ts: event.ts,
+            uids: p.conns_id.clone(),
+            client_addr: p.client_ip,
+            server_addr: p.server_ip,
+            mac: p.client_mac,
+            host_name: p.hostname.clone(),
+            domain: p.domain_name.clone(),
+            requested_addr: p.requested_ip,
+            assigned_addr: p.assigned_ip,
+            lease_time: p.lease_time,
+            msg_types: p.msgs.clone(),
+            duration: p.duration.as_secs_f64(),
+        };
+
+        if let Err(e) = to_writer(&mut *dhcp_log, &log) {
+            error!("Error serializing the DHCP log: {}", e);
+            self.dhcp_log = None;
+            return;
+        }
+        if let Err(e) = writeln!(&mut *dhcp_log) {
+            error!("Error writing to DHCP log file: {}", e);
+            self.dhcp_log = None;
+        }
+    }
 }
 
 impl Output for OutputLogZeek {
@@ -591,6 +667,11 @@ impl Output for OutputLogZeek {
                     if let Some(ref mut f) = self.http_log {
                         if let Err(e) = f.flush() {
                             error!("Error flushing the http log file: {}", e);
+                        }
+                    }
+                    if let Some(ref mut f) = self.dhcp_log {
+                        if let Err(e) = f.flush() {
+                            error!("Error flushing the dhcp log file: {}", e);
                         }
                     }
 

@@ -15,7 +15,7 @@ use serde::Serialize;
 use std::cmp;
 
 #[derive(Debug, Serialize)]
-pub struct NetHttpRequestBasic {
+pub struct NetHttpRequest {
     pub conn_id: UniqueId,
     pub client_addr: IpAddr,
     pub client_port: u16,
@@ -25,17 +25,20 @@ pub struct NetHttpRequestBasic {
     pub method: String,
     pub version: String,
     pub uri: EventStr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub referrer: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_length: Option<u64>,
 }
 
-
 #[derive(Debug, Serialize)]
-pub struct NetHttpRequestFull {
-    pub base: NetHttpRequestBasic,
-    pub headers: Vec<(EventStr, EventStr)>
-}
-
-#[derive(Debug, Serialize)]
-pub struct NetHttpResponseBasic {
+pub struct NetHttpResponse {
     pub conn_id: UniqueId,
     pub client_addr: IpAddr,
     pub client_port: u16,
@@ -45,12 +48,14 @@ pub struct NetHttpResponseBasic {
     pub status: u16,
     pub version: String,
     pub reason: EventStr,
-}
-
-#[derive(Debug, Serialize)]
-pub struct NetHttpResponseFull {
-    pub base: NetHttpResponseBasic,
-    pub headers: Vec<(EventStr, EventStr)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<EventStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_length: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -61,11 +66,10 @@ enum ProtoHttpState {
 }
 
 #[derive(Debug)]
-enum ProtoHttpEvent {
-    RequestBasic(NetHttpRequestBasic),
-    ResponseBasic(NetHttpResponseBasic),
+enum ProtoHttpPendingEvent {
+    Request(NetHttpRequest),
+    Response(NetHttpResponse),
 }
-
 
 #[derive(Debug)]
 struct ProtoHttpStateInfo {
@@ -74,7 +78,7 @@ struct ProtoHttpStateInfo {
     content_len: Option<u64>, // Either full Content-Length or chunk length
     content_pos: u64,
     chunked: bool,
-    event_basic: Option<ProtoHttpEvent>,
+    pending_event: Option<ProtoHttpPendingEvent>,
     blob: Option<Blob>,
     content_decoder: Option<DecoderKind>,
 }
@@ -86,15 +90,17 @@ impl ProtoHttpStateInfo {
         self.content_len = None;
         self.content_pos = 0;
         self.chunked = false;
-
-        if let Some(e) = self.event_basic.take() {
-            let evt = match e {
-                ProtoHttpEvent::RequestBasic(p) => Event::new(p.ts, EventPayload::NetHttpRequestBasic(p)),
-                ProtoHttpEvent::ResponseBasic(p) => Event::new(p.ts, EventPayload::NetHttpResponseBasic(p)),
-            };
-            MessageBus::publish_event(evt);
+        match self.pending_event.take() {
+            Some(ProtoHttpPendingEvent::Request(mut p)) => {
+                p.content_length = self.content_len;
+                MessageBus::publish_event(Event::new(p.ts, EventPayload::NetHttpRequest(p)));
+            }
+            Some(ProtoHttpPendingEvent::Response(mut p)) => {
+                p.content_length = self.content_len;
+                MessageBus::publish_event(Event::new(p.ts, EventPayload::NetHttpResponse(p)));
+            }
+            None => {}
         }
-        self.event_basic = None;
         self.blob = None;
         self.content_decoder = None;
     }
@@ -118,9 +124,8 @@ impl ProtoHttp {
     fn parse_first_line(&mut self, dir: ConntrackDirection, mut parser: PktStreamParser) -> Result<(), ParseErr> {
 
         // Check if there is any reason to parse Http stuff first
-        if ! (MessageBus::event_has_subscribers(EventKind::NetHttpRequestBasic)
-            || MessageBus::event_has_subscribers(EventKind::NetHttpResponseBasic)) {
-            // All done, nothing to parse
+        if ! (MessageBus::event_has_subscribers(EventKind::NetHttpRequest)
+            || MessageBus::event_has_subscribers(EventKind::NetHttpResponse)) {
             return Err(ParseErr::Stop);
         }
 
@@ -216,11 +221,11 @@ impl ProtoHttp {
         }
         self.info[dir as usize].state = ProtoHttpState::Headers;
 
-        if ! MessageBus::event_has_subscribers(EventKind::NetHttpRequestBasic) {
+        if ! MessageBus::event_has_subscribers(EventKind::NetHttpRequest) {
             return Ok(());
         }
 
-        let evt = NetHttpRequestBasic {
+        let evt = NetHttpRequest {
             conn_id: self.conn_id.clone(),
             client_addr: self.client_addr,
             client_port: self.client_port,
@@ -230,13 +235,18 @@ impl ProtoHttp {
             method: String::from_utf8_lossy(method).into_owned(),
             version: String::from_utf8_lossy(version).into_owned(),
             uri: uri.into(),
+            host: None,
+            user_agent: None,
+            referrer: None,
+            origin: None,
+            content_length: None,
         };
 
         trace!("HTTP Method: {}", evt.method);
         trace!("HTTP URI: {}", String::from_utf8_lossy(&evt.uri));
         trace!("HTTP Version: {}", evt.version);
 
-        self.info[dir as usize].event_basic = Some(ProtoHttpEvent::RequestBasic(evt));
+        self.info[dir as usize].pending_event = Some(ProtoHttpPendingEvent::Request(evt));
 
         Ok(())
     }
@@ -252,13 +262,13 @@ impl ProtoHttp {
         self.info[dir as usize].state = ProtoHttpState::Headers;
         self.last_status = status_code as u16;
 
-        if ! MessageBus::event_has_subscribers(EventKind::NetHttpResponseBasic) {
+        if ! MessageBus::event_has_subscribers(EventKind::NetHttpResponse) {
             return Ok(());
         }
 
         trace!("HTTP Status code: {}", status_code);
 
-        let evt = NetHttpResponseBasic {
+        let evt = NetHttpResponse {
             conn_id: self.conn_id.clone(),
             client_addr: self.client_addr,
             client_port: self.client_port,
@@ -268,10 +278,13 @@ impl ProtoHttp {
             version: String::from_utf8_lossy(version).into_owned(),
             status: status_code as u16,
             reason: reason.into(),
-
+            server: None,
+            content_type: None,
+            location: None,
+            content_length: None,
         };
 
-        self.info[dir as usize].event_basic = Some(ProtoHttpEvent::ResponseBasic(evt));
+        self.info[dir as usize].pending_event = Some(ProtoHttpPendingEvent::Response(evt));
 
         Ok(())
     }
@@ -280,16 +293,18 @@ impl ProtoHttp {
         let line = parser.readline()?;
 
         if line.len() == 0 {
-            // All headers are processed
+            // All headers are processed — emit the pending event
 
-            // Send the basic event here
-
-            if let Some(e) = self.info[dir as usize].event_basic.take() {
-                let evt = match e {
-                    ProtoHttpEvent::RequestBasic(p) => Event::new(p.ts, EventPayload::NetHttpRequestBasic(p)),
-                    ProtoHttpEvent::ResponseBasic(p) => Event::new(p.ts, EventPayload::NetHttpResponseBasic(p)),
-                };
-                MessageBus::publish_event(evt);
+            match self.info[dir as usize].pending_event.take() {
+                Some(ProtoHttpPendingEvent::Request(mut p)) => {
+                    p.content_length = self.info[dir as usize].content_len;
+                    MessageBus::publish_event(Event::new(p.ts, EventPayload::NetHttpRequest(p)));
+                }
+                Some(ProtoHttpPendingEvent::Response(mut p)) => {
+                    p.content_length = self.info[dir as usize].content_len;
+                    MessageBus::publish_event(Event::new(p.ts, EventPayload::NetHttpResponse(p)));
+                }
+                None => {}
             }
 
             if self.info[dir as usize].chunked && self.info[dir as usize].content_len.is_some() {
@@ -367,6 +382,21 @@ impl ProtoHttp {
         }
 
         trace!("HTTP header: \"{}: {}\"",  String::from_utf8_lossy(name), String::from_utf8_lossy(value));
+
+        match &mut self.info[dir as usize].pending_event {
+            Some(ProtoHttpPendingEvent::Request(p)) => {
+                if      name.eq_ignore_ascii_case(b"Host")       { p.host       = Some(value.into()); }
+                else if name.eq_ignore_ascii_case(b"User-Agent") { p.user_agent = Some(value.into()); }
+                else if name.eq_ignore_ascii_case(b"Referer")    { p.referrer   = Some(value.into()); }
+                else if name.eq_ignore_ascii_case(b"Origin")     { p.origin     = Some(value.into()); }
+            }
+            Some(ProtoHttpPendingEvent::Response(p)) => {
+                if      name.eq_ignore_ascii_case(b"Server")       { p.server       = Some(value.into()); }
+                else if name.eq_ignore_ascii_case(b"Content-Type") { p.content_type = Some(value.into()); }
+                else if name.eq_ignore_ascii_case(b"Location")     { p.location     = Some(value.into()); }
+            }
+            None => {}
+        }
 
         Ok(())
     }
@@ -483,7 +513,7 @@ impl PktStreamProcessor for ProtoHttp {
                 content_len: None,
                 content_pos: 0,
                 chunked: false,
-                event_basic: None,
+                pending_event: None,
                 blob: None,
                 content_decoder: None,
             },
@@ -492,7 +522,7 @@ impl PktStreamProcessor for ProtoHttp {
                 content_len: None,
                 content_pos: 0,
                 chunked: false,
-                event_basic: None,
+                pending_event: None,
                 blob: None,
                 content_decoder: None,
             } ],

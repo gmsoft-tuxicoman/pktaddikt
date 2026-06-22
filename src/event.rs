@@ -20,10 +20,10 @@ pub enum EventKind {
     NetUdpConnectionStart,
     #[strum(serialize = "net.udp.connection.end")]
     NetUdpConnectionEnd,
-    #[strum(serialize = "net.http.request.basic")]
-    NetHttpRequestBasic,
-    #[strum(serialize = "net.http.response.basic")]
-    NetHttpResponseBasic,
+    #[strum(serialize = "net.http.request")]
+    NetHttpRequest,
+    #[strum(serialize = "net.http.response")]
+    NetHttpResponse,
     #[strum(serialize = "net.dns.message")]
     NetDnsMessage,
     #[strum(serialize = "net.dhcp.message")]
@@ -100,8 +100,8 @@ pub enum EventPayload {
     NetTcpConnectionEnd(crate::proto::tcp::conntrack::NetTcpConnectionEnd),
     NetUdpConnectionStart(crate::proto::udp::NetUdpConnectionStart),
     NetUdpConnectionEnd(crate::proto::udp::NetUdpConnectionEnd),
-    NetHttpRequestBasic(crate::proto::http::NetHttpRequestBasic),
-    NetHttpResponseBasic(crate::proto::http::NetHttpResponseBasic),
+    NetHttpRequest(crate::proto::http::NetHttpRequest),
+    NetHttpResponse(crate::proto::http::NetHttpResponse),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetDhcpMessage(crate::proto::dhcp::NetDhcpMessage),
     NetDhcpDora(crate::proto::dhcp::NetDhcpDora),
@@ -144,8 +144,8 @@ impl EventPayload {
             EventPayload::NetTcpConnectionEnd(_) => EventKind::NetTcpConnectionEnd,
             EventPayload::NetUdpConnectionStart(_) => EventKind::NetUdpConnectionStart,
             EventPayload::NetUdpConnectionEnd(_) => EventKind::NetUdpConnectionEnd,
-            EventPayload::NetHttpRequestBasic(_) => EventKind::NetHttpRequestBasic,
-            EventPayload::NetHttpResponseBasic(_) => EventKind::NetHttpResponseBasic,
+            EventPayload::NetHttpRequest(_) => EventKind::NetHttpRequest,
+            EventPayload::NetHttpResponse(_) => EventKind::NetHttpResponse,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
             EventPayload::NetDhcpMessage(_) => EventKind::NetDhcpMessage,
             EventPayload::NetDhcpDora(_) => EventKind::NetDhcpDora,

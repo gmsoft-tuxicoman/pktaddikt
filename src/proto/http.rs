@@ -13,8 +13,9 @@ use memchr::memchr;
 use tracing::trace;
 use serde::Serialize;
 use std::cmp;
+use std::collections::VecDeque;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NetHttpRequest {
     pub conn_id: UniqueId,
     pub client_addr: IpAddr,
@@ -35,9 +36,10 @@ pub struct NetHttpRequest {
     pub origin: Option<EventStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_length: Option<u64>,
+    pub body_len: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NetHttpResponse {
     pub conn_id: UniqueId,
     pub client_addr: IpAddr,
@@ -56,6 +58,13 @@ pub struct NetHttpResponse {
     pub location: Option<EventStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_length: Option<u64>,
+    pub body_len: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetHttpTransaction {
+    pub request: NetHttpRequest,
+    pub response: NetHttpResponse,
 }
 
 #[derive(Debug)]
@@ -77,6 +86,7 @@ struct ProtoHttpStateInfo {
     state: ProtoHttpState,
     content_len: Option<u64>, // Either full Content-Length or chunk length
     content_pos: u64,
+    accumulated_body_len: u64,
     chunked: bool,
     pending_event: Option<ProtoHttpPendingEvent>,
     blob: Option<Blob>,
@@ -89,18 +99,9 @@ impl ProtoHttpStateInfo {
         self.state = ProtoHttpState::FirstLine;
         self.content_len = None;
         self.content_pos = 0;
+        self.accumulated_body_len = 0;
         self.chunked = false;
-        match self.pending_event.take() {
-            Some(ProtoHttpPendingEvent::Request(mut p)) => {
-                p.content_length = self.content_len;
-                MessageBus::publish_event(Event::new(p.ts, EventPayload::NetHttpRequest(p)));
-            }
-            Some(ProtoHttpPendingEvent::Response(mut p)) => {
-                p.content_length = self.content_len;
-                MessageBus::publish_event(Event::new(p.ts, EventPayload::NetHttpResponse(p)));
-            }
-            None => {}
-        }
+        self.pending_event = None;
         self.blob = None;
         self.content_decoder = None;
     }
@@ -117,6 +118,7 @@ pub struct ProtoHttp {
     server_addr: IpAddr,
     server_port: u16,
     last_status: u16,
+    request_queue: VecDeque<NetHttpRequest>,
 }
 
 impl ProtoHttp {
@@ -125,7 +127,8 @@ impl ProtoHttp {
 
         // Check if there is any reason to parse Http stuff first
         if ! (MessageBus::event_has_subscribers(EventKind::NetHttpRequest)
-            || MessageBus::event_has_subscribers(EventKind::NetHttpResponse)) {
+            || MessageBus::event_has_subscribers(EventKind::NetHttpResponse)
+            || MessageBus::event_has_subscribers(EventKind::NetHttpTransaction)) {
             return Err(ParseErr::Stop);
         }
 
@@ -221,7 +224,8 @@ impl ProtoHttp {
         }
         self.info[dir as usize].state = ProtoHttpState::Headers;
 
-        if ! MessageBus::event_has_subscribers(EventKind::NetHttpRequest) {
+        if ! (MessageBus::event_has_subscribers(EventKind::NetHttpRequest)
+            || MessageBus::event_has_subscribers(EventKind::NetHttpTransaction)) {
             return Ok(());
         }
 
@@ -240,6 +244,7 @@ impl ProtoHttp {
             referrer: None,
             origin: None,
             content_length: None,
+            body_len: 0,
         };
 
         trace!("HTTP Method: {}", evt.method);
@@ -262,7 +267,8 @@ impl ProtoHttp {
         self.info[dir as usize].state = ProtoHttpState::Headers;
         self.last_status = status_code as u16;
 
-        if ! MessageBus::event_has_subscribers(EventKind::NetHttpResponse) {
+        if ! (MessageBus::event_has_subscribers(EventKind::NetHttpResponse)
+            || MessageBus::event_has_subscribers(EventKind::NetHttpTransaction)) {
             return Ok(());
         }
 
@@ -282,6 +288,7 @@ impl ProtoHttp {
             content_type: None,
             location: None,
             content_length: None,
+            body_len: 0,
         };
 
         self.info[dir as usize].pending_event = Some(ProtoHttpPendingEvent::Response(evt));
@@ -293,48 +300,37 @@ impl ProtoHttp {
         let line = parser.readline()?;
 
         if line.len() == 0 {
-            // All headers are processed — emit the pending event
+            // All headers are processed
 
-            match self.info[dir as usize].pending_event.take() {
-                Some(ProtoHttpPendingEvent::Request(mut p)) => {
-                    p.content_length = self.info[dir as usize].content_len;
-                    MessageBus::publish_event(Event::new(p.ts, EventPayload::NetHttpRequest(p)));
-                }
-                Some(ProtoHttpPendingEvent::Response(mut p)) => {
-                    p.content_length = self.info[dir as usize].content_len;
-                    MessageBus::publish_event(Event::new(p.ts, EventPayload::NetHttpResponse(p)));
-                }
-                None => {}
-            }
-
+            // Resolve chunked vs Content-Length
             if self.info[dir as usize].chunked && self.info[dir as usize].content_len.is_some() {
-                // Ignore Content-Length for chunked transfers
                 self.info[dir as usize].content_len = None;
             }
 
-
-            if let Some(clen) = self.info[dir as usize].content_len {
-
-                if clen == 0 {
-                    // Content length is 0, no body
-                    self.info[dir as usize].reset();
-                    return Ok(());
-                }
-
-            } else if Some(dir) == self.client_dir {
-                // It's a query and no Content-Length was provided
-                if ! self.info[dir as usize].chunked {
-                    // No body expected
-                    self.info[dir as usize].reset();
-                    return Ok(());
-                }
+            // Store the resolved content_length in the pending event
+            let content_len = self.info[dir as usize].content_len;
+            match &mut self.info[dir as usize].pending_event {
+                Some(ProtoHttpPendingEvent::Request(p)) => p.content_length = content_len,
+                Some(ProtoHttpPendingEvent::Response(p)) => p.content_length = content_len,
+                None => {}
             }
 
-            // Some status code should not contain any body
-            if Some(dir.opposite()) == self.client_dir && ((self.last_status >= 100 && self.last_status < 200) || self.last_status == 204 || self.last_status == 304) {
-                    // No body expected
-                    self.info[dir as usize].reset();
+            // Handle no-body cases: emit immediately with body_len = 0
+            if let Some(clen) = content_len {
+                if clen == 0 {
+                    self.on_body_done(dir);
                     return Ok(());
+                }
+            } else if Some(dir) == self.client_dir && !self.info[dir as usize].chunked {
+                // Request with no Content-Length and not chunked: no body
+                self.on_body_done(dir);
+                return Ok(());
+            }
+
+            // Some status codes must not contain a body
+            if Some(dir.opposite()) == self.client_dir && ((self.last_status >= 100 && self.last_status < 200) || self.last_status == 204 || self.last_status == 304) {
+                self.on_body_done(dir);
+                return Ok(());
             }
 
             self.info[dir as usize].state = ProtoHttpState::Body;
@@ -413,14 +409,13 @@ impl ProtoHttp {
             blob.data(self.info[dir as usize].content_pos, parser.sub_packet(data_len)?);
 
             self.info[dir as usize].content_pos += data_len as u64;
+            self.info[dir as usize].accumulated_body_len += data_len as u64;
             trace!("Got {} bytes of payload ({}/{})", data_len, self.info[dir as usize].content_pos, content_len);
             remaining_len -= data_len as u64;
 
             if remaining_len == 0 {
-                // Payload done
                 trace!("Payload complete");
-                self.info[dir as usize].reset();
-
+                self.on_body_done(dir);
             }
         } else {
             // No Content-Length, must be a HTTP/1.0 response containing the whole body
@@ -431,6 +426,7 @@ impl ProtoHttp {
             blob.data(self.info[dir as usize].content_pos, parser.sub_packet(data_len)?);
             trace!("Got {} bytes of payload", data_len);
             self.info[dir as usize].content_pos += data_len as u64;
+            self.info[dir as usize].accumulated_body_len += data_len as u64;
 
         }
 
@@ -452,6 +448,7 @@ impl ProtoHttp {
                 let data_len = cmp::min(remaining_len as u32, parser.remaining_len());
                 parser.skip(data_len)?;
                 self.info[dir as usize].content_pos += data_len as u64;
+                self.info[dir as usize].accumulated_body_len += data_len as u64;
                 trace!("Got {} of chunked payload ({}/{})", data_len, self.info[dir as usize].content_pos, chunk_len);
             }
 
@@ -464,7 +461,7 @@ impl ProtoHttp {
 
             self.info[dir as usize].content_len = None;
             if chunk_len == 0 {
-                self.info[dir as usize].reset();
+                self.on_body_done(dir);
                 trace!("End of chunked content");
             } else {
                 trace!("End of chunk");
@@ -494,6 +491,67 @@ impl ProtoHttp {
 
         Ok(())
     }
+
+    fn on_body_done(&mut self, dir: ConntrackDirection) {
+        let body_len = self.info[dir as usize].accumulated_body_len;
+        let pending  = self.info[dir as usize].pending_event.take();
+        self.info[dir as usize].reset();
+
+        let need_request     = MessageBus::event_has_subscribers(EventKind::NetHttpRequest);
+        let need_response    = MessageBus::event_has_subscribers(EventKind::NetHttpResponse);
+        let need_transaction = MessageBus::event_has_subscribers(EventKind::NetHttpTransaction);
+
+        match pending {
+            Some(ProtoHttpPendingEvent::Request(mut req)) => {
+                req.body_len = body_len;
+                if need_request && need_transaction {
+                    self.request_queue.push_back(req.clone());
+                    MessageBus::publish_event(Event::new(req.ts, EventPayload::NetHttpRequest(req)));
+                } else if need_request {
+                    MessageBus::publish_event(Event::new(req.ts, EventPayload::NetHttpRequest(req)));
+                } else if need_transaction {
+                    self.request_queue.push_back(req);
+                }
+            }
+            Some(ProtoHttpPendingEvent::Response(mut resp)) => {
+                resp.body_len = body_len;
+                let req = if need_transaction { self.request_queue.pop_front() } else { None };
+                if need_response && need_transaction {
+                    if let Some(req) = req {
+                        let ts = req.ts;
+                        MessageBus::publish_event(Event::new(resp.ts, EventPayload::NetHttpResponse(resp.clone())));
+                        MessageBus::publish_event(Event::new(ts, EventPayload::NetHttpTransaction(NetHttpTransaction { request: req, response: resp })));
+                    } else {
+                        MessageBus::publish_event(Event::new(resp.ts, EventPayload::NetHttpResponse(resp)));
+                    }
+                } else if need_response {
+                    MessageBus::publish_event(Event::new(resp.ts, EventPayload::NetHttpResponse(resp)));
+                } else if need_transaction {
+                    if let Some(req) = req {
+                        let ts = req.ts;
+                        MessageBus::publish_event(Event::new(ts, EventPayload::NetHttpTransaction(NetHttpTransaction { request: req, response: resp })));
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+}
+
+impl Drop for ProtoHttp {
+    fn drop(&mut self) {
+        if let Some(client_dir) = self.client_dir {
+            // Flush client side first so any pending request lands in the queue
+            // before the server side is processed
+            if self.info[client_dir as usize].pending_event.is_some() {
+                self.on_body_done(client_dir);
+            }
+            let server_dir = client_dir.opposite();
+            if self.info[server_dir as usize].pending_event.is_some() {
+                self.on_body_done(server_dir);
+            }
+        }
+    }
 }
 
 impl PktStreamProcessor for ProtoHttp {
@@ -512,6 +570,7 @@ impl PktStreamProcessor for ProtoHttp {
                 state: ProtoHttpState::FirstLine,
                 content_len: None,
                 content_pos: 0,
+                accumulated_body_len: 0,
                 chunked: false,
                 pending_event: None,
                 blob: None,
@@ -521,6 +580,7 @@ impl PktStreamProcessor for ProtoHttp {
                 state: ProtoHttpState::FirstLine,
                 content_len: None,
                 content_pos: 0,
+                accumulated_body_len: 0,
                 chunked: false,
                 pending_event: None,
                 blob: None,
@@ -528,6 +588,7 @@ impl PktStreamProcessor for ProtoHttp {
             } ],
             client_dir: None,
             last_status: 0,
+            request_queue: VecDeque::new(),
         }
     }
 

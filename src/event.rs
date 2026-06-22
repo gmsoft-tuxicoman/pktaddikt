@@ -24,6 +24,8 @@ pub enum EventKind {
     NetHttpRequest,
     #[strum(serialize = "net.http.response")]
     NetHttpResponse,
+    #[strum(serialize = "net.http.transaction")]
+    NetHttpTransaction,
     #[strum(serialize = "net.dns.message")]
     NetDnsMessage,
     #[strum(serialize = "net.dhcp.message")]
@@ -102,6 +104,7 @@ pub enum EventPayload {
     NetUdpConnectionEnd(crate::proto::udp::NetUdpConnectionEnd),
     NetHttpRequest(crate::proto::http::NetHttpRequest),
     NetHttpResponse(crate::proto::http::NetHttpResponse),
+    NetHttpTransaction(crate::proto::http::NetHttpTransaction),
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetDhcpMessage(crate::proto::dhcp::NetDhcpMessage),
     NetDhcpDora(crate::proto::dhcp::NetDhcpDora),
@@ -146,6 +149,7 @@ impl EventPayload {
             EventPayload::NetUdpConnectionEnd(_) => EventKind::NetUdpConnectionEnd,
             EventPayload::NetHttpRequest(_) => EventKind::NetHttpRequest,
             EventPayload::NetHttpResponse(_) => EventKind::NetHttpResponse,
+            EventPayload::NetHttpTransaction(_) => EventKind::NetHttpTransaction,
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
             EventPayload::NetDhcpMessage(_) => EventKind::NetDhcpMessage,
             EventPayload::NetDhcpDora(_) => EventKind::NetDhcpDora,

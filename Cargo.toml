@@ -29,6 +29,9 @@ strict-path = "0.2"
 flate2 = { version = "1.1", features = ["zlib"] }
 sha2 = "0.10"
 base64 = "0.22"
+axum = { version = "0.8", features = ["tokio"] }
+tokio = { version = "1", features = ["full"] }
+rmcp = { version = "1", features = [ "server", "macros", "transport-streamable-http-server", ] }
 
 
 [dev-dependencies]

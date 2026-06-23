@@ -3,6 +3,7 @@ use crate::input::{Input, InputConfig};
 use crate::input::pcap::{PcapFileConfig, PcapInterfaceConfig};
 use crate::output::OutputBuilder;
 use crate::messagebus::MessageBus;
+use crate::httpd::Httpd;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use tracing::trace;
@@ -21,6 +22,7 @@ pub mod expectation;
 pub mod blob;
 pub mod messagebus;
 pub mod decoder;
+pub mod httpd;
 
 
 #[derive(Parser, Debug)]
@@ -91,6 +93,8 @@ fn main() {
 
     msg_bus.init();
 
+
+    let httpd = Httpd::new("127.0.0.1:8080");
 
     input.main_loop();
 

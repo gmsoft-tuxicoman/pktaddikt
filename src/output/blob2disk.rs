@@ -46,13 +46,13 @@ pub struct OutputBlob2Disk {
 
 impl OutputBlob2Disk {
 
-    pub fn new(name: &str, msg_bus: &mut MessageBus, tx: &MessageTxChannel) -> Box<dyn Output> {
+    pub fn new(name: &str, tx: &MessageTxChannel) -> Box<dyn Output> {
         let main_cfg = Config::get();
         let OutputConfig::Blob2Disk(cfg) = main_cfg.outputs.get(name).unwrap() else {
             panic!("Config is not blob2file");
         };
 
-        msg_bus.blob_subscribe(tx);
+        MessageBus::blob_subscribe(tx);
 
         let path = PathBuf::from(cfg.path.clone());
 

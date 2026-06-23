@@ -44,9 +44,9 @@ pub struct OutputDns2NftSet {
 
 impl OutputDns2NftSet {
 
-    pub fn new(name: &str, msg_bus: &mut MessageBus, tx: &MessageTxChannel) -> Box<dyn Output> {
+    pub fn new(name: &str, tx: &MessageTxChannel) -> Box<dyn Output> {
 
-        msg_bus.event_subscribe_kind(EventKind::NetDnsMessage, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetDnsMessage, tx);
         let main_cfg = Config::get();
 
         let OutputConfig::Dns2NftSet(cfg) = main_cfg.outputs.get(name).unwrap() else {

@@ -222,7 +222,7 @@ struct ZeekHttpLog {
 
 impl OutputLogZeek {
 
-    pub fn new(name: &str, msg_bus: &mut MessageBus, tx: &MessageTxChannel) -> Box<dyn Output> {
+    pub fn new(name: &str, tx: &MessageTxChannel) -> Box<dyn Output> {
 
         let main_cfg = Config::get();
         let OutputConfig::LogZeek(cfg) = main_cfg.outputs.get(name).unwrap() else {
@@ -243,7 +243,7 @@ impl OutputLogZeek {
             let dns_path = path.clone().join("dns.log");
             let file = OpenOptions::new().create(true).write(true).append(true).open(&dns_path).expect(&format!("Unable to open {} for output logzeek", dns_path.display()));
             dns_log = Some(BufWriter::new(file));
-            msg_bus.event_subscribe_kind(EventKind::NetDnsMessage, tx);
+            MessageBus::event_subscribe_kind(EventKind::NetDnsMessage, tx);
         }
 
         let mut ssh_log: Option<BufWriter<File>> = None;
@@ -251,7 +251,7 @@ impl OutputLogZeek {
             let ssh_path = path.clone().join("ssh.log");
             let file = OpenOptions::new().create(true).write(true).append(true).open(&ssh_path).expect(&format!("Unable to open {} for output logzeek", ssh_path.display()));
             ssh_log = Some(BufWriter::new(file));
-            msg_bus.event_subscribe_kind(EventKind::NetSshSession, tx);
+            MessageBus::event_subscribe_kind(EventKind::NetSshSession, tx);
         }
 
         let mut http_log: Option<BufWriter<File>> = None;
@@ -259,7 +259,7 @@ impl OutputLogZeek {
             let http_path = path.clone().join("http.log");
             let file = OpenOptions::new().create(true).write(true).append(true).open(&http_path).expect(&format!("Unable to open {} for output logzeek", http_path.display()));
             http_log = Some(BufWriter::new(file));
-            msg_bus.event_subscribe_kind(EventKind::NetHttpTransaction, tx);
+            MessageBus::event_subscribe_kind(EventKind::NetHttpTransaction, tx);
         }
 
         let mut dhcp_log: Option<BufWriter<File>> = None;
@@ -267,13 +267,13 @@ impl OutputLogZeek {
             let dhcp_path = path.clone().join("dhcp.log");
             let file = OpenOptions::new().create(true).write(true).append(true).open(&dhcp_path).expect(&format!("Unable to open {} for output logzeek", dhcp_path.display()));
             dhcp_log = Some(BufWriter::new(file));
-            msg_bus.event_subscribe_kind(EventKind::NetDhcpDora, tx);
+            MessageBus::event_subscribe_kind(EventKind::NetDhcpDora, tx);
         }
 
         // Connection-end events are needed for conn.log and to flush unanswered DNS queries
         if cfg.conn_log || cfg.dns_log {
-            msg_bus.event_subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
-            msg_bus.event_subscribe_kind(EventKind::NetUdpConnectionEnd, tx);
+            MessageBus::event_subscribe_kind(EventKind::NetTcpConnectionEnd, tx);
+            MessageBus::event_subscribe_kind(EventKind::NetUdpConnectionEnd, tx);
         }
 
         Box::new( Self {

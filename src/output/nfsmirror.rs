@@ -61,25 +61,25 @@ pub struct OutputNfsMirror {
 
 impl OutputNfsMirror {
 
-    pub fn new(name: &str, msg_bus: &mut MessageBus, tx: &MessageTxChannel) -> Box<dyn Output> {
-        
+    pub fn new(name: &str, tx: &MessageTxChannel) -> Box<dyn Output> {
+
         let main_cfg = Config::get();
 
         let OutputConfig::NfsMirror(cfg) = main_cfg.outputs.get(name).unwrap() else {
             panic!("Config is not nfsmirror");
         };
 
-        msg_bus.blob_subscribe(tx);
-        msg_bus.event_subscribe_kind(EventKind::NetMountReplyMnt, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyLookup, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyCreate, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyMkdir, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplySymlink, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRemove, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRmdir, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyLink, tx);
-        msg_bus.event_subscribe_kind(EventKind::NetNfsV3ReplyReaddirplus, tx);
+        MessageBus::blob_subscribe(tx);
+        MessageBus::event_subscribe_kind(EventKind::NetMountReplyMnt, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplyLookup, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplyCreate, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplyMkdir, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplySymlink, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplyRemove, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplyRmdir, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplyRename, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplyLink, tx);
+        MessageBus::event_subscribe_kind(EventKind::NetNfsV3ReplyReaddirplus, tx);
 
         let path = PathBoundary::<()>::try_new_create(cfg.path.clone()).unwrap();
 

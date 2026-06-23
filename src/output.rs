@@ -7,7 +7,7 @@ use crate::output::blob2disk::{OutputBlob2Disk, Blob2DiskConfig};
 use crate::output::nfsmirror::{OutputNfsMirror, NfsMirrorConfig};
 use crate::config::Config;
 use crate::event::EventPayload;
-use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
+use crate::messagebus::{MessageTxChannel, MessageRxChannel, Message};
 
 use serde::Deserialize;
 use crossbeam_channel;
@@ -56,7 +56,7 @@ pub struct OutputBuilder {
 
 impl OutputBuilder {
 
-    pub fn build_all(msg_bus: &mut MessageBus) -> Self {
+    pub fn build_all() -> Self {
 
         let mut outputs: Vec<OutputRunner> = Vec::new();
 
@@ -66,7 +66,7 @@ impl OutputBuilder {
 
             let (tx, rx) = crossbeam_channel::unbounded();
 
-            let output = OutputBuilder::new(output_name, output_cfg, msg_bus, &tx);
+            let output = OutputBuilder::new(output_name, output_cfg, &tx);
 
             let handle = std::thread::spawn(move || {
                 output.run(rx);
@@ -83,16 +83,16 @@ impl OutputBuilder {
 
     }
 
-    fn new(name: &str, output_cfg: &OutputConfig, msg_bus: &mut MessageBus, tx: &MessageTxChannel) -> Box<dyn Output> {
+    fn new(name: &str, output_cfg: &OutputConfig, tx: &MessageTxChannel) -> Box<dyn Output> {
 
         println!("Adding output {} ...", name);
 
         match &output_cfg {
-            OutputConfig::LogJson(_) => OutputLogJson::new(name, msg_bus, tx),
-            OutputConfig::LogZeek(_) => OutputLogZeek::new(name, msg_bus, tx),
-            OutputConfig::Dns2NftSet(_) => OutputDns2NftSet::new(name, msg_bus, tx),
-            OutputConfig::Blob2Disk(_) => OutputBlob2Disk::new(name, msg_bus, tx),
-            OutputConfig::NfsMirror(_) => OutputNfsMirror::new(name, msg_bus, tx),
+            OutputConfig::LogJson(_) => OutputLogJson::new(name, tx),
+            OutputConfig::LogZeek(_) => OutputLogZeek::new(name, tx),
+            OutputConfig::Dns2NftSet(_) => OutputDns2NftSet::new(name, tx),
+            OutputConfig::Blob2Disk(_) => OutputBlob2Disk::new(name, tx),
+            OutputConfig::NfsMirror(_) => OutputNfsMirror::new(name, tx),
         }
 
     }

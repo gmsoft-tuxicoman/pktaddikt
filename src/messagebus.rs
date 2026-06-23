@@ -1,7 +1,8 @@
 use crate::event::{EventKind, EventRef};
 use crate::blob::BlobMsg;
 
-use std::sync::OnceLock;
+use arc_swap::ArcSwap;
+use std::sync::{Arc, OnceLock};
 use strum::{EnumCount, IntoEnumIterator};
 use tracing::{debug, trace};
 
@@ -10,9 +11,9 @@ pub type MessageTxChannel = crossbeam_channel::Sender<Message>;
 pub type MessageRxChannel = crossbeam_channel::Receiver<Message>;
 
 
-static MESSAGE_BUS: OnceLock<MessageBus> = OnceLock::new();
+static MESSAGE_BUS: OnceLock<ArcSwap<MessageBus>> = OnceLock::new();
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MessageBus {
     event_subs: Vec<Vec<MessageTxChannel>>,
     blob_subs: Vec<MessageTxChannel>,
@@ -35,11 +36,13 @@ impl MessageBus {
     }
 
     pub fn init(self) {
-        MESSAGE_BUS.set(self).unwrap();
+        MESSAGE_BUS.set(ArcSwap::new(Arc::new(self))).unwrap();
     }
 
-    pub fn event_subscribe_glob(&mut self, evt_glob: &str, tx: &MessageTxChannel) -> Result<(), ()> {
+    pub fn event_subscribe_glob(evt_glob: &str, tx: &MessageTxChannel) -> Result<(), ()> {
 
+        let arc_swap = MESSAGE_BUS.get().unwrap();
+        let mut new_bus = (**arc_swap.load()).clone();
         let mut found = false;
 
         for evt in EventKind::iter() {
@@ -53,20 +56,23 @@ impl MessageBus {
             found = true;
 
             debug!("Adding one subscriber to event {} ({})", name, id);
-            self.event_subs[id].push(tx.clone());
+            new_bus.event_subs[id].push(tx.clone());
         }
 
         if found {
+            arc_swap.store(Arc::new(new_bus));
             Ok(())
         } else {
             Err(())
         }
     }
 
-    pub fn event_subscribe_kind(&mut self, evt_kind: EventKind, tx: &MessageTxChannel) {
+    pub fn event_subscribe_kind(evt_kind: EventKind, tx: &MessageTxChannel) {
 
-        let evt_id = evt_kind as usize;
-        self.event_subs[evt_id].push(tx.clone());
+        let arc_swap = MESSAGE_BUS.get().unwrap();
+        let mut new_bus = (**arc_swap.load()).clone();
+        new_bus.event_subs[evt_kind as usize].push(tx.clone());
+        arc_swap.store(Arc::new(new_bus));
 
     }
 
@@ -102,26 +108,53 @@ impl MessageBus {
 
     pub fn event_has_subscribers(evt_kind: EventKind) -> bool {
         let id = evt_kind as usize;
-        let Some(msg_bus) = MESSAGE_BUS.get() else {
+        let Some(arc_swap) = MESSAGE_BUS.get() else {
             // Happens during test when event bus is not initialized
             // So pretend there is a subscriber so that parsing etc is done
             return true;
         };
 
-        msg_bus.event_subs[id].len() > 0
+        arc_swap.load().event_subs[id].len() > 0
     }
 
     pub fn blob_has_subscribers() -> bool {
-        let Some(msg_bus) = MESSAGE_BUS.get() else {
+        let Some(arc_swap) = MESSAGE_BUS.get() else {
             // Happens during test when event bus is not initialized
             // So pretend there is a subscriber so that parsing etc is done
             return true;
         };
-        msg_bus.blob_subs.len() != 0
+        arc_swap.load().blob_subs.len() != 0
     }
 
-    pub fn blob_subscribe(&mut self, tx: &MessageTxChannel) {
-        self.blob_subs.push(tx.clone());
+    pub fn blob_subscribe(tx: &MessageTxChannel) {
+        let arc_swap = MESSAGE_BUS.get().unwrap();
+        let mut new_bus = (**arc_swap.load()).clone();
+        new_bus.blob_subs.push(tx.clone());
+        arc_swap.store(Arc::new(new_bus));
+    }
+
+    pub fn event_unsubscribe_kind(evt_kind: EventKind, tx: &MessageTxChannel) {
+        let arc_swap = MESSAGE_BUS.get().unwrap();
+        let mut new_bus = (**arc_swap.load()).clone();
+        new_bus.event_subs[evt_kind as usize].retain(|s| !s.same_channel(tx));
+        arc_swap.store(Arc::new(new_bus));
+    }
+
+    pub fn blob_unsubscribe(tx: &MessageTxChannel) {
+        let arc_swap = MESSAGE_BUS.get().unwrap();
+        let mut new_bus = (**arc_swap.load()).clone();
+        new_bus.blob_subs.retain(|s| !s.same_channel(tx));
+        arc_swap.store(Arc::new(new_bus));
+    }
+
+    pub fn unsubscribe_all(tx: &MessageTxChannel) {
+        let arc_swap = MESSAGE_BUS.get().unwrap();
+        let mut new_bus = (**arc_swap.load()).clone();
+        for subs in &mut new_bus.event_subs {
+            subs.retain(|s| !s.same_channel(tx));
+        }
+        new_bus.blob_subs.retain(|s| !s.same_channel(tx));
+        arc_swap.store(Arc::new(new_bus));
     }
 
     #[cfg(test)]
@@ -133,23 +166,21 @@ impl MessageBus {
     pub fn publish_event(evt: EventRef) {
 
         trace!("Publishing event {:?}", evt.kind());
-        let msg_bus = MESSAGE_BUS.get().unwrap();
+        let bus = MESSAGE_BUS.get().unwrap().load();
 
-        let evt_kind = evt.kind();
-
-        let id = evt_kind as usize;
-        for sub in &msg_bus.event_subs[id] {
+        let id = evt.kind() as usize;
+        for sub in &bus.event_subs[id] {
             sub.send(Message::Event(evt.clone())).unwrap();
         }
 
     }
 
     pub fn publish_blobmsg(blob_msg: BlobMsg) {
-        
-        trace!("Publishing BlobMsg");
-        let msg_bus = MESSAGE_BUS.get().unwrap();
 
-        for sub in & msg_bus.blob_subs {
+        trace!("Publishing BlobMsg");
+        let bus = MESSAGE_BUS.get().unwrap().load();
+
+        for sub in &bus.blob_subs {
             sub.send(Message::BlobMsg(blob_msg.clone())).unwrap();
         }
     }

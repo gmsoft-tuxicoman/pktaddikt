@@ -83,13 +83,11 @@ fn main() {
 
     Config::init(cfg);
 
-    let mut msg_bus = MessageBus::new();
+    MessageBus::new().init();
 
     let mut input = Input::new();
 
-    let mut outputs = OutputBuilder::build_all(&mut msg_bus);
-
-    msg_bus.init();
+    let mut outputs = OutputBuilder::build_all();
 
 
     input.main_loop();

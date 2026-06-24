@@ -1142,6 +1142,7 @@ dependencies = [
  "rangemap",
  "regex",
  "rmcp",
+ "schemars",
  "serde",
  "serde_json",
  "sha2",

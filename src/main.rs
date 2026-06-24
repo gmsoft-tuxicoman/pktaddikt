@@ -92,7 +92,7 @@ fn main() {
     let mut outputs = OutputBuilder::build_all();
 
 
-    let httpd = Httpd::new(&Config::get().httpd.bind, Config::get().httpd.mcp);
+    let httpd = Httpd::new();
 
     input.main_loop();
 

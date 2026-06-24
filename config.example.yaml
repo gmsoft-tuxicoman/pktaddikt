@@ -3,6 +3,10 @@
 # httpd:
 #   bind: "127.0.0.1:8080"  # optional, default "127.0.0.1:8080"
 #   mcp: true               # optional, default true. Enable the MCP server at /mcp
+#   mcp_allowed_hosts:      # optional. List the hostname or IP that MCP clients use to reach
+#     - "myhost.example.com"  # this server (i.e. what goes in their URL, not where they connect from).
+#     - "192.168.1.10"        # By default only localhost is allowed (DNS rebinding protection).
+#     - "myhost.example.com:8080"  # Include port when clients connect on a non-standard port.
 
 # -- Input ----------------------
 # Only one input can be active at a time. Uncomment the desired type.

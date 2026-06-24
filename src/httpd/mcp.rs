@@ -107,10 +107,15 @@ impl McpServer {
     }
 }
 
-pub fn mcp_service() -> StreamableHttpService<McpServer, LocalSessionManager> {
+pub fn mcp_service(allowed_hosts: Vec<String>) -> StreamableHttpService<McpServer, LocalSessionManager> {
+    let config = if allowed_hosts.is_empty() {
+        StreamableHttpServerConfig::default()
+    } else {
+        StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts)
+    };
     StreamableHttpService::new(
         || Ok(McpServer::new()),
         Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig::default(),
+        config,
     )
 }

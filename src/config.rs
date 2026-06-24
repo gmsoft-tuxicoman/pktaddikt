@@ -3,6 +3,7 @@
 use crate::input::InputConfig;
 use crate::proto::ProtoConfig;
 use crate::output::OutputConfig;
+use crate::httpd::HttpdConfig;
 
 use config::{Config as ConfigLoader, File};
 use serde::Deserialize;
@@ -12,23 +13,6 @@ use arc_swap::{ArcSwap, Guard};
 
 
 static CONFIG: OnceLock<ArcSwap<Config>> = OnceLock::new();
-
-
-#[derive(Debug, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct HttpdConfig {
-    pub bind: String,
-    pub mcp: bool,
-}
-
-impl Default for HttpdConfig {
-    fn default() -> Self {
-        Self {
-            bind: "127.0.0.1:8080".to_owned(),
-            mcp: true,
-        }
-    }
-}
 
 
 #[derive(Debug, Deserialize)]
@@ -51,6 +35,7 @@ impl Default for Config {
         }
     }
 }
+
 
 impl Config {
 

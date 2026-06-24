@@ -1,4 +1,6 @@
 
+pub mod mcp;
+
 use axum::{routing::get, Router};
 use tokio::runtime::Runtime;
 
@@ -26,7 +28,9 @@ impl Httpd {
     }
 
     async fn run(bind_addr: String) {
-        let app = Router::new().route("/", get(|| async { "pktaddikt ok" }));
+        let app = Router::new()
+            .route("/", get(|| async { "pktaddikt ok" }))
+            .route_service("/mcp", mcp::mcp_service());
         let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap_or_else(|e| panic!("httpd bind {bind_addr}: {e}"));
 
         axum::serve(listener, app).await.expect("httpd");

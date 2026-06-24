@@ -32,6 +32,7 @@ base64 = "0.22"
 axum = { version = "0.8", features = ["tokio"] }
 tokio = { version = "1", features = ["full"] }
 rmcp = { version = "1", features = [ "server", "macros", "transport-streamable-http-server", ] }
+schemars = "1"
 
 
 [dev-dependencies]

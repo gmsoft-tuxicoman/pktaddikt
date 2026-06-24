@@ -1,3 +1,9 @@
+# -- HTTP server -----------------
+
+# httpd:
+#   bind: "127.0.0.1:8080"  # optional, default "127.0.0.1:8080"
+#   mcp: true               # optional, default true. Enable the MCP server at /mcp
+
 # -- Input ----------------------
 # Only one input can be active at a time. Uncomment the desired type.
 

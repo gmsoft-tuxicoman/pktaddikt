@@ -92,7 +92,7 @@ fn main() {
     let mut outputs = OutputBuilder::build_all();
 
 
-    let httpd = Httpd::new("127.0.0.1:8080");
+    let httpd = Httpd::new(&Config::get().httpd.bind, Config::get().httpd.mcp);
 
     input.main_loop();
 

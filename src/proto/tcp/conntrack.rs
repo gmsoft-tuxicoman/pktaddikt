@@ -529,7 +529,9 @@ impl ConntrackTcp {
                     let dupe: u32 = (cur_seq - pkt.seq).into();
                     pkt.data.skip(dupe).unwrap();
                     pkt.seq += dupe;
-
+                    // The trimmed bytes were counted when the packet was queued; drop
+                    // them now so buff_size doesn't leak upward on each overlap.
+                    queue.buff_size -= dupe;
                 }
 
                 if pkt.seq != cur_seq {
@@ -674,7 +676,10 @@ impl Drop for ConntrackTcp {
             self.force_dequeue();
         }
 
-        if self.state != TcpState::Closed {
+        // start_ts is only set once a packet has been processed (which also emits the
+        // start event). Without it there is no connection to end, and send_conn_end_evt
+        // would panic unwrapping start_ts.
+        if self.state != TcpState::Closed && self.start_ts.is_some() {
             self.send_conn_end_evt();
         }
     }
@@ -968,6 +973,36 @@ mod tests {
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 2, 0, &[ 11 ]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 12, TCP_TH_FIN, &[ 2 ]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 13, 4, TCP_TH_FIN, &[ 12 ]);
+    }
+
+    // A queued, out-of-order packet that partially overlaps data delivered in the
+    // meantime gets trimmed inside process_more_packets. buff_size must account for the
+    // trimmed bytes; otherwise it leaks upward on every overlapping retransmission and
+    // eventually defeats the buffer cap.
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_trim_buff_size() {
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1, 2, 3 ], PktTime::from_micros(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 4 ], PktTime::from_micros(0));
+
+        // Bidirectional handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
+
+        // Out-of-order segment covering seq 3..5 is queued (gap at seq 1..3).
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 11, 0, &[ 3, 4 ]);
+        assert_eq!(ct.forward.buff_size, 2);
+
+        // Segment covering seq 1..4 fills the gap and overlaps the queued one by 1 byte,
+        // so the queued segment is trimmed (seq 3 -> 4) before being delivered.
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, 0, &[ 1, 2, 3 ]);
+
+        // Everything was delivered; the buffer accounting must be back to zero.
+        assert_eq!(ct.forward.pkts.len(), 0);
+        assert_eq!(ct.forward.buff_size, 0);
     }
 
     // An empty FIN that arrives out of order (before the data segment that precedes

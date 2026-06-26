@@ -34,3 +34,8 @@ base64 = "0.22"
 [dev-dependencies]
 tracing-test = "0.1"
 regex = { version = "1", features = ["unicode-case"] }
+
+[profile.profiling]
+inherits = "release"
+debug = true
+

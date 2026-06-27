@@ -393,7 +393,10 @@ impl ConntrackTcp {
             }
         }
 
-        if (flags & TCP_TH_FIN) != 0 {
+        if (flags & (TCP_TH_FIN | TCP_TH_RST)) != 0 {
+            // FIN consumes a sequence number; RST does not, but both must survive the
+            // duplicate check below so the control packet is queued and processed in
+            // order rather than discarded (send_packet only advances cur_seq for FIN).
             end_seq += 1;
         }
 
@@ -473,14 +476,14 @@ impl ConntrackTcp {
         self.send_packet(dir, flags, data, false);
 
         // Check if this packet filled a gap
-        self.process_more_packets();
+        self.process_more_packets(false);
     }
 
     pub fn get_conn_id(&self) -> &UniqueId {
         &self.conn_id
     }
 
-    fn process_more_packets(&mut self) {
+    fn process_more_packets(&mut self, relax_ack: bool) {
 
 
         let mut tries = 2; // Try once in each direction
@@ -505,7 +508,15 @@ impl ConntrackTcp {
                 let cur_seq = queue.cur_seq.unwrap();
                 let pkt = entry.get_mut();
 
-                let end_seq = pkt.seq + (pkt.data.remaining_len() as u32);
+                let mut end_seq = pkt.seq + (pkt.data.remaining_len() as u32);
+                if (pkt.flags & (TCP_TH_FIN | TCP_TH_RST)) != 0 {
+                    // A control flag must survive the duplicate check: an empty FIN/RST
+                    // sitting exactly at cur_seq would otherwise look like a duplicate
+                    // and get dropped, so the close would never be processed. The FIN
+                    // also genuinely consumes the sequence number (advanced in
+                    // send_packet); the RST does not.
+                    end_seq += 1;
+                }
                 if end_seq <= cur_seq {
                     // Duplicate
                     //trace!("TCP connection {:p}: gap: cur_seq {:?}, pkt_seq {:?}", &self, cur_seq, pkt.seq);
@@ -518,7 +529,9 @@ impl ConntrackTcp {
                     let dupe: u32 = (cur_seq - pkt.seq).into();
                     pkt.data.skip(dupe).unwrap();
                     pkt.seq += dupe;
-
+                    // The trimmed bytes were counted when the packet was queued; drop
+                    // them now so buff_size doesn't leak upward on each overlap.
+                    queue.buff_size -= dupe;
                 }
 
                 if pkt.seq != cur_seq {
@@ -534,7 +547,7 @@ impl ConntrackTcp {
                     }
                 }
 
-                if self.flow_state != ConntrackTcpFlowState::Unidirectional {
+                if self.flow_state != ConntrackTcpFlowState::Unidirectional && !relax_ack {
                     let cur_ack = queue_op.cur_seq.unwrap();
                     if cur_ack < pkt.ack {
                         // The host processed some data in the reverse direction which we haven't processed yet
@@ -580,7 +593,12 @@ impl ConntrackTcp {
             let pkt = entry.get();
             ts_fwd = Some(pkt.data.timestamp());
             if let Some(cur_seq) = self.forward.cur_seq {
-                gap_fwd = (pkt.seq - cur_seq).into();
+                // Only a packet *ahead* of cur_seq is a gap. A dupe (seq < cur_seq)
+                // would wrap the subtraction into a ~4GB "gap"; leave it at 0 and let
+                // process_more_packets discard it.
+                if cur_seq < pkt.seq {
+                    gap_fwd = (pkt.seq - cur_seq).into();
+                }
             } else {
                 // We didn't capture the start of the connections, let's start it now
                 self.forward.start_seq = Some(pkt.seq);
@@ -593,8 +611,8 @@ impl ConntrackTcp {
             let pkt = entry.get();
             ts_rev = Some(pkt.data.timestamp());
             if let Some(cur_seq) = self.reverse.cur_seq {
-                gap_rev = (pkt.seq - cur_seq).into();
-                if gap_rev > 0 {
+                if cur_seq < pkt.seq {
+                    gap_rev = (pkt.seq - cur_seq).into();
                     dir = ConntrackDirection::Reverse;
                 }
             } else {
@@ -637,7 +655,14 @@ impl ConntrackTcp {
             }
         }
 
-        self.process_more_packets();
+        // If there was no sequence gap to fill yet packets remain queued, they are
+        // stuck on the ack ordering constraint: a head packet is ready by sequence
+        // but acks opposite-direction data we never captured (and never will, since
+        // force_dequeue is the safety valve at the buffer cap / connection teardown).
+        // Relax the ack constraint so the queue actually drains -- otherwise the
+        // buffer cap is defeated mid-connection and Drop's drain loop spins forever.
+        let relax_ack = gap_fwd == 0 && gap_rev == 0;
+        self.process_more_packets(relax_ack);
     }
 
 }
@@ -651,7 +676,10 @@ impl Drop for ConntrackTcp {
             self.force_dequeue();
         }
 
-        if self.state != TcpState::Closed {
+        // start_ts is only set once a packet has been processed (which also emits the
+        // start event). Without it there is no connection to end, and send_conn_end_evt
+        // would panic unwrapping start_ts.
+        if self.state != TcpState::Closed && self.start_ts.is_some() {
             self.send_conn_end_evt();
         }
     }
@@ -945,6 +973,143 @@ mod tests {
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 12, 2, 0, &[ 11 ]);
         queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 12, TCP_TH_FIN, &[ 2 ]);
         queue_pkt(&mut ct, ConntrackDirection::Reverse, 13, 4, TCP_TH_FIN, &[ 12 ]);
+    }
+
+    // A queued, out-of-order packet that partially overlaps data delivered in the
+    // meantime gets trimmed inside process_more_packets. buff_size must account for the
+    // trimmed bytes; otherwise it leaks upward on every overlapping retransmission and
+    // eventually defeats the buffer cap.
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_trim_buff_size() {
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1, 2, 3 ], PktTime::from_micros(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 4 ], PktTime::from_micros(0));
+
+        // Bidirectional handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
+
+        // Out-of-order segment covering seq 3..5 is queued (gap at seq 1..3).
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 11, 0, &[ 3, 4 ]);
+        assert_eq!(ct.forward.buff_size, 2);
+
+        // Segment covering seq 1..4 fills the gap and overlaps the queued one by 1 byte,
+        // so the queued segment is trimmed (seq 3 -> 4) before being delivered.
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, 0, &[ 1, 2, 3 ]);
+
+        // Everything was delivered; the buffer accounting must be back to zero.
+        assert_eq!(ct.forward.pkts.len(), 0);
+        assert_eq!(ct.forward.buff_size, 0);
+    }
+
+    // An empty FIN that arrives out of order (before the data segment that precedes
+    // it) gets queued, then must still be processed once the gap is filled. The state
+    // must transition to HalfClosedFwd. Regression: process_more_packets used to omit
+    // the FIN's sequence number from end_seq and drop the queued FIN as a "duplicate".
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_fin_out_of_order() {
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_micros(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 2 ], PktTime::from_micros(0));
+
+        // Bidirectional handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
+        assert_eq!(ct.state, TcpState::Established);
+
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, 0, &[ 1 ]); // first data byte
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 11, TCP_TH_FIN, &[]); // FIN ahead of seq 2
+        assert_eq!(ct.state, TcpState::Established); // FIN is queued, not processed yet
+
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 2, 11, 0, &[ 2 ]); // fills the gap
+        // The queued FIN must now be processed and close the forward direction.
+        assert_eq!(ct.state, TcpState::HalfClosedFwd);
+        assert_eq!(ct.forward.pkts.len(), 0);
+    }
+
+    // An RST must not cause queued stream data to be discarded. It is queued and
+    // processed in sequence order: data ahead of it drains first, then the RST closes
+    // the connection. Regression: an empty RST used to be dropped as a "duplicate" and
+    // never transitioned the state.
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_rst_out_of_order() {
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_micros(0));
+        ct.stream.as_mut().unwrap().add_expectation(&[ 2 ], PktTime::from_micros(0));
+
+        // Bidirectional handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
+        assert_eq!(ct.state, TcpState::Established);
+
+        // Byte at seq 2 arrives before byte at seq 1, so it is queued, and an RST
+        // arrives while that data is still pending. The data must not be discarded.
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 2, 11, 0, &[ 2 ]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 3, 11, TCP_TH_RST, &[]);
+        assert_eq!(ct.state, TcpState::Established); // RST waits its turn in the queue
+        assert_eq!(ct.forward.pkts.len(), 2);
+
+        // The missing byte arrives: queued data drains in order, then the RST closes.
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, 0, &[ 1 ]);
+        assert_eq!(ct.state, TcpState::Closed);
+        assert_eq!(ct.forward.pkts.len(), 0); // all queued data processed, nothing discarded
+    }
+
+    // A bidirectional connection where a forward packet acks reverse data we never
+    // capture. The packet is ready by sequence but held back by the ack ordering
+    // rule, and no sequence gap exists to fill. force_dequeue (the buffer-cap /
+    // teardown safety valve) must drain it by relaxing the ack constraint, instead
+    // of looping forever.
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_ack_stall_force_dequeue() {
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_micros(0));
+
+        // Bidirectional handshake
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
+
+        // Forward data acking reverse byte 20 - but reverse only ever reached 11.
+        // The acked reverse data is never delivered, so this packet wedges.
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 20, 0, &[ 1 ]);
+        assert_eq!(ct.forward.pkts.len(), 1); // confirmed stuck on the ack constraint
+        assert_eq!(ct.forward.buff_size, 1);
+
+        // The safety valve must break the ack stall and drain the queue.
+        ct.force_dequeue();
+        assert_eq!(ct.forward.pkts.len(), 0);
+        assert_eq!(ct.forward.buff_size, 0);
+    }
+
+    // Same wedge, but left in place so Drop has to drain it. Before the fix this
+    // test would hang: Drop's `while pkts.len() > 0 { force_dequeue() }` never made
+    // progress because force_dequeue could not break an ack stall.
+    #[test]
+    #[traced_test]
+    fn conntrack_tcp_ack_stall_drop() {
+
+        let mut ct = ConntrackTcp::new(Protocols::Test, &dummy_infos());
+        ct.stream.as_mut().unwrap().add_expectation(&[ 1 ], PktTime::from_micros(0));
+
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 0, 10, TCP_TH_SYN, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Reverse, 10, 1, TCP_TH_SYN | TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 11, TCP_TH_ACK, &[]);
+        queue_pkt(&mut ct, ConntrackDirection::Forward, 1, 20, 0, &[ 1 ]);
+        assert_eq!(ct.forward.pkts.len(), 1);
+
+        // ct is dropped at end of scope: the drain loop must terminate.
     }
 }
 

@@ -111,6 +111,7 @@ impl PktStream {
                         pkt_buff.push(pkt.to_owned());
                     }
                 },
+                ParseErr::Stop => (),
                 _ => {
                     debug!("Error while parsing stream: {:?}", e);
                     self.is_active = false;

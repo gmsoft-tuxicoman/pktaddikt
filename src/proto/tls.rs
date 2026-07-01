@@ -137,6 +137,13 @@ impl PktStreamProcessor for ProtoTls {
 
         parser.has_len(status.rlen)?;
 
+        if status.rlen == 0 {
+            // Empty TLS record: nothing to process, go back to reading the next record
+            // header (sub_packet(0) would otherwise abort parsing for the connection).
+            status.state = ProtoTlsState::RecordHeader;
+            return Ok(());
+        }
+
         let mut pkt = parser.sub_packet(status.rlen)?;
 
         let ret = match status.state {
@@ -223,6 +230,13 @@ impl ProtoTlsHandshake {
             self.ctype = Some(ctype);
         }
 
+        if self.clen == 0 {
+            // A zero-length handshake message is valid (e.g. ServerHelloDone). There is
+            // no body to parse, and none of the messages we care about are empty, so
+            // reset and continue rather than failing on sub_packet(0).
+            self.ctype = None;
+            return Ok(());
+        }
 
         // Make sure we have enough data to continue
         let mut pkt = parser.sub_packet(self.clen)?;
@@ -291,6 +305,13 @@ impl ProtoTlsHandshake {
 
             let etype = parser.read_u16_be()?;
             let elen =  parser.read_u16_be()? as u32;
+
+            if elen == 0 {
+                // A zero-length extension is valid (e.g. extended_master_secret, GREASE).
+                // None of the extensions we parse below carry an empty body, so skip it
+                // rather than letting sub_packet(0) abort the whole ClientHello.
+                continue;
+            }
 
             let mut epkt = parser.sub_packet(elen)?;
 
@@ -361,5 +382,62 @@ impl ProtoTlsHandshake {
 
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::packet::{Packet, PktTime};
+    use std::net::Ipv4Addr;
+
+    // Builds a minimal ClientHello body (the bytes parse_client_hello receives) with a
+    // single trailing extension of the given type and body.
+    fn client_hello(ext_type: u16, ext_body: &[u8]) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&[0x03, 0x03]); // version TLS 1.2
+        b.extend_from_slice(&[0u8; 32]);    // random
+        b.push(0);                          // session id length
+        b.extend_from_slice(&[0x00, 0x00]); // cipher suite length
+        b.push(0);                          // compression method length
+
+        let mut exts = Vec::new();
+        exts.extend_from_slice(&ext_type.to_be_bytes());
+        exts.extend_from_slice(&(ext_body.len() as u16).to_be_bytes());
+        exts.extend_from_slice(ext_body);
+
+        b.extend_from_slice(&(exts.len() as u16).to_be_bytes()); // extensions length
+        b.extend_from_slice(&exts);
+        b
+    }
+
+    fn parse(data: &[u8]) -> Result<(), ParseErr> {
+        let hs = ProtoTlsHandshake::new();
+        let mut pkt = Packet::from_slice(PktTime::from_micros(0), data);
+        hs.parse_client_hello(
+            &mut pkt,
+            &UniqueId::new(PktTime::from_micros(0)),
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            1234,
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            443,
+        )
+    }
+
+    // A zero-length extension (e.g. extended_master_secret, type 23) must not abort the
+    // ClientHello parse. Regression: sub_packet(0) returned Invalid.
+    #[test]
+    fn tls_client_hello_zero_length_extension() {
+        let data = client_hello(23, &[]);
+        assert!(parse(&data).is_ok(), "zero-length extension should parse");
+    }
+
+    // A non-empty extension still parses (sanity check the harness).
+    #[test]
+    fn tls_client_hello_non_empty_extension() {
+        // supported_versions style body; we don't assert on the value here.
+        let data = client_hello(43, &[0x02, 0x03, 0x04]);
+        assert!(parse(&data).is_ok(), "non-empty extension should parse");
     }
 }

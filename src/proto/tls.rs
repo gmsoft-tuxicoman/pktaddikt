@@ -90,8 +90,11 @@ impl ProtoTls {
         let status = &mut self.dir[dir as usize];
         status.rlen = parser.read_u16_be()? as u32;
 
-        if status.rlen > 16384 {
-            return Err(ParseErr::Invalid("TLS Record length > 16384"));
+        // TLSPlaintext is capped at 2^14, but encrypted records (TLSCiphertext) may be
+        // larger due to cipher expansion: up to 2^14 + 2048 in TLS 1.2 (RFC 5246 6.2.3)
+        // and 2^14 + 256 in TLS 1.3 (RFC 8446 5.1). Allow the larger of the two.
+        if status.rlen > 16384 + 2048 {
+            return Err(ParseErr::Invalid("TLS Record length > 16384 + 2048"));
         }
 
         status.state = match ctype {

@@ -122,6 +122,7 @@ impl ProtoNfsV4 {
                 22 => self.putfh_call(xid, parser),
                 24 => self.putrootfh_call(xid, parser),
                 26 => self.readdir_call(xid, parser),
+                30 => self.renew_call(xid, parser),
                 42 => self.exchange_id_call(xid, parser),
                 43 => self.create_session_call(xid, parser),
                 44 => self.destroy_session_call(xid, parser),
@@ -176,6 +177,7 @@ impl ProtoNfsV4 {
                 22 => self.putfh_reply(xid, status, parser),
                 24 => self.putrootfh_reply(xid, status, parser),
                 26 => self.readdir_reply(xid, status, parser),
+                30 => self.renew_reply(xid, status, parser),
                 42 => self.exchange_id_reply(xid, status, parser),
                 43 => self.create_session_reply(xid, status, parser),
                 44 => self.destroy_session_reply(xid, status, parser),
@@ -825,6 +827,20 @@ impl ProtoNfsV4 {
     fn destroy_session_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
 
         trace!("DESTROY_SESSION REPLY");
+        Ok(())
+    }
+
+    fn renew_call<T: Parser>(&self, _xid: u32, parser: &mut T) -> Result<(), ParseErr> {
+
+        trace!("RENEW CALL");
+        parser.skip_u64()?; // clientid
+        Ok(())
+    }
+
+    fn renew_reply<T: Parser>(&self, _xid: u32, _status: u32, _parser: &mut T) -> Result<(), ParseErr> {
+
+        trace!("RENEW REPLY");
+        // RENEW4res carries only the status, already consumed by the reply loop.
         Ok(())
     }
 

@@ -276,7 +276,8 @@ impl ConntrackTcp {
     }
 
     fn send_conn_end_evt(&self) {
-        // Send the end event
+        // Send the end event. PktTime::sub saturates, so a non-monotonic capture clock
+        // (last_ts < start_ts) yields a zero duration rather than panicking.
         let evt_pload = NetTcpConnectionEnd {
             conn_id: self.conn_id.clone(),
             duration: self.last_ts - self.start_ts.unwrap(),

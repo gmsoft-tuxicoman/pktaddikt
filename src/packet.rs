@@ -67,7 +67,12 @@ impl Sub<PktTime> for PktTime {
     type Output = PktTime;
 
     fn sub(self, rhs: PktTime) -> Self::Output {
-        PktTime(self.0 - rhs.0)
+        // Capture clocks are not guaranteed monotonic (merged captures, bonded
+        // interfaces, hardware timestamp glitches), so a later-processed packet can
+        // carry an earlier timestamp. Saturate instead of underflowing: the only
+        // subtraction we do is duration (end - start), which is non-negative by
+        // definition.
+        PktTime(self.0.saturating_sub(rhs.0))
     }
 }
 

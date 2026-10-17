@@ -67,8 +67,8 @@ impl ProtoPktProcessor for ProtoEthernet {
 
     fn process(&mut self, pkt: &mut Packet, stack: &mut PktInfoStack) -> Result<(), ParseErr> {
 
-        let src = EthernetMac(pkt.read_fixed::<6>()?);
         let dst = EthernetMac(pkt.read_fixed::<6>()?);
+        let src = EthernetMac(pkt.read_fixed::<6>()?);
         let eth_type = pkt.read_u16_be()?;
 
         let info = stack.proto_last_mut();
@@ -109,8 +109,8 @@ mod tests {
         let info = infos.iter().next().unwrap();
 
         let expected = ProtoInfo::Ethernet(ProtoEthernetInfo {
-            src: EthernetMac([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
-            dst: EthernetMac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]),
+            src: EthernetMac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]),
+            dst: EthernetMac([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             eth_type: 0xBEEF,
         });
 

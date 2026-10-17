@@ -29,6 +29,7 @@ strict-path = "0.2"
 flate2 = { version = "1.1", features = ["zlib"] }
 sha2 = "0.10"
 base64 = "0.22"
+ipnet = { version = "2", features = ["serde"] }
 
 
 [dev-dependencies]

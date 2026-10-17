@@ -56,6 +56,19 @@ outputs:
   #     - googlevideo
   #   set: pktaddikt # Set prefix, will create a pktaddkit_v4 and pktaddikt_v6 set
 
+# -- Intel ------------------------
+# Intel configuration (host database, behavior tracking, ...), entirely
+# optional, defaults are shown below
+
+# intel:
+#  # Networks to treat as local (CIDR, IPv4 and IPv6).
+#  # Defaults to the RFC 1918 private ranges plus the IPv6 unique local range.
+#  local_nets:
+#    - 10.0.0.0/8
+#    - 172.16.0.0/12
+#    - 192.168.0.0/16
+#    - fd00::/8
+
 # -- Proto ------------------------
 # Protocol configuration, entirely optional, defaults are shown below
 

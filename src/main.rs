@@ -14,6 +14,7 @@ pub mod timer;
 pub mod stream;
 pub mod event;
 pub mod config;
+pub mod intel;
 pub mod input;
 pub mod output;
 pub mod base;

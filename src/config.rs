@@ -1,6 +1,7 @@
 
 
 use crate::input::InputConfig;
+use crate::intel::IntelConfig;
 use crate::proto::ProtoConfig;
 use crate::output::OutputConfig;
 
@@ -18,6 +19,7 @@ static CONFIG: OnceLock<ArcSwap<Config>> = OnceLock::new();
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
 
+    pub intel: IntelConfig,
     pub input: InputConfig,
     pub proto: ProtoConfig,
     pub outputs: HashMap<String, OutputConfig>,
@@ -26,6 +28,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            intel: IntelConfig::default(),
             input: InputConfig::default(),
             proto: ProtoConfig::default(),
             outputs: HashMap::new(),

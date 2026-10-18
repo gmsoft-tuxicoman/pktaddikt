@@ -3,6 +3,7 @@ use crate::input::{Input, InputConfig};
 use crate::input::pcap::{PcapFileConfig, PcapInterfaceConfig};
 use crate::output::OutputBuilder;
 use crate::messagebus::MessageBus;
+use crate::intel::Intel;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use tracing::trace;
@@ -14,7 +15,6 @@ pub mod timer;
 pub mod stream;
 pub mod event;
 pub mod config;
-pub mod intel;
 pub mod input;
 pub mod output;
 pub mod base;
@@ -22,6 +22,7 @@ pub mod expectation;
 pub mod blob;
 pub mod messagebus;
 pub mod decoder;
+pub mod intel;
 
 
 #[derive(Parser, Debug)]
@@ -86,6 +87,8 @@ fn main() {
 
     MessageBus::new().init();
 
+    Intel::init();
+
     let mut input = Input::new();
 
     let mut outputs = OutputBuilder::build_all();
@@ -96,6 +99,10 @@ fn main() {
     trace!("Joining outputs ...");
 
     outputs.join();
+
+    trace!("Shutting down intel ...");
+
+    Intel::shutdown();
 
     trace!("Finished");
 }

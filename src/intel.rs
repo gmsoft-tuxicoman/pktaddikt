@@ -93,10 +93,12 @@ impl IntelRunner {
         let (tx, rx) = crossbeam_channel::unbounded();
 
         // Intel — not HostDb — owns the event subscription. Add more kinds here
-        // as ARP/NDP/etc. learning is wired up.
+        // as NDP/etc. learning is wired up.
         MessageBus::event_subscribe_kind(EventKind::NetDhcpMessage, &tx);
+        MessageBus::event_subscribe_kind(EventKind::NetArpReply, &tx);
 
-        let db: HostDbRef = Arc::new(Mutex::new(HostDb::new()));
+        let hosts_cfg = crate::config::Config::get().intel.hosts.clone().unwrap_or_default();
+        let db: HostDbRef = Arc::new(Mutex::new(HostDb::new(&hosts_cfg)));
         let worker_db = db.clone();
 
         let thread = std::thread::spawn(move || {
@@ -126,6 +128,9 @@ impl IntelRunner {
                 // Only the DHCP ACK is an authoritative MAC <-> IP binding.
                 if dhcp.r#type != crate::proto::dhcp::ProtoDhcpMessageType::DHCPACK { return; }
                 db.lock().unwrap().evt_dhcp_ack(dhcp, evt.ts);
+            }
+            EventPayload::NetArpReply(arp) => {
+                db.lock().unwrap().evt_arp_reply(arp, evt.ts);
             }
             _ => {}
         }

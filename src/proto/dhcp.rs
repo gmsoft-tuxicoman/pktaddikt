@@ -37,6 +37,7 @@ pub enum NetDhcpOptions {
     LeaseTime(u32),
     DomainName(EventStr),
     ServerIdentifier(Ipv4Addr),
+    ClientId(Vec<u8>),
 }
 
 #[derive(Debug, Serialize)]
@@ -189,6 +190,7 @@ impl ProtoPktProcessor for ProtoDhcp {
         let mut lease_time: Option<u32> = None;
         let mut domain_name: Option<EventStr> = None;
         let mut server_identifier: Option<Ipv4Addr> = None;
+        let mut client_id: Option<Vec<u8>> = None;
 
         while pkt.remaining_len() > 0 {
             
@@ -238,6 +240,9 @@ impl ProtoPktProcessor for ProtoDhcp {
                 54 => { // Server Identifier
                     if opt_len !=4 { return Err(ParseErr::Invalid("Invalid server identifier option length")); };
                     server_identifier = Some(pkt.read_ipv4()?);
+                },
+                61 => { // Client Identifier
+                    client_id = Some(pkt.read(opt_len as u32)?.to_vec());
                 },
                 _ => pkt.skip(opt_len as u32)?,
             }
@@ -317,6 +322,10 @@ impl ProtoPktProcessor for ProtoDhcp {
 
             if let Some(s) = server_identifier {
                 evt_pload.options.push(NetDhcpOptions::ServerIdentifier(s));
+            }
+
+            if let Some(c) = client_id {
+                evt_pload.options.push(NetDhcpOptions::ClientId(c));
             }
 
             let evt = Event::new(pkt.timestamp(), EventPayload::NetDhcpMessage(evt_pload));

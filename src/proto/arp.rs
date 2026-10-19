@@ -2,8 +2,28 @@ use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, ProtoInfo};
 use crate::packet::{Packet, PktInfoStack};
 use crate::proto::ethernet::EthernetMac;
+use crate::event::{Event, EventPayload, EventKind};
+use crate::messagebus::MessageBus;
 
 use std::net::Ipv4Addr;
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+pub struct NetArpRequest {
+
+    pub sender_mac: EthernetMac,
+    pub sender_ip: Ipv4Addr,
+    pub target_ip: Ipv4Addr,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetArpReply {
+
+    pub sender_mac: EthernetMac,
+    pub sender_ip: Ipv4Addr,
+    pub target_mac: EthernetMac,
+    pub target_ip: Ipv4Addr,
+}
 
 #[derive(Debug, PartialEq)]
 pub struct ProtoArpInfo {
@@ -63,6 +83,33 @@ impl ProtoPktProcessor for ProtoArp {
         };
 
         info.proto_info = Some(ProtoInfo::Arp(proto_info));
+
+        match opcode {
+            1 => {
+                if MessageBus::event_has_subscribers(EventKind::NetArpRequest) {
+                    let evt_pload = NetArpRequest {
+                        sender_mac: sender_hw,
+                        sender_ip,
+                        target_ip,
+                    };
+                    let evt = Event::new(pkt.timestamp(), EventPayload::NetArpRequest(evt_pload));
+                    MessageBus::publish_event(evt);
+                }
+            },
+            2 => {
+                if MessageBus::event_has_subscribers(EventKind::NetArpReply) {
+                    let evt_pload = NetArpReply {
+                        sender_mac: sender_hw,
+                        sender_ip,
+                        target_mac: target_hw,
+                        target_ip,
+                    };
+                    let evt = Event::new(pkt.timestamp(), EventPayload::NetArpReply(evt_pload));
+                    MessageBus::publish_event(evt);
+                }
+            },
+            _ => (),
+        }
 
         Ok(())
     }

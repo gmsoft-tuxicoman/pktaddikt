@@ -32,6 +32,10 @@ pub enum EventKind {
     NetDhcpMessage,
     #[strum(serialize = "net.dhcp.dora")]
     NetDhcpDora,
+    #[strum(serialize = "net.arp.request")]
+    NetArpRequest,
+    #[strum(serialize = "net.arp.reply")]
+    NetArpReply,
     #[strum(serialize = "net.tls.clienthello")]
     NetTlsClientHello,
     #[strum(serialize = "net.portmap.call.getport")]
@@ -108,6 +112,8 @@ pub enum EventPayload {
     NetDnsMessage(crate::proto::dns::NetDnsMessage),
     NetDhcpMessage(crate::proto::dhcp::NetDhcpMessage),
     NetDhcpDora(crate::proto::dhcp::NetDhcpDora),
+    NetArpRequest(crate::proto::arp::NetArpRequest),
+    NetArpReply(crate::proto::arp::NetArpReply),
     NetTlsClientHello(crate::proto::tls::NetTlsClientHello),
     NetPortmapCallGetport(crate::proto::sunrpc::portmap::NetPortmapCallGetport),
     NetPortmapReplyGetport(crate::proto::sunrpc::portmap::NetPortmapReplyGetport),
@@ -153,6 +159,8 @@ impl EventPayload {
             EventPayload::NetDnsMessage(_) => EventKind::NetDnsMessage,
             EventPayload::NetDhcpMessage(_) => EventKind::NetDhcpMessage,
             EventPayload::NetDhcpDora(_) => EventKind::NetDhcpDora,
+            EventPayload::NetArpRequest(_) => EventKind::NetArpRequest,
+            EventPayload::NetArpReply(_) => EventKind::NetArpReply,
             EventPayload::NetTlsClientHello(_) => EventKind::NetTlsClientHello,
             EventPayload::NetPortmapCallGetport(_) => EventKind::NetPortmapCallGetport,
             EventPayload::NetPortmapReplyGetport(_) => EventKind::NetPortmapReplyGetport,

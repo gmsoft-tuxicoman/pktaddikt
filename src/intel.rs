@@ -2,11 +2,13 @@
 use crate::intel::hostdb::{HostDb, HostDbConfig, HostDbRef};
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::event::{EventKind, EventPayload};
+use crate::packet::PktTime;
 
 use serde::Deserialize;
 use ipnet::IpNet;
 
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 use crossbeam_channel;
 
 pub mod hostdb;
@@ -22,7 +24,7 @@ pub struct IntelConfig {
     pub local_nets: Vec<IpNet>,
     /// Host DB configuration
     #[serde(default)]
-    pub hosts: Option<HostDbConfig>,
+    pub hostdb: Option<HostDbConfig>,
 }
 
 impl Default for IntelConfig {
@@ -37,7 +39,7 @@ impl Default for IntelConfig {
             .iter()
             .map(|n| n.parse().expect("valid default local_nets CIDR"))
             .collect(),
-            hosts: None
+            hostdb: None
         }
     }
 }
@@ -97,24 +99,37 @@ impl IntelRunner {
         MessageBus::event_subscribe_kind(EventKind::NetDhcpMessage, &tx);
         MessageBus::event_subscribe_kind(EventKind::NetArpReply, &tx);
 
-        let hosts_cfg = crate::config::Config::get().intel.hosts.clone().unwrap_or_default();
-        let db: HostDbRef = Arc::new(Mutex::new(HostDb::new(&hosts_cfg)));
+        let hostdb_cfg = crate::config::Config::get().intel.hostdb.clone().unwrap_or_default();
+        let sweep_interval = Duration::from_secs(hostdb_cfg.sweep_interval);
+        let db: HostDbRef = Arc::new(Mutex::new(HostDb::new(&hostdb_cfg)));
         let worker_db = db.clone();
 
         let thread = std::thread::spawn(move || {
-            Self::run(worker_db, rx);
+            Self::run(worker_db, rx, sweep_interval);
         });
 
         Self { db, tx, thread: Mutex::new(Some(thread)) }
 
     }
 
-    fn run(db: HostDbRef, rx: MessageRxChannel) {
+    fn run(db: HostDbRef, rx: MessageRxChannel, sweep_interval: Duration) {
+
+        // Eviction is O(hosts), so sweep for idle hosts at most once per
+        // `sweep_interval` of capture time rather than on every event.
+        let sweep_interval = PktTime::from(sweep_interval);
+        let mut next_sweep: Option<PktTime> = None;
 
         for msg in rx {
             match msg {
                 Message::Shutdown => break,
-                Message::Event(evt) => IntelRunner::dispatch(&db, &evt),
+                Message::Event(evt) => {
+                    IntelRunner::dispatch(&db, &evt);
+
+                    if next_sweep.map_or(true, |due| evt.ts >= due) {
+                        db.lock().unwrap().evict_idle(evt.ts);
+                        next_sweep = Some(evt.ts + sweep_interval);
+                    }
+                }
                 _ => {}
             }
         }

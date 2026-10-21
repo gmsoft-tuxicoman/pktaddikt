@@ -14,16 +14,30 @@ use smallvec::SmallVec;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct HostDbConfig {
-    /// How long an ARP-learned MAC <-> IPv4 binding stays valid. ARP replies
-    /// carry no TTL of their own, so the validity window is a policy choice.
-    pub arp_timeout: Duration,
+    /// How long an ARP-learned MAC <-> IPv4 binding stays valid, in seconds. ARP
+    /// replies carry no TTL of their own, so the validity window is a policy choice.
+    pub arp_timeout: u64,
+    /// How long a host is retained after it was last seen, in seconds, bounding
+    /// memory. A host and its stable identity (client-id/MAC) outlive its
+    /// individual bindings on purpose: a machine returning after downtime —
+    /// overnight, a weekend — re-correlates to the same HostId instead of looking
+    /// brand new. `None` (config `null`) disables eviction and retains forever.
+    pub host_timeout: Option<u64>,
+    /// Minimum seconds of capture-time between idle-host sweeps. Eviction is
+    /// O(hosts), so on a large network a coarser interval trades eviction
+    /// promptness for less scan overhead. Ignored when `host_timeout` is disabled.
+    pub sweep_interval: u64,
 }
 
 impl Default for HostDbConfig {
     fn default() -> Self {
         Self {
             // 4h — the default Cisco ARP cache timeout.
-            arp_timeout: Duration::from_secs(4 * 3600),
+            arp_timeout: 4 * 3600,
+            // ~1 month: long enough to survive a vacation so a returning host
+            // keeps its identity. Set to null in config to retain indefinitely.
+            host_timeout: Some(30 * 24 * 3600),
+            sweep_interval: 600,
         }
     }
 }
@@ -75,6 +89,7 @@ pub struct HostDb {
     by_v6: HashMap<Ipv6Addr, HostId>,
     by_dhcpid: HashMap<Box<[u8]>, HostId>,
     arp_timeout: Duration,
+    host_timeout: Option<Duration>,
 }
 
 pub type HostDbRef = Arc<Mutex<HostDb>>;
@@ -89,7 +104,8 @@ impl HostDb {
             by_v4: HashMap::new(),
             by_v6: HashMap::new(),
             by_dhcpid: HashMap::new(),
-            arp_timeout: cfg.arp_timeout,
+            arp_timeout: Duration::from_secs(cfg.arp_timeout),
+            host_timeout: cfg.host_timeout.map(Duration::from_secs),
         }
     }
 
@@ -131,8 +147,8 @@ impl HostDb {
         // Bind each applicable identity to this host. Attaching the address
         // migrates it off whichever host held it before (`attach` detaches the
         // V4 identity from the previous owner): that old host keeps its MAC and
-        // client-id and only loses the address, so it survives on its own MAC
-        // binding until that expires.
+        // client-id and only loses the address, so it lives on as its own host
+        // (subject to the retention timeout) rather than being destroyed here.
         self.attach(id, HostIdentifier::Mac(msg.chaddr), HostIdentifierSrc::Dhcp, expires);
         if let Some(cid) = client_id {
             // Only a real option-61 client-id is worth recording; without one the
@@ -286,6 +302,29 @@ impl HostDb {
             identifiers: &h.ids,
         })
     }
+
+    /// Evict hosts idle longer than the configured retention, bounding memory.
+    /// Host identity is deliberately decoupled from binding freshness: a host
+    /// outlives its individual bindings so a machine returning after downtime
+    /// re-correlates to the same HostId. `now` is capture time, like everything
+    /// else here. A `None` retention (disabled) evicts nothing.
+    pub fn evict_idle(&mut self, now: PktTime) {
+
+        let timeout = match self.host_timeout {
+            Some(t) => PktTime::from(t),
+            None => return,
+        };
+
+        let stale: Vec<HostId> = self.hosts.iter()
+            .filter(|(_, h)| now - h.last_seen > timeout)
+            .map(|(&id, _)| id)
+            .collect();
+
+        for id in stale {
+            self.remove_host(id);
+        }
+
+    }
 }
 
 /// A read-only view of one host and every way it's been identified.
@@ -403,6 +442,56 @@ mod tests {
         assert_eq!(hosts[0].identifiers.len(), 3);
     }
 
+    fn arp_reply(mac: EthernetMac, ip: Ipv4Addr) -> NetArpReply {
+        NetArpReply {
+            sender_mac: mac,
+            sender_ip: ip,
+            target_mac: EthernetMac([0u8; 6]),
+            target_ip: Ipv4Addr::new(10, 0, 0, 254),
+        }
+    }
+
+    #[test]
+    fn host_retention_evicts_idle_host() {
+        let mut db = HostDb::new(&HostDbConfig::default()); // 30-day default
+        db.evt_arp_reply(&arp_reply(EthernetMac([1, 2, 3, 4, 5, 6]), Ipv4Addr::new(10, 0, 0, 1)), PktTime::from_secs(0));
+        assert_eq!(db.hosts().count(), 1);
+
+        // Still within the retention window: kept.
+        db.evict_idle(PktTime::from_secs(29 * 24 * 3600));
+        assert_eq!(db.hosts().count(), 1);
+
+        // Idle past the window: evicted.
+        db.evict_idle(PktTime::from_secs(31 * 24 * 3600));
+        assert_eq!(db.hosts().count(), 0);
+    }
+
+    #[test]
+    fn host_retention_disabled_retains_forever() {
+        let cfg = HostDbConfig { host_timeout: None, ..HostDbConfig::default() };
+        let mut db = HostDb::new(&cfg);
+        db.evt_arp_reply(&arp_reply(EthernetMac([1, 2, 3, 4, 5, 6]), Ipv4Addr::new(10, 0, 0, 1)), PktTime::from_secs(0));
+
+        // A year later, nothing is evicted when retention is disabled.
+        db.evict_idle(PktTime::from_secs(365 * 24 * 3600));
+        assert_eq!(db.hosts().count(), 1);
+    }
+
+    #[test]
+    fn host_retention_refreshed_by_activity() {
+        let mut db = HostDb::new(&HostDbConfig::default());
+        let mac = EthernetMac([1, 2, 3, 4, 5, 6]);
+        let ip = Ipv4Addr::new(10, 0, 0, 1);
+
+        db.evt_arp_reply(&arp_reply(mac, ip), PktTime::from_secs(0));
+        // Seen again near the edge of the window — last_seen moves forward.
+        db.evt_arp_reply(&arp_reply(mac, ip), PktTime::from_secs(29 * 24 * 3600));
+
+        // 31 days from the *first* sighting, but only 2 since the last: retained.
+        db.evict_idle(PktTime::from_secs(31 * 24 * 3600));
+        assert_eq!(db.hosts().count(), 1);
+    }
+
     #[test]
     fn arp_reply_populates_host_ids() {
         let mut db = HostDb::new(&HostDbConfig::default());
@@ -428,7 +517,7 @@ mod tests {
         assert!(idents.iter().any(|e| e.id == HostIdentifier::Mac(mac)));
         assert!(idents.iter().any(|e| e.id == HostIdentifier::V4(ip)));
 
-        let expires = ts + PktTime::from(HostDbConfig::default().arp_timeout);
+        let expires = ts + PktTime::from_secs(HostDbConfig::default().arp_timeout);
         assert!(idents.iter().all(|e| e.expires == expires));
     }
 }

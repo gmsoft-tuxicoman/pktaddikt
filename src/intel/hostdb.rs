@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
+use tracing::trace;
 
 
 #[derive(Debug, Clone, Deserialize)]
@@ -211,6 +212,7 @@ impl HostDb {
         let id = self.next_id;
         self.next_id += 1;
         self.hosts.insert(id, Host { ids: SmallVec::new(), first_seen: ts, last_seen: ts });
+        trace!("hostdb: created host {} (first mac {})", id, mac);
         id
 
     }
@@ -219,25 +221,26 @@ impl HostDb {
     /// on the Host. If the identity was owned by another host, detach it there.
     fn attach(&mut self, id: HostId, ident: HostIdentifier, src: HostIdentifierSrc, expires: PktTime) {
 
-        match &ident {
-            HostIdentifier::Mac(m) => {
-                if let Some(prev) = self.by_mac.insert(*m, id) { if prev != id { self.detach(prev, &ident); } }
-            }
-            HostIdentifier::V4(ip) => {
-                if let Some(prev) = self.by_v4.insert(*ip, id) { if prev != id { self.detach(prev, &ident); } }
-            }
-            HostIdentifier::V6(ip) => {
-                if let Some(prev) = self.by_v6.insert(*ip, id) { if prev != id { self.detach(prev, &ident); } }
-            }
-            HostIdentifier::DhcpId(c) => {
-                if let Some(prev) = self.by_dhcpid.insert(c.clone(), id) { if prev != id { self.detach(prev, &ident); } }
+        let prev = match &ident {
+            HostIdentifier::Mac(m) => self.by_mac.insert(*m, id),
+            HostIdentifier::V4(ip) => self.by_v4.insert(*ip, id),
+            HostIdentifier::V6(ip) => self.by_v6.insert(*ip, id),
+            HostIdentifier::DhcpId(c) => self.by_dhcpid.insert(c.clone(), id),
+        };
+        if let Some(prev) = prev {
+            if prev != id {
+                trace!("hostdb: {:?} reassigned from host {} to host {}", ident, prev, id);
+                self.detach(prev, &ident);
             }
         }
 
         if let Some(host) = self.hosts.get_mut(&id) {
             match host.ids.iter_mut().find(|e| e.id == ident && e.source == src) {
                 Some(e) => e.expires = expires,
-                None => host.ids.push(HostIdentifierEntry { id: ident.clone(), source: src, expires }),
+                None => {
+                    trace!("hostdb: host {} bound {:?} (source {:?})", id, ident, src);
+                    host.ids.push(HostIdentifierEntry { id: ident.clone(), source: src, expires });
+                }
             }
         }
 
@@ -248,7 +251,14 @@ impl HostDb {
     fn detach(&mut self, id: HostId, ident: &HostIdentifier) {
 
         let now_empty = match self.hosts.get_mut(&id) {
-            Some(host) => { host.ids.retain(|e| &e.id != ident); host.ids.is_empty() }
+            Some(host) => {
+                let before = host.ids.len();
+                host.ids.retain(|e| &e.id != ident);
+                if host.ids.len() != before {
+                    trace!("hostdb: host {} unbound {:?}", id, ident);
+                }
+                host.ids.is_empty()
+            }
             None => false,
         };
 
@@ -262,6 +272,7 @@ impl HostDb {
     fn remove_host(&mut self, id: HostId) {
 
         let host = match self.hosts.remove(&id) { Some(h) => h, None => return };
+        trace!("hostdb: removed host {}", id);
 
         for e in &host.ids {
             match &e.id {
@@ -321,6 +332,7 @@ impl HostDb {
             .collect();
 
         for id in stale {
+            trace!("hostdb: evicting idle host {} at {}", id, now);
             self.remove_host(id);
         }
 

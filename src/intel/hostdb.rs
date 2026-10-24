@@ -1,6 +1,5 @@
 use crate::packet::PktTime;
 use crate::proto::ethernet::EthernetMac;
-use crate::proto::dhcp::{NetDhcpMessage, NetDhcpOptions};
 use crate::proto::arp::NetArpReply;
 
 use std::collections::HashMap;
@@ -19,7 +18,7 @@ pub struct HostDbConfig {
     /// replies carry no TTL of their own, so the validity window is a policy choice.
     pub arp_timeout: u64,
     /// How long a host is retained after it was last seen, in seconds, bounding
-    /// memory. A host and its stable identity (client-id/MAC) outlive its
+    /// memory. A host and its stable identity (MAC) outlive its
     /// individual bindings on purpose: a machine returning after downtime —
     /// overnight, a weekend — re-correlates to the same HostId instead of looking
     /// brand new. `None` (config `null`) disables eviction and retains forever.
@@ -49,7 +48,6 @@ pub enum HostIdentifier {
     V4(Ipv4Addr),
     V6(Ipv6Addr),
     Mac(EthernetMac),
-    DhcpId(Box<[u8]>)
 }
 
 
@@ -58,7 +56,6 @@ pub enum HostIdentifierSrc {
     Traffic,
     Arp,
     Ndp,
-    Dhcp
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -88,7 +85,6 @@ pub struct HostDb {
     by_mac: HashMap<EthernetMac, HostId>,
     by_v4: HashMap<Ipv4Addr, HostId>,
     by_v6: HashMap<Ipv6Addr, HostId>,
-    by_dhcpid: HashMap<Box<[u8]>, HostId>,
     arp_timeout: Duration,
     host_timeout: Option<Duration>,
 }
@@ -104,79 +100,9 @@ impl HostDb {
             by_mac: HashMap::new(),
             by_v4: HashMap::new(),
             by_v6: HashMap::new(),
-            by_dhcpid: HashMap::new(),
             arp_timeout: Duration::from_secs(cfg.arp_timeout),
             host_timeout: cfg.host_timeout.map(Duration::from_secs),
         }
-    }
-
-    /// Record the authoritative MAC <-> IPv4 binding from a DHCP ACK.
-    pub fn evt_dhcp_ack(&mut self, msg: &NetDhcpMessage, ts: PktTime) {
-
-        // A usable ACK binding needs both a client MAC and an assigned address.
-        if msg.yiaddr == Ipv4Addr::UNSPECIFIED || msg.chaddr == EthernetMac([0u8; 6]) {
-            return;
-        }
-
-        // Lease time is mandatory in an ACK. Without it there's no valid expiry,
-        // so ignore the message rather than guessing a TTL.
-        let mut lease_secs: Option<u32> = None;
-        let mut client_id: Option<Box<[u8]>> = None;
-        for opt in &msg.options {
-            match opt {
-                NetDhcpOptions::LeaseTime(secs) => lease_secs = Some(*secs),
-                NetDhcpOptions::ClientId(bytes) => client_id = Some(bytes.clone().into_boxed_slice()),
-                _ => {}
-            }
-        }
-        let ttl = match lease_secs {
-            Some(secs) => PktTime::from_secs(u64::from(secs)),
-            None => return,
-        };
-        let expires = ts + ttl;
-
-        // The client-id (option 61) is the most stable identity: wireless clients
-        // randomize their MAC, so the same client reappears under a new MAC. Match
-        // on client-id first and treat the MAC as a mutable attribute of the host;
-        // only fall back to MAC keying when no client-id is present.
-        let matched = client_id.as_ref().and_then(|cid| self.by_dhcpid.get(cid).copied());
-        let id = matched.unwrap_or_else(|| self.host_for_mac(msg.chaddr, ts));
-        if let Some(h) = self.hosts.get_mut(&id) {
-            h.last_seen = ts;
-        }
-
-        // Bind each applicable identity to this host. Attaching the address
-        // migrates it off whichever host held it before (`attach` detaches the
-        // V4 identity from the previous owner): that old host keeps its MAC and
-        // client-id and only loses the address, so it lives on as its own host
-        // (subject to the retention timeout) rather than being destroyed here.
-        self.attach(id, HostIdentifier::Mac(msg.chaddr), HostIdentifierSrc::Dhcp, expires);
-        if let Some(cid) = client_id {
-            // Only a real option-61 client-id is worth recording; without one the
-            // MAC is already the identity and a copy of it would just be noise.
-            self.attach(id, HostIdentifier::DhcpId(cid), HostIdentifierSrc::Dhcp, expires);
-        }
-        self.attach(id, HostIdentifier::V4(msg.yiaddr), HostIdentifierSrc::Dhcp, expires);
-
-        // When we matched by client-id, the MAC and assigned address in this ACK
-        // supersede whatever this client had before — a randomized-MAC rotation
-        // and, from a server that keys on MAC, a fresh lease too. Drop the host's
-        // earlier DHCP-learned MAC and IPv4 bindings that differ from this ACK so
-        // dead values stop resolving to it. Bindings from other sources (ARP/NDP)
-        // are left to expire on their own timers rather than be nuked by DHCP.
-        if matched.is_some() {
-            let stale: Vec<HostIdentifier> = self.hosts.get(&id).map_or_else(Vec::new, |h| {
-                h.ids.iter().filter(|e| e.source == HostIdentifierSrc::Dhcp).filter_map(|e| match &e.id {
-                    HostIdentifier::Mac(m) if *m != msg.chaddr => Some(e.id.clone()),
-                    HostIdentifier::V4(ip) if *ip != msg.yiaddr => Some(e.id.clone()),
-                    _ => None,
-                }).collect()
-            });
-            for ident in stale {
-                self.drop_identity(id, &ident);
-            }
-        }
-
     }
 
     /// Record the MAC <-> IPv4 binding announced by an ARP reply. The reply's
@@ -225,7 +151,6 @@ impl HostDb {
             HostIdentifier::Mac(m) => self.by_mac.insert(*m, id),
             HostIdentifier::V4(ip) => self.by_v4.insert(*ip, id),
             HostIdentifier::V6(ip) => self.by_v6.insert(*ip, id),
-            HostIdentifier::DhcpId(c) => self.by_dhcpid.insert(c.clone(), id),
         };
         if let Some(prev) = prev {
             if prev != id {
@@ -279,26 +204,8 @@ impl HostDb {
                 HostIdentifier::Mac(m) => { if self.by_mac.get(m) == Some(&id) { self.by_mac.remove(m); } }
                 HostIdentifier::V4(ip) => { if self.by_v4.get(ip) == Some(&id) { self.by_v4.remove(ip); } }
                 HostIdentifier::V6(ip) => { if self.by_v6.get(ip) == Some(&id) { self.by_v6.remove(ip); } }
-                HostIdentifier::DhcpId(c) => { if self.by_dhcpid.get(c) == Some(&id) { self.by_dhcpid.remove(c); } }
             }
         }
-
-    }
-
-    /// Fully remove one identity from a host: scrub its index entry and drop it
-    /// from the host. Unlike `detach` — which assumes the identity is being
-    /// reassigned to another host and leaves the index fixup to `attach`'s
-    /// insert — this also clears the index. Removes the host if nothing is left.
-    fn drop_identity(&mut self, id: HostId, ident: &HostIdentifier) {
-
-        match ident {
-            HostIdentifier::Mac(m) => { if self.by_mac.get(m) == Some(&id) { self.by_mac.remove(m); } }
-            HostIdentifier::V4(ip) => { if self.by_v4.get(ip) == Some(&id) { self.by_v4.remove(ip); } }
-            HostIdentifier::V6(ip) => { if self.by_v6.get(ip) == Some(&id) { self.by_v6.remove(ip); } }
-            HostIdentifier::DhcpId(c) => { if self.by_dhcpid.get(c) == Some(&id) { self.by_dhcpid.remove(c); } }
-        }
-
-        self.detach(id, ident);
 
     }
 
@@ -353,106 +260,6 @@ mod tests {
 
     use super::*;
     use crate::proto::arp::NetArpReply;
-    use crate::proto::dhcp::{NetDhcpMessage, ProtoDhcpMessageType};
-    use crate::base::UniqueId;
-
-    fn dhcp_ack(chaddr: EthernetMac, yiaddr: Ipv4Addr, client_id: Option<Vec<u8>>, lease: u32, ts: PktTime) -> NetDhcpMessage {
-        let mut options = vec![NetDhcpOptions::LeaseTime(lease)];
-        if let Some(c) = client_id {
-            options.push(NetDhcpOptions::ClientId(c));
-        }
-        NetDhcpMessage {
-            conn_id: UniqueId::new(ts),
-            client_ip: Ipv4Addr::UNSPECIFIED,
-            client_port: 68,
-            server_ip: Ipv4Addr::UNSPECIFIED,
-            server_port: 67,
-            r#type: ProtoDhcpMessageType::DHCPACK,
-            hops: 0,
-            xid: 0,
-            secs: 0,
-            ciaddr: Ipv4Addr::UNSPECIFIED,
-            yiaddr,
-            siaddr: Ipv4Addr::UNSPECIFIED,
-            giaddr: Ipv4Addr::UNSPECIFIED,
-            chaddr,
-            sname: None,
-            file: None,
-            options,
-        }
-    }
-
-    #[test]
-    fn dhcp_ack_ip_migration_keeps_old_host() {
-        let mut db = HostDb::new(&HostDbConfig::default());
-
-        let ip = Ipv4Addr::new(192, 168, 1, 50);
-        let mac_a = EthernetMac([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
-        let mac_b = EthernetMac([0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB]);
-
-        // Client A leases the IP.
-        db.evt_dhcp_ack(&dhcp_ack(mac_a, ip, Some(vec![1, 2, 3]), 3600, PktTime::from_secs(0)), PktTime::from_secs(0));
-        assert_eq!(db.hosts().count(), 1);
-
-        // A different client takes the same IP. The address migrates to B, but
-        // A's host survives on its MAC binding — it just no longer holds the IP.
-        db.evt_dhcp_ack(&dhcp_ack(mac_b, ip, Some(vec![9, 9, 9]), 3600, PktTime::from_secs(10)), PktTime::from_secs(10));
-
-        let hosts: Vec<_> = db.hosts().collect();
-        assert_eq!(hosts.len(), 2);
-
-        // The IP now belongs to B.
-        let owner = hosts.iter().find(|h| h.identifiers.iter().any(|e| e.id == HostIdentifier::V4(ip))).unwrap();
-        assert!(owner.identifiers.iter().any(|e| e.id == HostIdentifier::Mac(mac_b)));
-
-        // A is still around via its MAC, but no longer holds the address.
-        let old = hosts.iter().find(|h| h.identifiers.iter().any(|e| e.id == HostIdentifier::Mac(mac_a))).unwrap();
-        assert!(!old.identifiers.iter().any(|e| e.id == HostIdentifier::V4(ip)));
-    }
-
-    #[test]
-    fn dhcp_ack_mac_and_ip_rotation_replaces_old_bindings() {
-        let mut db = HostDb::new(&HostDbConfig::default());
-
-        let cid = vec![1, 2, 3];
-        let mac1 = EthernetMac([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
-        let mac2 = EthernetMac([0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB]);
-        let ip1 = Ipv4Addr::new(10, 0, 0, 5);
-        let ip2 = Ipv4Addr::new(10, 0, 0, 6);
-
-        db.evt_dhcp_ack(&dhcp_ack(mac1, ip1, Some(cid.clone()), 3600, PktTime::from_secs(0)), PktTime::from_secs(0));
-        // Same client-id reappears on a new MAC *and* a new lease — the common
-        // case when the server keys on MAC and treats the randomized client as new.
-        db.evt_dhcp_ack(&dhcp_ack(mac2, ip2, Some(cid.clone()), 3600, PktTime::from_secs(10)), PktTime::from_secs(10));
-
-        // Still one logical host, now bound to the new MAC and IP; both old
-        // DHCP-learned bindings are dropped rather than left dangling.
-        let hosts: Vec<_> = db.hosts().collect();
-        assert_eq!(hosts.len(), 1);
-        let idents = hosts[0].identifiers;
-        assert!(idents.iter().any(|e| e.id == HostIdentifier::Mac(mac2)));
-        assert!(!idents.iter().any(|e| e.id == HostIdentifier::Mac(mac1)));
-        assert!(idents.iter().any(|e| e.id == HostIdentifier::V4(ip2)));
-        assert!(!idents.iter().any(|e| e.id == HostIdentifier::V4(ip1)));
-        assert!(idents.iter().any(|e| e.id == HostIdentifier::DhcpId(Box::from(cid.as_slice()))));
-    }
-
-    #[test]
-    fn dhcp_ack_renewal_keeps_host() {
-        let mut db = HostDb::new(&HostDbConfig::default());
-
-        let ip = Ipv4Addr::new(192, 168, 1, 50);
-        let mac = EthernetMac([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
-
-        // Same client-id renewing the same IP must not evict and recreate itself.
-        db.evt_dhcp_ack(&dhcp_ack(mac, ip, Some(vec![1, 2, 3]), 3600, PktTime::from_secs(0)), PktTime::from_secs(0));
-        db.evt_dhcp_ack(&dhcp_ack(mac, ip, Some(vec![1, 2, 3]), 3600, PktTime::from_secs(10)), PktTime::from_secs(10));
-
-        let hosts: Vec<_> = db.hosts().collect();
-        assert_eq!(hosts.len(), 1);
-        // One entry per identity, not duplicated across the two ACKs.
-        assert_eq!(hosts[0].identifiers.len(), 3);
-    }
 
     fn arp_reply(mac: EthernetMac, ip: Ipv4Addr) -> NetArpReply {
         NetArpReply {

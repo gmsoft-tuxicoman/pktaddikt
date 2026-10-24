@@ -68,7 +68,7 @@ outputs:
 #    - 172.16.0.0/12
 #    - 192.168.0.0/16
 #    - fd00::/8
-#  # Host database: tracks hosts and the identities (MAC, IPv4, DHCP client-id)
+#  # Host database: tracks hosts and the identities (MAC, IPv4)
 #  # bound to them. All values in seconds.
 #  hostdb:
 #    arp_timeout: 14400     # how long an ARP-learned MAC<->IPv4 binding stays valid (4h, Cisco default)

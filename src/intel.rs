@@ -96,7 +96,6 @@ impl IntelRunner {
 
         // Intel — not HostDb — owns the event subscription. Add more kinds here
         // as NDP/etc. learning is wired up.
-        MessageBus::event_subscribe_kind(EventKind::NetDhcpMessage, &tx);
         MessageBus::event_subscribe_kind(EventKind::NetArpReply, &tx);
 
         let hostdb_cfg = crate::config::Config::get().intel.hostdb.clone().unwrap_or_default();
@@ -139,11 +138,6 @@ impl IntelRunner {
     fn dispatch(db: &HostDbRef, evt: &crate::event::EventRef) {
 
         match &evt.payload {
-            EventPayload::NetDhcpMessage(dhcp) => {
-                // Only the DHCP ACK is an authoritative MAC <-> IP binding.
-                if dhcp.r#type != crate::proto::dhcp::ProtoDhcpMessageType::DHCPACK { return; }
-                db.lock().unwrap().evt_dhcp_ack(dhcp, evt.ts);
-            }
             EventPayload::NetArpReply(arp) => {
                 db.lock().unwrap().evt_arp_reply(arp, evt.ts);
             }

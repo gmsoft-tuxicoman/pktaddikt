@@ -172,10 +172,20 @@ impl PktInfoStack {
         self.conn_id.as_ref()
     }
 
-    /// How the frame carrying the innermost IP layer was addressed: from the
-    /// destination MAC for Ethernet, from the packet type for SLL2. SLL2 marks
-    /// what the capturing host sent as outgoing, which says nothing, so that's
-    /// `None`.
+    /// Source MAC of the frame carrying the innermost IP layer, if it came
+    /// straight off Ethernet or SLL2 (VLAN tags aside). A tunnelled packet's
+    /// outer frame belongs to the tunnel endpoint, so it doesn't count.
+    pub fn src_mac(&self) -> Option<EthernetMac> {
+        match self.link_info()? {
+            ProtoInfo::Ethernet(e) => Some(e.src),
+            ProtoInfo::Sll2(s) => Some(s.src),
+            _ => None,
+        }
+    }
+
+    /// How the same frame as `src_mac()` was addressed: from the destination
+    /// MAC for Ethernet, from the packet type for SLL2. SLL2 marks what the
+    /// capturing host sent as outgoing, which says nothing, so that's `None`.
     pub fn link_pkt_type(&self) -> Option<PktLinkType> {
         match self.link_info()? {
             ProtoInfo::Ethernet(e) => Some(match e.dst {
@@ -194,8 +204,7 @@ impl PktInfoStack {
     }
 
     /// Info of the link layer right below the innermost IP layer, VLAN tags
-    /// skipped. A tunnelled packet's outer frame belongs to the tunnel
-    /// endpoint, so it doesn't count.
+    /// skipped.
     fn link_info(&self) -> Option<&ProtoInfo> {
         self.infos.iter().rev()
             .skip_while(|i| !matches!(i.proto_info, Some(ProtoInfo::Ipv4(_)) | Some(ProtoInfo::Ipv6(_))))

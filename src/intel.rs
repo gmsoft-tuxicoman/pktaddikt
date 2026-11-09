@@ -1,12 +1,14 @@
 
 use crate::intel::hostdb::{HostDb, HostDbConfig, HostDbRef};
+use crate::proto::ethernet::EthernetMac;
 use crate::messagebus::{MessageBus, MessageTxChannel, MessageRxChannel, Message};
 use crate::event::{EventKind, EventPayload};
-use crate::packet::PktTime;
+use crate::packet::{PktLinkType, PktTime};
 
 use serde::Deserialize;
 use ipnet::IpNet;
 
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use crossbeam_channel;
@@ -19,7 +21,9 @@ static INTEL: OnceLock<Intel> = OnceLock::new();
 #[serde(default, deny_unknown_fields)]
 pub struct IntelConfig {
 
-    /// Networks to treat as local (CIDR, IPv4 and IPv6).
+    /// Networks to treat as local (CIDR, IPv4 and IPv6). An address in these
+    /// seen in a connection becomes a host even without ARP; other addresses
+    /// never resolve to a host.
     /// Defaults to the RFC 1918 private ranges plus the IPv6 unique local range.
     pub local_nets: Vec<IpNet>,
     /// Host DB configuration
@@ -61,12 +65,6 @@ impl Intel {
         INTEL.set(Self::new()).unwrap();
     }
 
-/*
-    /// Shared handle other threads use to read/mutate the host table.
-    pub fn hosts() -> Option<HostDbRef> {
-        INTEL.get().and_then(|intel| intel.runner.as_ref()).map(|r| r.hostdb())
-    }
-*/
     /// Stop the event dispatcher and join its thread.
     pub fn shutdown() {
         if let Some(intel) = INTEL.get() {
@@ -97,10 +95,13 @@ impl IntelRunner {
         // Intel — not HostDb — owns the event subscription. Add more kinds here
         // as NDP/etc. learning is wired up.
         MessageBus::event_subscribe_kind(EventKind::NetArpReply, &tx);
+        MessageBus::event_subscribe_kind(EventKind::NetTcpConnectionStart, &tx);
+        MessageBus::event_subscribe_kind(EventKind::NetUdpConnectionStart, &tx);
 
-        let hostdb_cfg = crate::config::Config::get().intel.hostdb.clone().unwrap_or_default();
+        let intel_cfg = &crate::config::Config::get().intel;
+        let hostdb_cfg = intel_cfg.hostdb.clone().unwrap_or_default();
         let sweep_interval = Duration::from_secs(hostdb_cfg.sweep_interval);
-        let db: HostDbRef = Arc::new(Mutex::new(HostDb::new(&hostdb_cfg)));
+        let db: HostDbRef = Arc::new(Mutex::new(HostDb::new(&hostdb_cfg, &intel_cfg.local_nets)));
         let worker_db = db.clone();
 
         let thread = std::thread::spawn(move || {
@@ -141,16 +142,32 @@ impl IntelRunner {
             EventPayload::NetArpReply(arp) => {
                 db.lock().unwrap().evt_arp_reply(arp, evt.ts);
             }
+            EventPayload::NetTcpConnectionStart(p) => {
+                IntelRunner::conn_start(db, evt.ts, p.client_addr, p.client_mac, p.server_addr, None);
+            }
+            EventPayload::NetUdpConnectionStart(p) => {
+                IntelRunner::conn_start(db, evt.ts, p.client_addr, p.client_mac, p.server_addr, p.link_pkt_type);
+            }
             _ => {}
         }
 
     }
 
-/*
-    fn hostdb(&self) -> HostDbRef {
-        self.db.clone()
+    /// Resolve the endpoints of a new connection to hosts. `client_mac` and
+    /// `link_pkt_type` come from the client's first packet; TCP has no
+    /// `link_pkt_type`, it's always unicast. A broadcast or multicast
+    /// destination isn't a host at all.
+    fn conn_start(db: &HostDbRef, ts: PktTime, client_addr: IpAddr, client_mac: Option<EthernetMac>,
+        server_addr: IpAddr, link_pkt_type: Option<PktLinkType>) {
+
+        let mut db = db.lock().unwrap();
+        db.host_for_ip(&client_addr, client_mac, ts);
+        if link_pkt_type.is_none_or(|t| t == PktLinkType::Unicast) {
+            db.host_for_ip(&server_addr, None, ts);
+        }
+
     }
-*/
+
     fn join(&self) {
 
         self.tx.send(Message::Shutdown).ok();

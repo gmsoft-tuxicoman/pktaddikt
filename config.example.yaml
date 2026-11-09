@@ -61,7 +61,9 @@ outputs:
 # optional, defaults are shown below
 
 # intel:
-#  # Networks to treat as local (CIDR, IPv4 and IPv6).
+#  # Networks to treat as local (CIDR, IPv4 and IPv6). An address in these
+#  # seen in a connection becomes a host even without ARP; other addresses
+#  # never resolve to a host.
 #  # Defaults to the RFC 1918 private ranges plus the IPv6 unique local range.
 #  local_nets:
 #    - 10.0.0.0/8

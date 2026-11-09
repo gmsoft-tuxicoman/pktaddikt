@@ -7,6 +7,7 @@ use crate::stream::PktStream;
 use crate::proto::{Protocols, ProtoInfo};
 use crate::event::{Event, EventPayload};
 use crate::base::UniqueId;
+use crate::proto::ethernet::EthernetMac;
 use crate::messagebus::MessageBus;
 
 use std::collections::BTreeMap;
@@ -20,6 +21,8 @@ const CONNTRACK_TCP_MAX_BUFFER :u32 = 1024 * 1024;
 pub struct NetTcpConnectionStart {
     pub conn_id: UniqueId,
     pub client_addr: IpAddr,
+    /// Source MAC of the client's first packet, when it came off Ethernet.
+    pub client_mac: Option<EthernetMac>,
     pub server_addr: IpAddr,
     pub client_port: u16,
     pub server_port: u16,
@@ -94,6 +97,7 @@ pub struct ConntrackTcp {
     client_port: u16,
     server_port: u16,
     client_addr: IpAddr,
+    client_mac: Option<EthernetMac>,
     server_addr: IpAddr,
     pub next_proto: Protocols,
 }
@@ -144,6 +148,7 @@ impl ConntrackTcp {
             client_port: tcp_info.sport,
             server_port: tcp_info.dport,
             client_addr,
+            client_mac: infos.src_mac(),
             server_addr,
             next_proto: proto,
         };
@@ -322,6 +327,7 @@ impl ConntrackTcp {
             let evt_pload = NetTcpConnectionStart {
                 conn_id: self.conn_id.clone(),
                 client_addr: self.client_addr,
+                client_mac: self.client_mac,
                 server_addr: self.server_addr,
                 client_port: self.client_port,
                 server_port: self.server_port,

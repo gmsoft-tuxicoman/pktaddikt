@@ -6,6 +6,7 @@ use crate::config::Config;
 use crate::event::{Event, EventPayload, EventKind};
 use crate::messagebus::MessageBus;
 use crate::base::UniqueId;
+use crate::proto::ethernet::EthernetMac;
 use crate::expectation::ExpectationTable;
 
 use std::time::Duration;
@@ -42,8 +43,10 @@ impl Default for UdpConfig {
 pub struct NetUdpConnectionStart {
     pub conn_id: UniqueId,
     pub client_addr: IpAddr,
+    /// Source MAC of the client's first packet, when it came off Ethernet.
+    pub client_mac: Option<EthernetMac>,
     pub server_addr: IpAddr,
-    /// How the client's first packet was addressed at the link layer, when known.
+    /// How that packet was addressed at the link layer, when known.
     pub link_pkt_type: Option<PktLinkType>,
     pub client_port: u16,
     pub server_port: u16,
@@ -197,6 +200,7 @@ impl ProtoPktProcessor for ProtoUdp {
                         client_port: sport,
                         server_port: dport,
                         client_addr: cd.client_addr,
+                        client_mac: infos.src_mac(),
                         server_addr: cd.server_addr,
                         link_pkt_type: infos.link_pkt_type(),
                     };

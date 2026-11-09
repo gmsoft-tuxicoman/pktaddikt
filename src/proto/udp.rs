@@ -1,7 +1,7 @@
 use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection};
-use crate::packet::{Packet, PktInfoStack, PktTime};
+use crate::packet::{Packet, PktInfoStack, PktLinkType, PktTime};
 use crate::config::Config;
 use crate::event::{Event, EventPayload, EventKind};
 use crate::messagebus::MessageBus;
@@ -43,6 +43,8 @@ pub struct NetUdpConnectionStart {
     pub conn_id: UniqueId,
     pub client_addr: IpAddr,
     pub server_addr: IpAddr,
+    /// How the client's first packet was addressed at the link layer, when known.
+    pub link_pkt_type: Option<PktLinkType>,
     pub client_port: u16,
     pub server_port: u16,
 }
@@ -196,6 +198,7 @@ impl ProtoPktProcessor for ProtoUdp {
                         server_port: dport,
                         client_addr: cd.client_addr,
                         server_addr: cd.server_addr,
+                        link_pkt_type: infos.link_pkt_type(),
                     };
                     let evt = Event::new(cd.start_ts, EventPayload::NetUdpConnectionStart(evt_pload));
                     MessageBus::publish_event(evt);

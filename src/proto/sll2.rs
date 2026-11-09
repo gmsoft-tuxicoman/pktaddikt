@@ -8,6 +8,9 @@ use crate::proto::ethernet::EthernetMac;
 pub struct ProtoSll2Info {
     pub src: EthernetMac,
     pub iface_id: u32,
+    /// How the frame was addressed, as the kernel saw it (PACKET_HOST,
+    /// PACKET_BROADCAST, ...).
+    pub pkt_type: u8,
 }
 
 
@@ -46,7 +49,7 @@ impl ProtoPktProcessor for ProtoSll2 {
             return Err(ParseErr::Invalid("Non-ethernet packet not supported"));
         }
 
-        pkt.skip_u8()?; // direction
+        let pkt_type = pkt.read_u8()?;
         let ll_addr_len = pkt.read_u8()?;
         if ll_addr_len != 6 {
             return Err(ParseErr::Invalid("Invalid ethernet address len"));
@@ -61,6 +64,7 @@ impl ProtoPktProcessor for ProtoSll2 {
         let proto_info = ProtoSll2Info {
             src,
             iface_id,
+            pkt_type,
         };
 
 

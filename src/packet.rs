@@ -1,5 +1,6 @@
 use crate::base::{Parser, ParseErr};
 use crate::proto::{Protocols, ProtoInfo};
+use crate::proto::ethernet::EthernetMac;
 use crate::conntrack::{ConntrackRef, ConntrackWeakRef, ConntrackDirection};
 use crate::base::UniqueId;
 use std::sync::Arc;
@@ -94,6 +95,15 @@ pub struct PktConnInfo {
     pub dst_port: Option<u16>,
 }
 
+/// How the link layer frame was addressed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PktLinkType {
+    Unicast,
+    Broadcast,
+    Multicast,
+}
+
 // Stack of packet info
 pub struct PktInfoStack {
     infos: Vec<PktInfo>,
@@ -160,6 +170,38 @@ impl PktInfoStack {
 
     pub fn get_conn_id(&self) -> Option<&UniqueId> {
         self.conn_id.as_ref()
+    }
+
+    /// How the frame carrying the innermost IP layer was addressed: from the
+    /// destination MAC for Ethernet, from the packet type for SLL2. SLL2 marks
+    /// what the capturing host sent as outgoing, which says nothing, so that's
+    /// `None`.
+    pub fn link_pkt_type(&self) -> Option<PktLinkType> {
+        match self.link_info()? {
+            ProtoInfo::Ethernet(e) => Some(match e.dst {
+                EthernetMac([0xff, 0xff, 0xff, 0xff, 0xff, 0xff]) => PktLinkType::Broadcast,
+                EthernetMac(m) if m[0] & 1 != 0 => PktLinkType::Multicast,
+                _ => PktLinkType::Unicast,
+            }),
+            ProtoInfo::Sll2(s) => match s.pkt_type {
+                0 | 3 => Some(PktLinkType::Unicast), // PACKET_HOST, PACKET_OTHERHOST
+                1 => Some(PktLinkType::Broadcast),
+                2 => Some(PktLinkType::Multicast),
+                _ => None, // PACKET_OUTGOING
+            },
+            _ => None,
+        }
+    }
+
+    /// Info of the link layer right below the innermost IP layer, VLAN tags
+    /// skipped. A tunnelled packet's outer frame belongs to the tunnel
+    /// endpoint, so it doesn't count.
+    fn link_info(&self) -> Option<&ProtoInfo> {
+        self.infos.iter().rev()
+            .skip_while(|i| !matches!(i.proto_info, Some(ProtoInfo::Ipv4(_)) | Some(ProtoInfo::Ipv6(_))))
+            .skip(1)
+            .find(|i| !matches!(i.proto_info, Some(ProtoInfo::Vlan(_))))?
+            .proto_info.as_ref()
     }
 
     pub fn get_conn_info(&self) -> PktConnInfo {

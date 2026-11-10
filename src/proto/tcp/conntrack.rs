@@ -5,7 +5,7 @@ use crate::proto::tcp::seq::TcpSeq;
 use crate::packet::{Packet, PktTime, PktInfoStack};
 use crate::stream::PktStream;
 use crate::proto::{Protocols, ProtoInfo};
-use crate::event::{Event, EventPayload};
+use crate::event::{Event, EventKind, EventPayload};
 use crate::base::UniqueId;
 use crate::proto::ethernet::EthernetMac;
 use crate::messagebus::MessageBus;
@@ -27,6 +27,11 @@ pub struct NetTcpConnectionStart {
     pub server_addr: IpAddr,
     pub client_port: u16,
     pub server_port: u16,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NetTcpConnectionEstablished {
+    pub conn_id: UniqueId,
 }
 
 #[derive(Debug, Serialize)]
@@ -273,6 +278,9 @@ impl ConntrackTcp {
         }
         
         if new_state > self.state {
+            if new_state >= TcpState::Established && self.state < TcpState::Established {
+                self.send_conn_established_evt();
+            }
             self.state = new_state;
             if new_state == TcpState::Closed {
                 self.send_conn_end_evt();
@@ -297,6 +305,14 @@ impl ConntrackTcp {
         if let Some(update) = ConntrackFlowUpdate::on_packet(&self.conn_id, totals, self.last_ts, ts, interval) {
             MessageBus::publish_event(Event::new(update.start, EventPayload::NetTcpFlowUpdate(update)));
         }
+    }
+
+    fn send_conn_established_evt(&self) {
+        if !MessageBus::event_has_subscribers(EventKind::NetTcpConnectionEstablished) {
+            return;
+        }
+        let evt_pload = NetTcpConnectionEstablished { conn_id: self.conn_id.clone() };
+        MessageBus::publish_event(Event::new(self.last_ts, EventPayload::NetTcpConnectionEstablished(evt_pload)));
     }
 
     fn send_conn_end_evt(&self) {

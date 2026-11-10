@@ -18,6 +18,8 @@ pub enum EventKind {
     NetUdpFlowUpdate,
     #[strum(serialize = "net.tcp.connection.start")]
     NetTcpConnectionStart,
+    #[strum(serialize = "net.tcp.connection.established")]
+    NetTcpConnectionEstablished,
     #[strum(serialize = "net.tcp.connection.end")]
     NetTcpConnectionEnd,
     #[strum(serialize = "net.udp.connection.start")]
@@ -100,14 +102,18 @@ pub enum EventKind {
     NetNfsV4CallCreateSession,
     #[strum(serialize = "net.ssh.session")]
     NetSshSession,
+    #[strum(serialize = "intel.host.activity")]
+    IntelHostActivity,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum EventPayload {
 
+    IntelHostActivity(crate::intel::activity::IntelHostActivity),
     NetTcpFlowUpdate(crate::conntrack::ConntrackFlowUpdate),
     NetUdpFlowUpdate(crate::conntrack::ConntrackFlowUpdate),
+    NetTcpConnectionEstablished(crate::proto::tcp::conntrack::NetTcpConnectionEstablished),
     NetTcpConnectionStart(crate::proto::tcp::conntrack::NetTcpConnectionStart),
     NetTcpConnectionEnd(crate::proto::tcp::conntrack::NetTcpConnectionEnd),
     NetUdpConnectionStart(crate::proto::udp::NetUdpConnectionStart),
@@ -157,6 +163,7 @@ impl EventPayload {
         match self {
             EventPayload::NetTcpFlowUpdate(_) => EventKind::NetTcpFlowUpdate,
             EventPayload::NetUdpFlowUpdate(_) => EventKind::NetUdpFlowUpdate,
+            EventPayload::NetTcpConnectionEstablished(_) => EventKind::NetTcpConnectionEstablished,
             EventPayload::NetTcpConnectionStart(_) => EventKind::NetTcpConnectionStart,
             EventPayload::NetTcpConnectionEnd(_) => EventKind::NetTcpConnectionEnd,
             EventPayload::NetUdpConnectionStart(_) => EventKind::NetUdpConnectionStart,
@@ -199,6 +206,7 @@ impl EventPayload {
             EventPayload::NetNfsV4ReplyExchangeId(_) => EventKind::NetNfsV4ReplyExchangeId,
             EventPayload::NetNfsV4CallCreateSession(_) => EventKind::NetNfsV4CallCreateSession,
             EventPayload::NetSshSession(_) => EventKind::NetSshSession,
+            EventPayload::IntelHostActivity(_) => EventKind::IntelHostActivity,
         }
     }
 }

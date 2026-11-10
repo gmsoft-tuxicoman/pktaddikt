@@ -78,6 +78,11 @@ outputs:
 #                           # set to null to retain hosts forever. A host outlives its
 #                           # bindings so a machine returning after downtime keeps its id.
 #    sweep_interval: 600    # minimum time between idle-host eviction sweeps
+#  # Per-host activity: connections each known host made or accepted, aggregated
+#  # per (role, service) in time buckets. Each bucket is published as one
+#  # intel.host.activity event per host once the next bucket goes live.
+#  activity:
+#    interval: 60           # width of one aggregation bucket, in seconds
 
 # -- Proto ------------------------
 # Protocol configuration, entirely optional, defaults are shown below

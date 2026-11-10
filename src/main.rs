@@ -87,22 +87,25 @@ fn main() {
 
     MessageBus::new().init();
 
+    let mut outputs = OutputBuilder::build_all();
+
+    // After the outputs: Intel only runs if they subscribe to its events.
     Intel::init();
 
     let mut input = Input::new();
 
-    let mut outputs = OutputBuilder::build_all();
-
 
     input.main_loop();
+
+    // Intel first: it drains its queue and publishes the last activity
+    // buckets, which the outputs must still be there to receive.
+    trace!("Shutting down intel ...");
+
+    Intel::shutdown();
 
     trace!("Joining outputs ...");
 
     outputs.join();
-
-    trace!("Shutting down intel ...");
-
-    Intel::shutdown();
 
     trace!("Finished");
 }

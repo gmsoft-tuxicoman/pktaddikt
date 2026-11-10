@@ -89,7 +89,8 @@ impl Default for CoreConfig {
 
 
 // List of implemented protocols
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Protocols {
     None,
     Test,

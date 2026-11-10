@@ -4,7 +4,6 @@ use crate::proto::arp::NetArpReply;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use ipnet::IpNet;
@@ -105,8 +104,6 @@ pub struct HostDb {
     /// Only addresses in these resolve to hosts.
     local_nets: Vec<IpNet>,
 }
-
-pub type HostDbRef = Arc<Mutex<HostDb>>;
 
 impl HostDb {
 

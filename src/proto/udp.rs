@@ -1,6 +1,6 @@
 use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
-use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection};
+use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackDirection, ConntrackFlowCounters, ConntrackFlowUpdate};
 use crate::packet::{Packet, PktInfoStack, PktLinkType, PktTime};
 use crate::config::Config;
 use crate::event::{Event, EventPayload, EventKind};
@@ -91,6 +91,7 @@ struct ConntrackUdp {
 pub struct ProtoUdp {
     ct: ConntrackTable<ConntrackKeyUdp>,
     et: &'static ExpectationTable,
+    flow_interval: PktTime,
 }
 
 
@@ -113,6 +114,7 @@ impl ProtoPktProcessor for ProtoUdp {
         Self {
             ct: ConntrackTable::new(cfg.proto.udp.conntrack_size),
             et: ExpectationTable::init(Protocols::Udp),
+            flow_interval: PktTime::from_secs(cfg.proto.core.flow_interval.max(1)),
         }
     }
 
@@ -213,6 +215,18 @@ impl ProtoPktProcessor for ProtoUdp {
 
         ).downcast_mut::<ConntrackUdp>().unwrap();
 
+        // Before this packet is counted: it may start a new flow interval.
+        if MessageBus::event_has_subscribers(EventKind::NetUdpFlowUpdate) {
+            let totals = ConntrackFlowCounters {
+                fwd_bytes: cd.forward.tot_bytes,
+                rev_bytes: cd.reverse.tot_bytes,
+                fwd_pkts: cd.forward.tot_pkts,
+                rev_pkts: cd.reverse.tot_pkts,
+            };
+            if let Some(update) = ConntrackFlowUpdate::on_packet(&cd.conn_id, totals, cd.last_ts, pkt.timestamp(), self.flow_interval) {
+                MessageBus::publish_event(Event::new(update.start, EventPayload::NetUdpFlowUpdate(update)));
+            }
+        }
         cd.last_ts = pkt.timestamp();
 
         infos.set_conn_id(cd.conn_id.clone());
@@ -266,7 +280,7 @@ impl Drop for ConntrackUdp {
             rev_pkts: self.reverse.tot_pkts,
         };
 
-        let evt = Event::new(self.start_ts, EventPayload::NetUdpConnectionEnd(evt_pload));
+        let evt = Event::new(self.last_ts, EventPayload::NetUdpConnectionEnd(evt_pload));
         MessageBus::publish_event(evt);
     }
 

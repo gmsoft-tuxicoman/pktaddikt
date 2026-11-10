@@ -9,6 +9,7 @@ use crate::event::{Event, EventPayload};
 use crate::base::UniqueId;
 use crate::proto::ethernet::EthernetMac;
 use crate::messagebus::MessageBus;
+use crate::conntrack::{ConntrackFlowCounters, ConntrackFlowUpdate};
 
 use std::collections::BTreeMap;
 use tracing::{debug, trace};
@@ -277,6 +278,24 @@ impl ConntrackTcp {
                 self.send_conn_end_evt();
             }
 
+        }
+    }
+
+    /// Called for every packet before it's counted: send a flow update if
+    /// `ts` starts a new interval. The end event carries the totals, so none
+    /// follows it.
+    pub fn flow_packet(&self, ts: PktTime, interval: PktTime) {
+        if self.state == TcpState::Closed {
+            return;
+        }
+        let totals = ConntrackFlowCounters {
+            fwd_bytes: self.forward.tot_bytes,
+            rev_bytes: self.reverse.tot_bytes,
+            fwd_pkts: self.forward.tot_pkts,
+            rev_pkts: self.reverse.tot_pkts,
+        };
+        if let Some(update) = ConntrackFlowUpdate::on_packet(&self.conn_id, totals, self.last_ts, ts, interval) {
+            MessageBus::publish_event(Event::new(update.start, EventPayload::NetTcpFlowUpdate(update)));
         }
     }
 

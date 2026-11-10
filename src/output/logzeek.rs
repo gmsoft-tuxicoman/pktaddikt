@@ -420,7 +420,8 @@ impl OutputLogZeek {
             let log = match &event.payload {
                 EventPayload::NetTcpConnectionEnd(p) => {
                     ZeekConnLog {
-                        ts: event.ts,
+                        // End events are stamped with the last packet; zeek wants the first.
+                        ts: event.ts - p.duration,
                         uid: p.conn_id.clone(),
                         orig_h: p.client_addr,
                         orig_p: p.client_port,
@@ -440,7 +441,8 @@ impl OutputLogZeek {
                 },
                 EventPayload::NetUdpConnectionEnd(p) => {
                     ZeekConnLog {
-                        ts: event.ts,
+                        // End events are stamped with the last packet; zeek wants the first.
+                        ts: event.ts - p.duration,
                         uid: p.conn_id.clone(),
                         orig_h: p.client_addr,
                         orig_p: p.client_port,

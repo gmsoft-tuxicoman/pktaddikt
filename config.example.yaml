@@ -85,6 +85,7 @@ outputs:
 # proto:
 #  core:
 #    debug: true # Show packets being processed on the console
+#    flow_interval: 60          # seconds between periodic flow updates (net.tcp.flow_update, net.udp.flow_update)
 #  ipv4:
 #    conntrack_size: 65535      # size of connection tracking table
 #    conntrack_timeout: 7200    # timeout of IPv4 connection without child (no tcp or udp)

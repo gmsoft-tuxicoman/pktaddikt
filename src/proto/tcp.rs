@@ -4,7 +4,9 @@ pub mod conntrack;
 use crate::base::{Parser, ParseErr};
 use crate::proto::{ProtoPktProcessor, Protocols, ProtoInfo};
 use crate::conntrack::{ConntrackTable, ConntrackKeyBidir, ConntrackData, ConntrackDirection};
-use crate::packet::{Packet, PktInfoStack};
+use crate::packet::{Packet, PktInfoStack, PktTime};
+use crate::event::EventKind;
+use crate::messagebus::MessageBus;
 use crate::proto::tcp::conntrack::{ConntrackTcp, TcpState};
 use crate::config::Config;
 use crate::base::UniqueId;
@@ -60,6 +62,7 @@ const TCP_TH_ACK: u8 = 0x10;
 pub struct ProtoTcp {
     ct: ConntrackTable<ConntrackKeyTcp>,
     et: &'static ExpectationTable,
+    flow_interval: PktTime,
 }
 
 impl ProtoTcp {
@@ -85,6 +88,7 @@ impl ProtoPktProcessor for ProtoTcp {
         Self {
             ct: ConntrackTable::new(cfg.proto.tcp.conntrack_size),
             et: ExpectationTable::init(Protocols::Tcp),
+            flow_interval: PktTime::from_secs(cfg.proto.core.flow_interval.max(1)),
         }
     }
 
@@ -181,6 +185,9 @@ impl ProtoPktProcessor for ProtoTcp {
         infos.proto_push(cd.next_proto, Some((ce.clone(), ce_dir)));
 
         let ip_len = infos.proto_from_last(2).map(|p| p.tot_len).unwrap_or(0);
+        if MessageBus::event_has_subscribers(EventKind::NetTcpFlowUpdate) {
+            cd.flow_packet(pkt.timestamp(), self.flow_interval);
+        }
         cd.process_packet(ce_dir, seq, ack, flags, pkt, ip_len);
 
         infos.set_conn_id(cd.get_conn_id().clone());

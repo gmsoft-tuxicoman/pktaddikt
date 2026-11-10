@@ -70,9 +70,21 @@ impl Default for ProtoConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct CoreConfig {
-    debug: bool
+    debug: bool,
+    /// Length of a flow reporting interval, in seconds.
+    flow_interval: u64,
+}
+
+impl Default for CoreConfig {
+    fn default() -> Self {
+        Self {
+            debug: false,
+            flow_interval: 60,
+        }
+    }
 }
 
 

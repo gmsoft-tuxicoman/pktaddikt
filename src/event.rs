@@ -12,6 +12,10 @@ use std::sync::Arc;
 #[derive(Debug, Copy, Clone, PartialEq, EnumString, AsRefStr, EnumCount, EnumIter, IntoStaticStr)]
 pub enum EventKind {
 
+    #[strum(serialize = "net.tcp.flow_update")]
+    NetTcpFlowUpdate,
+    #[strum(serialize = "net.udp.flow_update")]
+    NetUdpFlowUpdate,
     #[strum(serialize = "net.tcp.connection.start")]
     NetTcpConnectionStart,
     #[strum(serialize = "net.tcp.connection.end")]
@@ -102,6 +106,8 @@ pub enum EventKind {
 #[serde(untagged)]
 pub enum EventPayload {
 
+    NetTcpFlowUpdate(crate::conntrack::ConntrackFlowUpdate),
+    NetUdpFlowUpdate(crate::conntrack::ConntrackFlowUpdate),
     NetTcpConnectionStart(crate::proto::tcp::conntrack::NetTcpConnectionStart),
     NetTcpConnectionEnd(crate::proto::tcp::conntrack::NetTcpConnectionEnd),
     NetUdpConnectionStart(crate::proto::udp::NetUdpConnectionStart),
@@ -149,6 +155,8 @@ pub enum EventPayload {
 impl EventPayload {
     fn kind(&self) -> EventKind {
         match self {
+            EventPayload::NetTcpFlowUpdate(_) => EventKind::NetTcpFlowUpdate,
+            EventPayload::NetUdpFlowUpdate(_) => EventKind::NetUdpFlowUpdate,
             EventPayload::NetTcpConnectionStart(_) => EventKind::NetTcpConnectionStart,
             EventPayload::NetTcpConnectionEnd(_) => EventKind::NetTcpConnectionEnd,
             EventPayload::NetUdpConnectionStart(_) => EventKind::NetUdpConnectionStart,

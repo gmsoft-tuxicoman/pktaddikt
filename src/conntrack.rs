@@ -1,5 +1,6 @@
 use crate::timer::{TimerManager, TimerId, TimerCb};
 use crate::packet::PktTime;
+use crate::base::UniqueId;
 
 use std::sync::{Arc, Weak, Mutex};
 use std::any::Any;
@@ -394,6 +395,54 @@ impl Drop for ConntrackTimer {
 }
 
 
+/// Payload bytes and packets of a connection, forward being client -> server.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct ConntrackFlowCounters {
+    pub fwd_bytes: u64,
+    pub rev_bytes: u64,
+    pub fwd_pkts: u64,
+    pub rev_pkts: u64,
+}
+
+/// Payload of the per-protocol flow update events: one connection's running
+/// totals at the end of [start, end), the interval it last had traffic in.
+/// Connection lifecycle (start, end, addresses) is left to the protocol's
+/// connection events.
+#[derive(Debug, Serialize)]
+pub struct ConntrackFlowUpdate {
+    pub conn_id: UniqueId,
+    pub start: PktTime,
+    pub end: PktTime,
+    #[serde(flatten)]
+    pub totals: ConntrackFlowCounters,
+}
+
+impl ConntrackFlowUpdate {
+
+    /// Called for every packet of a connection before it's counted, with the
+    /// connection's `totals` so far and `last_ts`, its previous packet's time.
+    /// Returns the update to publish when `ts` starts a new `interval`, for the
+    /// interval of the previous packet. An update is thus as late as the
+    /// connection's next packet; traffic no packet follows is left to the end
+    /// event's totals.
+    pub fn on_packet(conn_id: &UniqueId, totals: ConntrackFlowCounters, last_ts: PktTime, ts: PktTime, interval: PktTime) -> Option<Self> {
+
+        let interval = u64::from(interval);
+        assert!(interval > 0, "flow interval can't be zero");
+
+        let prev = u64::from(last_ts) / interval;
+        if u64::from(ts) / interval <= prev || totals == ConntrackFlowCounters::default() {
+            return None;
+        }
+
+        let start = PktTime::from_micros(prev * interval);
+        let end = PktTime::from_micros((prev + 1) * interval);
+        Some(Self { conn_id: conn_id.clone(), start, end, totals })
+
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
 
@@ -488,6 +537,23 @@ mod tests {
         assert_eq!(ct_len(&ct), 0);
     }
 
+    #[test]
+    fn flow_reported_once_per_new_interval() {
+        let interval = PktTime::from_secs(60);
+        let id = UniqueId::new(PktTime::from_secs(0));
+        let pkts = |n| ConntrackFlowCounters { fwd_pkts: n, ..Default::default() };
+        let packet = |n, last, ts| ConntrackFlowUpdate::on_packet(&id, pkts(n), PktTime::from_secs(last), PktTime::from_secs(ts), interval);
 
+        // Nothing for the first packet, nor within an interval.
+        assert!(packet(0, 0, 70).is_none());
+        assert!(packet(1, 10, 59).is_none());
+
+        // The first packet in a later interval reports the totals before it,
+        // for the interval of the previous packet.
+        let u = packet(2, 59, 200).unwrap();
+        assert_eq!((u.start, u.end, u.totals), (PktTime::from_secs(0), PktTime::from_secs(60), pkts(2)));
+
+        // Out of order timestamps don't go back.
+        assert!(packet(3, 200, 100).is_none());
+    }
 }
-
